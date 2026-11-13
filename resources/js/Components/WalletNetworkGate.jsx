@@ -28,13 +28,62 @@ export default function WalletNetworkGate({ children }) {
     }, []);
 
     useEffect(() => {
-        if (snap.status !== NETWORK_GATE_STATUS.ready || snap.readyWithoutWallet || !snap.hasProvider) {
+        if (snap.status !== NETWORK_GATE_STATUS.ready || snap.readyWithoutWallet || !snap.hasProvider || snap.softMode) {
             return undefined;
         }
         setHoldSuccess(true);
         const timer = window.setTimeout(() => setHoldSuccess(false), 900);
         return () => window.clearTimeout(timer);
-    }, [snap.status, snap.readyWithoutWallet, snap.hasProvider]);
+    }, [snap.status, snap.readyWithoutWallet, snap.hasProvider, snap.softMode]);
+
+    const waiting =
+        snap.status === NETWORK_GATE_STATUS.checking
+        || snap.status === NETWORK_GATE_STATUS.waiting;
+
+    const needsNetwork =
+        snap.hasProvider
+        && !snap.readyWithoutWallet
+        && snap.status !== NETWORK_GATE_STATUS.ready
+        && Number(snap.chainId) !== 56
+        && Number(snap.chainId) !== 97;
+
+    // Trust Wallet: never brick the whole site — soft banner only.
+    if (snap.softMode) {
+        return (
+            <>
+                {needsNetwork || waiting ? (
+                    <div
+                        className="sticky top-0 z-[190] border-b border-amber-300/40 bg-slate-950 px-3 py-3 text-center shadow-lg"
+                        role="status"
+                        aria-live="polite"
+                    >
+                        <p className="text-sm font-semibold text-amber-100">
+                            {waiting ? 'Switching to BNB Smart Chain…' : snap.message}
+                        </p>
+                        <p className="mt-1 text-[11px] text-slate-300">
+                            Provider: {snap.providerName || 'Trust Wallet'} · eth_chainId:{' '}
+                            {snap.chainHex || '—'} ({snap.chainId || '?'})
+                        </p>
+                        {!waiting ? (
+                            <button
+                                type="button"
+                                className="mt-2 rounded-lg bg-amber-400 px-4 py-2 text-xs font-bold text-slate-950"
+                                onClick={() => requestBscNetworkSwitch()}
+                            >
+                                Switch to BNB Smart Chain
+                            </button>
+                        ) : (
+                            <div className="mt-2 flex justify-center"><Spinner /></div>
+                        )}
+                        {snap.manualHint ? (
+                            <p className="mt-2 text-[11px] leading-4 text-amber-200/90">{snap.manualHint}</p>
+                        ) : null}
+                    </div>
+                ) : null}
+                {children}
+            </>
+        );
+    }
 
     const blocking =
         holdSuccess
@@ -46,10 +95,6 @@ export default function WalletNetworkGate({ children }) {
         snap.status === NETWORK_GATE_STATUS.rejected
         || snap.status === NETWORK_GATE_STATUS.unsupported
         || snap.status === NETWORK_GATE_STATUS.prompt;
-
-    const waiting =
-        snap.status === NETWORK_GATE_STATUS.checking
-        || snap.status === NETWORK_GATE_STATUS.waiting;
 
     if (!blocking) {
         return children;
@@ -68,22 +113,12 @@ export default function WalletNetworkGate({ children }) {
                     {waiting ? <div className="mt-5"><Spinner /></div> : null}
                     <p className="mt-5 text-base font-semibold text-white">{snap.message}</p>
                     <p className="mt-2 text-xs text-slate-400">
-                        RACE runs on BNB Smart Chain (Chain ID 56). The site does not sign in until the wallet itself reports chain 56.
+                        RACE runs on BNB Smart Chain (Chain ID 56).
                     </p>
-                    {snap.hasTrustWallet || String(snap.providerName || '').toLowerCase().includes('trust') ? (
-                        <ol className="mt-3 list-decimal space-y-1 rounded-lg border border-amber-300/40 bg-amber-950/40 px-5 py-3 text-left text-xs leading-5 text-amber-100">
-                            <li>Trust Wallet Disclaimer open hone par <strong>I accept the Terms of Use</strong> tick karo.</li>
-                            <li><strong>Confirm</strong> dabao (Cancel mat dabao).</li>
-                            <li>Wapas site par <strong>Continue / Retry</strong> dabao.</li>
-                            <li>Network abhi bhi Ethereum ho to menu se <strong>BNB Smart Chain</strong> choose karo.</li>
-                        </ol>
-                    ) : null}
                     <p className="mt-3 rounded-lg border border-slate-700/80 bg-slate-900/80 px-3 py-2 text-[11px] leading-5 text-slate-300">
                         Provider: {snap.providerName || 'None'}
                         <br />
                         eth_chainId: {snap.chainHex || '—'} ({snap.chainId || 'unknown'})
-                        <br />
-                        window.ethereum: {snap.hasEthereum ? 'yes' : 'no'} · window.trustwallet: {snap.hasTrustWallet ? 'yes' : 'no'}
                     </p>
                     {snap.manualHint ? (
                         <p className="mt-3 text-xs text-amber-200">{snap.manualHint}</p>
@@ -95,7 +130,7 @@ export default function WalletNetworkGate({ children }) {
                             onClick={() => requestBscNetworkSwitch()}
                             disabled={snap.status === NETWORK_GATE_STATUS.waiting}
                         >
-                            {waiting ? 'Waiting…' : 'Continue after Disclaimer'}
+                            {waiting ? 'Waiting…' : 'Switch to BNB Smart Chain'}
                         </button>
                     ) : null}
                 </div>

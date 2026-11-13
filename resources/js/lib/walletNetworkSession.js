@@ -14,8 +14,11 @@ import {
 } from '@/lib/web3Deposit';
 import {
     describeWalletProvider,
+    discoverTrustProvider,
     getWalletProvider,
     restorePersistedProvider,
+    selectWalletProvider,
+    walletRequest,
 } from '@/lib/web3Wallet';
 
 export const NETWORK_GATE_STATUS = {
@@ -39,13 +42,14 @@ let providerUnsubscribe = () => {};
 
 let snapshot = {
     status: NETWORK_GATE_STATUS.idle,
-    message: 'Detecting Trust Wallet...',
+    message: 'Checking wallet network...',
     chainHex: '',
     chainId: 0,
     address: '',
     hasProvider: false,
     ready: false,
     readyWithoutWallet: false,
+    softMode: false,
     providerName: '',
     hasEthereum: false,
     hasTrustWallet: false,
@@ -71,34 +75,31 @@ function chainDisplayName(chainId) {
 }
 
 function trustManualHint() {
-    return `${trustDisclaimerHint()} Then choose BNB Smart Chain if still needed.`;
+    return 'Trust menu → Network → BNB Smart Chain choose karo, phir yahan Switch dabao. Disclaimer aaye to Terms tick + Confirm.';
 }
 
 function messageFor(status, extra = snapshot) {
-    const trust = isTrustWalletBrowser();
+    const trust = Boolean(extra.softMode || isTrustWalletBrowser());
     switch (status) {
         case NETWORK_GATE_STATUS.checking:
             return trust ? 'Detecting Trust Wallet...' : 'Checking wallet network...';
         case NETWORK_GATE_STATUS.prompt:
             if (trust) {
-                return 'Trust Wallet Disclaimer required';
+                return `Current network: ${chainDisplayName(extra.chainId || 0)} — switch to BNB`;
             }
             return extra.chainId ? `Current network: ${chainDisplayName(extra.chainId)}` : 'Current network: Unknown';
         case NETWORK_GATE_STATUS.waiting:
-            if (trust && !extra.waitingConfirm) {
-                return 'Accept Trust Disclaimer, then confirm BNB...';
-            }
             return extra.waitingConfirm
                 ? 'Waiting for wallet confirmation...'
                 : 'Switching to BNB Smart Chain...';
         case NETWORK_GATE_STATUS.ready:
             return extra.hasProvider ? 'BNB Smart Chain connected.' : extra.message || 'BNB Smart Chain connected.';
         case NETWORK_GATE_STATUS.rejected:
-            return trust
-                ? 'Disclaimer cancelled or incomplete. Tick Terms, Confirm, then Retry.'
-                : 'Wallet connection failed. Retry.';
         case NETWORK_GATE_STATUS.unsupported:
-            return extra.manualHint || (trust ? trustManualHint() : 'Wallet connection failed. Retry.');
+            if (trust) {
+                return `Still on ${chainDisplayName(extra.chainId || 0)}. Choose BNB Smart Chain in Trust, then Switch.`;
+            }
+            return 'Please switch to BNB Smart Chain, then Retry.';
         default:
             return trust ? 'Detecting Trust Wallet...' : 'Checking wallet network...';
     }
@@ -138,15 +139,21 @@ function emit() {
 
 function setSnapshot(patch) {
     const next = { ...snapshot, ...patch };
-    if (patch.message === undefined && (patch.status || patch.chainId !== undefined || patch.waitingConfirm !== undefined)) {
+    if (patch.message === undefined && (patch.status || patch.chainId !== undefined || patch.waitingConfirm !== undefined || patch.softMode !== undefined)) {
         next.message = messageFor(next.status, next);
     }
-    next.ready = next.status === NETWORK_GATE_STATUS.ready;
+    // Trust soft mode: never hard-block the whole site for wrong chain.
+    if (next.softMode && next.hasProvider && !next.readyWithoutWallet) {
+        next.ready = true;
+    } else {
+        next.ready = next.status === NETWORK_GATE_STATUS.ready;
+    }
     snapshot = next;
     emit();
 }
 
 function fromLive(live, extra = {}) {
+    const softMode = Boolean(extra.softMode ?? (isTrustWalletBrowser() || live?.hasTrustWallet));
     return {
         hasProvider: live.hasProvider,
         chainHex: live.chainHex || '',
@@ -155,7 +162,7 @@ function fromLive(live, extra = {}) {
         hasEthereum: Boolean(live.hasEthereum),
         hasTrustWallet: Boolean(live.hasTrustWallet),
         readyWithoutWallet: false,
-        manualHint: '',
+        softMode,
         ...extra,
     };
 }
@@ -222,6 +229,24 @@ async function readLiveNetwork() {
     };
 }
 
+async function prepareTrustProvider() {
+    const trust = discoverTrustProvider();
+    if (trust) {
+        selectWalletProvider(trust, {
+            id: 'trust-injected',
+            name: 'Trust Wallet',
+            rdns: 'com.trustwallet.app',
+        });
+        bindWalletProviderListeners();
+    }
+    // Wake provider after Disclaimer — accounts request first, then switch works more reliably.
+    try {
+        await walletRequest({ method: 'eth_requestAccounts' });
+    } catch {
+        // User may cancel Disclaimer; switch attempt can still follow.
+    }
+}
+
 export function getNetworkGateSnapshot() {
     return { ...snapshot };
 }
@@ -233,7 +258,7 @@ export function subscribeNetworkGate(fn) {
 }
 
 export function isNetworkGateReady() {
-    return snapshot.status === NETWORK_GATE_STATUS.ready;
+    return snapshot.ready === true || snapshot.status === NETWORK_GATE_STATUS.ready;
 }
 
 export async function inspectWalletNetwork() {
@@ -241,6 +266,7 @@ export async function inspectWalletNetwork() {
     setSnapshot({ status: NETWORK_GATE_STATUS.checking, readyWithoutWallet: false });
     const found = await waitForProvider();
     const live = await readLiveNetwork();
+    const softMode = isTrustWalletBrowser() || live.hasTrustWallet;
 
     if (!found && !live.hasProvider) {
         setSnapshot({
@@ -249,6 +275,7 @@ export async function inspectWalletNetwork() {
             chainHex: '',
             chainId: 0,
             readyWithoutWallet: true,
+            softMode: false,
             ...providerDebug(),
         });
         return getNetworkGateSnapshot();
@@ -259,7 +286,20 @@ export async function inspectWalletNetwork() {
         writeSessionFlag(AUTO_SWITCH_KEY, false);
         setSnapshot({
             status: NETWORK_GATE_STATUS.ready,
-            ...fromLive(live),
+            ...fromLive(live, { softMode, manualHint: '' }),
+        });
+        return getNetworkGateSnapshot();
+    }
+
+    // Trust: never use rejected lock — soft banner only.
+    if (softMode) {
+        writeRejectedFlag(false);
+        setSnapshot({
+            status: NETWORK_GATE_STATUS.prompt,
+            ...fromLive(live, {
+                softMode: true,
+                manualHint: trustManualHint(),
+            }),
         });
         return getNetworkGateSnapshot();
     }
@@ -267,15 +307,14 @@ export async function inspectWalletNetwork() {
     if (readRejectedFlag()) {
         setSnapshot({
             status: NETWORK_GATE_STATUS.rejected,
-            ...fromLive(live),
+            ...fromLive(live, { softMode: false }),
         });
         return getNetworkGateSnapshot();
     }
 
     setSnapshot({
         status: NETWORK_GATE_STATUS.prompt,
-        manualHint: isTrustWalletBrowser() ? trustManualHint() : '',
-        ...fromLive(live),
+        ...fromLive(live, { softMode: false, manualHint: '' }),
     });
     return getNetworkGateSnapshot();
 }
@@ -286,28 +325,32 @@ export async function requestBscNetworkSwitch() {
     }
     switchInFlight = true;
     writeRejectedFlag(false);
-    // Always allow Retry after Trust Disclaimer / Cancel — do not stay locked out.
     writeSessionFlag(AUTO_SWITCH_KEY, false);
     preserveAppUrl();
+
+    const softMode = isTrustWalletBrowser();
     setSnapshot({
         status: NETWORK_GATE_STATUS.waiting,
         waitingConfirm: false,
-        message: isTrustWalletBrowser()
-            ? 'Accept Trust Disclaimer, then confirm BNB...'
-            : 'Switching to BNB Smart Chain...',
+        softMode,
+        message: 'Switching to BNB Smart Chain...',
     });
 
-    const manualHint = isTrustWalletBrowser()
+    const manualHint = softMode
         ? trustManualHint()
         : 'Open the wallet network list, choose BNB Smart Chain, then tap Retry.';
 
     try {
+        if (softMode) {
+            await prepareTrustProvider();
+        }
+
         const before = await readLiveNetwork();
         if (before.match) {
             setSnapshot({
                 status: NETWORK_GATE_STATUS.ready,
                 waitingConfirm: false,
-                ...fromLive(before),
+                ...fromLive(before, { softMode, manualHint: '' }),
             });
             return getNetworkGateSnapshot();
         }
@@ -317,17 +360,18 @@ export async function requestBscNetworkSwitch() {
             status: NETWORK_GATE_STATUS.waiting,
             waitingConfirm: true,
             message: 'Waiting for wallet confirmation...',
-            ...fromLive(before),
+            ...fromLive(before, { softMode }),
         });
-        const waited = await waitUntilChainConfirmed(targetChainId());
+        const waited = await waitUntilChainConfirmed(targetChainId(), {
+            timeoutMs: softMode ? 45000 : 12000,
+        });
         const afterId = parseChainIdDecimal(waited.chainHex);
         const after = { ...before, chainHex: waited.chainHex, chainId: afterId, match: waited.confirmed };
         if (!waited.confirmed) {
             setSnapshot({
-                status: NETWORK_GATE_STATUS.unsupported,
+                status: softMode ? NETWORK_GATE_STATUS.prompt : NETWORK_GATE_STATUS.unsupported,
                 waitingConfirm: false,
-                manualHint,
-                ...fromLive(after),
+                ...fromLive(after, { softMode, manualHint }),
             });
             return getNetworkGateSnapshot();
         }
@@ -335,7 +379,7 @@ export async function requestBscNetworkSwitch() {
         setSnapshot({
             status: NETWORK_GATE_STATUS.ready,
             waitingConfirm: false,
-            ...fromLive(after),
+            ...fromLive(after, { softMode, manualHint: '' }),
         });
         return getNetworkGateSnapshot();
     } catch (error) {
@@ -351,30 +395,31 @@ export async function requestBscNetworkSwitch() {
             setSnapshot({
                 status: NETWORK_GATE_STATUS.ready,
                 waitingConfirm: false,
-                ...fromLive(after),
+                ...fromLive(after, { softMode, manualHint: '' }),
+            });
+            return getNetworkGateSnapshot();
+        }
+
+        if (softMode || isTrustWalletBrowser()) {
+            writeRejectedFlag(false);
+            writeSessionFlag(AUTO_SWITCH_KEY, false);
+            setSnapshot({
+                status: NETWORK_GATE_STATUS.prompt,
+                waitingConfirm: false,
+                ...fromLive(after, {
+                    softMode: true,
+                    manualHint: `${trustDisclaimerHint()} ${manualHint}`,
+                }),
             });
             return getNetworkGateSnapshot();
         }
 
         const rejected = /cancel|reject|denied/i.test(String(error?.message || ''));
-        // Trust Disclaimer Cancel must not permanently lock the gate — user must Retry.
-        if (isTrustWalletBrowser()) {
-            writeRejectedFlag(false);
-            writeSessionFlag(AUTO_SWITCH_KEY, false);
-            setSnapshot({
-                ...fromLive(after),
-                status: NETWORK_GATE_STATUS.prompt,
-                waitingConfirm: false,
-                manualHint,
-            });
-            return getNetworkGateSnapshot();
-        }
         writeRejectedFlag(rejected);
         setSnapshot({
             status: rejected ? NETWORK_GATE_STATUS.rejected : NETWORK_GATE_STATUS.unsupported,
             waitingConfirm: false,
-            manualHint: rejected ? '' : manualHint,
-            ...fromLive(after),
+            ...fromLive(after, { softMode: false, manualHint: rejected ? '' : manualHint }),
         });
         return getNetworkGateSnapshot();
     } finally {
@@ -389,6 +434,8 @@ async function onProviderSignal() {
     restorePersistedProvider();
     bindWalletProviderListeners();
     const live = await readLiveNetwork();
+    const softMode = isTrustWalletBrowser() || live.hasTrustWallet;
+
     if (!live.hasProvider) {
         setSnapshot({
             status: NETWORK_GATE_STATUS.ready,
@@ -396,6 +443,7 @@ async function onProviderSignal() {
             chainHex: '',
             chainId: 0,
             readyWithoutWallet: true,
+            softMode: false,
             ...providerDebug(),
         });
         return;
@@ -404,20 +452,28 @@ async function onProviderSignal() {
         writeRejectedFlag(false);
         setSnapshot({
             status: NETWORK_GATE_STATUS.ready,
-            ...fromLive(live),
+            ...fromLive(live, { softMode, manualHint: '' }),
+        });
+        return;
+    }
+    if (softMode) {
+        writeRejectedFlag(false);
+        setSnapshot({
+            status: NETWORK_GATE_STATUS.prompt,
+            ...fromLive(live, { softMode: true, manualHint: trustManualHint() }),
         });
         return;
     }
     if (snapshot.status === NETWORK_GATE_STATUS.rejected || readRejectedFlag()) {
         setSnapshot({
             status: NETWORK_GATE_STATUS.rejected,
-            ...fromLive(live),
+            ...fromLive(live, { softMode: false }),
         });
         return;
     }
     setSnapshot({
         status: NETWORK_GATE_STATUS.prompt,
-        ...fromLive(live),
+        ...fromLive(live, { softMode: false }),
     });
 }
 
@@ -463,25 +519,9 @@ export async function bootNetworkGate() {
     });
 
     const snap = await inspectWalletNetwork();
-    // Trust Wallet latest builds show a native Disclaimer before any wallet RPC.
-    // Auto-firing wallet_switch on page load races that popup and looks like a site bug.
-    // Wait for the user to accept Terms, then tap Retry / Connect.
-    if (isTrustWalletBrowser()) {
-        if (snap.hasProvider && !snap.ready) {
-            setSnapshot({
-                ...fromLive({
-                    hasProvider: snap.hasProvider,
-                    chainHex: snap.chainHex,
-                    chainId: snap.chainId,
-                    providerName: snap.providerName,
-                    hasEthereum: snap.hasEthereum,
-                    hasTrustWallet: snap.hasTrustWallet,
-                }),
-                status: NETWORK_GATE_STATUS.prompt,
-                manualHint: trustManualHint(),
-                message: 'Trust Wallet Disclaimer required',
-            });
-        }
+
+    // Trust: soft banner only — never auto wallet_switch on boot (Disclaimer race).
+    if (isTrustWalletBrowser() || snap.softMode) {
         return getNetworkGateSnapshot();
     }
 
@@ -493,7 +533,7 @@ export async function bootNetworkGate() {
     }
     if (
         snap.hasProvider
-        && !snap.ready
+        && snap.status !== NETWORK_GATE_STATUS.ready
         && snap.status !== NETWORK_GATE_STATUS.rejected
         && isInAppWalletBrowser()
         && !autoStarted
