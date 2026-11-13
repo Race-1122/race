@@ -1,6 +1,6 @@
 import { getCsrfToken } from '@/lib/csrf';
 import { walletAuthPayload } from '@/lib/web3Auth';
-import { connectWalletForAuth } from '@/lib/web3Deposit';
+import { connectWalletForAuth, isTrustWalletBrowser, trustDisclaimerHint } from '@/lib/web3Deposit';
 import { motion } from 'framer-motion';
 import { useState } from 'react';
 
@@ -106,9 +106,11 @@ export default function WalletConnectAuthButton({
         } catch (error) {
             const raw = String(error?.message || '');
             const cancelled = /cancel|reject|denied|4001/i.test(raw);
-            const message = cancelled
-                ? 'Wallet connection was cancelled. Approve the request in the wallet, then tap Retry.'
-                : (raw || 'Wallet connection failed. Retry.');
+            const message = cancelled && isTrustWalletBrowser()
+                ? trustDisclaimerHint()
+                : cancelled
+                  ? 'Wallet connection was cancelled. Approve the request in the wallet, then tap Retry.'
+                  : (raw || 'Wallet connection failed. Retry.');
             setLocalError(message);
             onError?.(message);
             stopLoading();
@@ -117,6 +119,12 @@ export default function WalletConnectAuthButton({
 
     return (
         <div className="space-y-2">
+            {isTrustWalletBrowser() ? (
+                <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-center text-[11px] leading-5 text-amber-900 sm:text-xs">
+                    Trust Wallet Disclaimer aaye to pehle <strong>I accept the Terms of Use</strong> tick karke{' '}
+                    <strong>Confirm</strong> dabao, phir Connect dobara try karo.
+                </p>
+            ) : null}
             <motion.button
                 type="button"
                 disabled={disabled || loading}
@@ -133,7 +141,9 @@ export default function WalletConnectAuthButton({
                                 ? 'Creating account…'
                                 : phase === 'login'
                                   ? 'Signing in…'
-                                  : 'Confirm in wallet…'}
+                                  : isTrustWalletBrowser()
+                                    ? 'Accept Trust Disclaimer…'
+                                    : 'Confirm in wallet…'}
                         </span>
                     </>
                 ) : (

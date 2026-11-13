@@ -70,6 +70,14 @@ export default function WalletNetworkGate({ children }) {
                     <p className="mt-2 text-xs text-slate-400">
                         RACE runs on BNB Smart Chain (Chain ID 56). The site does not sign in until the wallet itself reports chain 56.
                     </p>
+                    {snap.hasTrustWallet || String(snap.providerName || '').toLowerCase().includes('trust') ? (
+                        <ol className="mt-3 list-decimal space-y-1 rounded-lg border border-amber-300/40 bg-amber-950/40 px-5 py-3 text-left text-xs leading-5 text-amber-100">
+                            <li>Trust Wallet Disclaimer open hone par <strong>I accept the Terms of Use</strong> tick karo.</li>
+                            <li><strong>Confirm</strong> dabao (Cancel mat dabao).</li>
+                            <li>Wapas site par <strong>Continue / Retry</strong> dabao.</li>
+                            <li>Network abhi bhi Ethereum ho to menu se <strong>BNB Smart Chain</strong> choose karo.</li>
+                        </ol>
+                    ) : null}
                     <p className="mt-3 rounded-lg border border-slate-700/80 bg-slate-900/80 px-3 py-2 text-[11px] leading-5 text-slate-300">
                         Provider: {snap.providerName || 'None'}
                         <br />
@@ -87,7 +95,7 @@ export default function WalletNetworkGate({ children }) {
                             onClick={() => requestBscNetworkSwitch()}
                             disabled={snap.status === NETWORK_GATE_STATUS.waiting}
                         >
-                            Retry
+                            {waiting ? 'Waiting…' : 'Continue after Disclaimer'}
                         </button>
                     ) : null}
                 </div>

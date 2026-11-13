@@ -335,12 +335,23 @@ export async function readWalletChainIdHex() {
 export async function waitUntilChainConfirmed(expectedChainId, { timeoutMs = 12000, intervalMs = 400 } = {}) {
     const expected = Number(expectedChainId);
     let chainHex = '';
-    const started = Date.now();
-    while (Date.now() - started < timeoutMs) {
-        if (isTrustWalletEnvironment()) {
-            const trust = discoverTrustProvider();
-            if (trust) {
-                selectWalletProvider(trust, {
+    // Trust Wallet's native Disclaimer overlay hides the WebView; do not burn
+    // the timeout while the page is hidden or the user is ticking Terms of Use.
+    const trust = isTrustWalletEnvironment();
+    const effectiveTimeout = trust ? Math.max(timeoutMs, 45000) : timeoutMs;
+    let activeMs = 0;
+    let lastTick = Date.now();
+    while (activeMs < effectiveTimeout) {
+        const now = Date.now();
+        const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+        if (!hidden) {
+            activeMs += now - lastTick;
+        }
+        lastTick = now;
+        if (trust) {
+            const provider = discoverTrustProvider();
+            if (provider) {
+                selectWalletProvider(provider, {
                     id: 'trust-injected',
                     name: 'Trust Wallet',
                     rdns: 'com.trustwallet.app',
@@ -354,6 +365,11 @@ export async function waitUntilChainConfirmed(expectedChainId, { timeoutMs = 120
         await new Promise((resolve) => window.setTimeout(resolve, intervalMs));
     }
     return { confirmed: false, chainHex };
+}
+
+/** Copy shown when Trust Wallet's native Disclaimer interrupts a request. */
+export function trustDisclaimerHint() {
+    return 'Trust Wallet Disclaimer: tick "I accept the Terms of Use", tap Confirm, then tap Retry on this site. Do not tap Cancel.';
 }
 
 let autoNetworkSwitchTried = false;
@@ -783,12 +799,21 @@ export async function connectWalletForAuth() {
     });
 
     if (!isChainIdMatch(chainIdHex, target)) {
-        await ensureBscNetwork(target);
+        try {
+            await ensureBscNetwork(target);
+        } catch (error) {
+            if (isTrustWalletEnvironment() && /cancel|reject|denied/i.test(String(error?.message || ''))) {
+                throw new Error(trustDisclaimerHint());
+            }
+            throw error;
+        }
         const waited = await waitUntilChainConfirmed(target);
         chainIdHex = waited.chainHex;
         if (!waited.confirmed) {
             throw new Error(
-                'BNB Smart Chain is not connected. In Trust Wallet open the network list, choose BNB Smart Chain, then tap Retry.',
+                isTrustWalletEnvironment()
+                    ? trustDisclaimerHint()
+                    : 'BNB Smart Chain is not connected. Choose BNB Smart Chain, then tap Retry.',
             );
         }
     }
