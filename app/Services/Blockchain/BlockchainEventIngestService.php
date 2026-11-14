@@ -178,11 +178,19 @@ class BlockchainEventIngestService
             $this->storeIcoPurchaseFromEvent($eventName, $topics, (string) ($log['data'] ?? ''), $txHash, $blockNumber, $userId);
         }
 
+        $stakeIndexer = app(BlockchainEngineStakeIndexer::class);
         if ($eventName === 'ICOHoldStakeCreated' || $eventName === 'RaceMintedToStaking') {
             $this->markIcoPurchaseStaked($topics, $eventName);
+            // createStake() must also write blockchain_engine_stakes (not only mark ico_purchases).
+            $stakeIndexer->storeFromIcoHoldOrMint(
+                $eventName,
+                $topics,
+                (string) ($log['data'] ?? ''),
+                $txHash,
+                $blockNumber,
+                $userId,
+            );
         }
-
-        $stakeIndexer = app(BlockchainEngineStakeIndexer::class);
         if ($eventName === 'ICOStakeCreated') {
             $stakeIndexer->storeIcoStakeCreated(
                 $topics,
