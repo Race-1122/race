@@ -164,7 +164,10 @@ function isZeroAddress(address) {
 }
 
 /**
- * $50+ stake: sponsor must be participationActive on Engine or same-tx level income will not pay.
+ * Soft check only — never blocks stake/buy.
+ * Engine.register() allows unregistered referrer; level income still needs upline active later.
+ *
+ * @returns {{ ok: boolean, skipped?: boolean, noSponsor?: boolean, sponsorActive?: boolean, reason?: string, message?: string }}
  */
 export async function ensureSponsorActiveForLevelIncome({
     sponsorWallet,
@@ -185,16 +188,22 @@ export async function ensureSponsorActiveForLevelIncome({
 
     const registered = await readIsRegistered({ walletAddress: sponsor, engineContract, rpcUrl });
     if (!registered) {
-        throw new Error(
-            'Your sponsor has not registered on-chain yet. Ask them to connect wallet on racenetwork.live first, then retry Buy & Stake.',
-        );
+        return {
+            ok: false,
+            reason: 'sponsor_not_registered',
+            message:
+                'Sponsor is not on-chain yet. Stake can still proceed; L1–L10 income pays after sponsor registers and activates ($50+).',
+        };
     }
 
     const active = await readParticipationActive({ walletAddress: sponsor, engineContract, rpcUrl });
     if (!active) {
-        throw new Error(
-            'Your sponsor must complete $50+ Buy & Stake (active on-chain) before you stake — only then instant L1–L10 level income is paid in the same transaction.',
-        );
+        return {
+            ok: false,
+            reason: 'sponsor_not_active',
+            message:
+                'Sponsor is registered but not $50+ active yet. Stake can still proceed; level income pays once they activate.',
+        };
     }
 
     return { ok: true, sponsorActive: true };
@@ -221,13 +230,7 @@ export async function ensureEngineReferralBeforeStake({
 
     const registered = await readIsRegistered({ walletAddress: self, engineContract, rpcUrl });
     if (registered) {
-        const onChainReferrer = await readReferrerOf({ walletAddress: self, engineContract, rpcUrl });
-        const sponsor = normalizeWalletAddress(sponsorWallet);
-        if (sponsor && isZeroAddress(onChainReferrer)) {
-            throw new Error(
-                'This wallet is already registered on-chain without a sponsor, so instant level income cannot apply. Use a fresh wallet linked under your sponsor, or complete registration before any stake.',
-            );
-        }
+        // Already on Engine — do not block stake (ICO createStake uses frozen purchase referrer).
         return { ok: true, alreadyRegistered: true };
     }
 
@@ -236,6 +239,7 @@ export async function ensureEngineReferralBeforeStake({
         throw new Error('Invalid sponsor: cannot refer yourself.');
     }
 
+    // Soft info only — never block registration / stake.
     if (sponsor) {
         await ensureSponsorActiveForLevelIncome({
             sponsorWallet: sponsor,
@@ -245,7 +249,8 @@ export async function ensureEngineReferralBeforeStake({
         });
     }
 
-    let referrer = ZERO_ADDRESS;
+    // Engine.register allows unregistered referrer (late upline onboard).
+    let referrer = sponsor || ZERO_ADDRESS;
     let sponsorPendingOnboarding = false;
     if (sponsor) {
         const sponsorRegistered = await readIsRegistered({
@@ -253,14 +258,7 @@ export async function ensureEngineReferralBeforeStake({
             engineContract,
             rpcUrl,
         });
-        if (sponsorRegistered) {
-            referrer = sponsor;
-        } else {
-            // New Engine may allow unregistered referrer; older bytecode requires registered upline.
-            // Try binding sponsor first; fall back to zero so Buy & Stake is never blocked.
-            referrer = sponsor;
-            sponsorPendingOnboarding = true;
-        }
+        sponsorPendingOnboarding = !sponsorRegistered;
     }
 
     try {
@@ -283,14 +281,29 @@ export async function ensureEngineReferralBeforeStake({
         };
     } catch (err) {
         const msg = String(err?.message || err || '');
+        // Older Engine bytecode: fall back to zero referrer so stake is never blocked.
         if (
             sponsor &&
-            sponsorPendingOnboarding &&
             /referrer not registered|engine: referrer/i.test(msg)
         ) {
-            throw new Error(
-                'Your sponsor must complete on-chain registration before you can stake — otherwise instant level income (L1–L10) will not be paid. Ask your sponsor to connect wallet once, then try Buy & Stake again.',
-            );
+            const txHash = await registerOnChain({
+                walletAddress: self,
+                engineContract,
+                referrer: ZERO_ADDRESS,
+                chainId,
+            });
+            if (confirmCount > 0) {
+                await waitForConfirmations(txHash, confirmCount);
+            }
+            memberStateCache = { key: '', value: null, at: 0 };
+            return {
+                ok: true,
+                registered: true,
+                txHash,
+                sponsorBound: false,
+                sponsorPendingOnboarding: true,
+                registeredWithZeroReferrer: true,
+            };
         }
         throw err;
     }

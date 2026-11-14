@@ -773,12 +773,16 @@ export default function Isu({
         try {
             if (engineContract) {
                 setBusy('register');
-                await ensureSponsorActiveForLevelIncome({
+                // Soft check only — never block createStake if sponsor is late to onboard.
+                const sponsorCheck = await ensureSponsorActiveForLevelIncome({
                     sponsorWallet: on_chain_sponsor_wallet,
                     engineContract,
                     rpcUrl,
                     stakeUsd: 50,
                 });
+                if (!sponsorCheck.ok && sponsorCheck.message) {
+                    console.warn('ICO createStake sponsor check:', sponsorCheck.message);
+                }
                 await ensureEngineReferralBeforeStake({
                     walletAddress,
                     engineContract,
