@@ -65,17 +65,22 @@
             </div>
         </div>
     @endforeach
-    <div class="border rounded p-3 mb-2 border-warning">
+    <div class="border rounded p-3 mb-2 border-warning bg-warning bg-opacity-10">
         <p class="mb-2 small">
-            <strong>{{ __('Complete Phase 2') }}</strong>
-            · {{ __('Sends completeCurrentPhase() through the 3-of-5 Multisig. Three different signer wallets must confirm. This only marks the current phase complete. It does not start Phase 3. After it executes, use “2. Confirm Phase 3” on the existing startPhase(3) transaction.') }}
+            <strong>{{ __('Complete Phase 3 (close ICO)') }}</strong>
+            <span class="badge bg-warning text-dark">{{ __('Do this now') }}</span>
+            · {{ __('Phase 3 is sold out / USDT cap full. Sends completeCurrentPhase() through the 3-of-5 Multisig. Three different signer wallets must confirm. This marks Phase 3 complete and closes the ICO sale. It does not start another phase.') }}
+        </p>
+        <p class="small mb-2 text-muted">
+            {{ __('Live RaceICO phase:') }} <strong>{{ $current_phase ?? '—' }}</strong>
+            · {{ __('ICO completed flag:') }} <strong>{{ $ico_completed ?? '—' }}</strong>
         </p>
         <div class="d-flex flex-wrap gap-2">
             <button type="button" class="btn btn-warning" id="ico-submit-complete-phase">
-                {{ __('1. Submit Complete Phase 2') }}
+                {{ __('1. Submit Complete Phase 3') }}
             </button>
             <button type="button" class="btn btn-outline-warning" id="ico-confirm-complete-phase">
-                {{ __('2. Confirm Complete Phase 2') }}
+                {{ __('2. Confirm Complete Phase 3') }}
             </button>
         </div>
     </div>
@@ -384,7 +389,7 @@
 
     const submitCompleteBtn = document.getElementById('ico-submit-complete-phase');
     const confirmCompleteBtn = document.getElementById('ico-confirm-complete-phase');
-    const completeStorageKey = 'race.multisig.completePhase.txId';
+    const completeStorageKey = 'race.multisig.completePhase3.txId';
 
     if (submitCompleteBtn) {
         submitCompleteBtn.addEventListener('click', async function () {
@@ -394,12 +399,12 @@
                 if (pending) {
                     window.localStorage.setItem(completeStorageKey, pending.id);
                     setStartStatus(
-                        @json(__('Complete Phase 2 is already submitted. Do NOT submit again. Switch to another signer and tap Confirm Complete Phase 2. Multisig id:')) +
+                        @json(__('Complete Phase 3 is already submitted. Do NOT submit again. Switch to another signer and tap Confirm Complete Phase 3. Multisig id:')) +
                             ' ' + pending.id + ' · confirms ' + pending.confirmations + '/3',
                     );
                     return;
                 }
-                setStartStatus(@json(__('Submitting completeCurrentPhase() to Multisig… Confirm in TokenPocket. To address must be the Multisig.')));
+                setStartStatus(@json(__('Submitting completeCurrentPhase() (Phase 3 close) to Multisig… Confirm in TokenPocket. To address must be the Multisig.')));
                 const hash = await window.ethereum.request({
                     method: 'eth_sendTransaction',
                     params: [{
@@ -415,7 +420,7 @@
                 if (txId !== '') {
                     window.localStorage.setItem(completeStorageKey, txId);
                 }
-                setStartStatus(@json(__('Submit OK. Switch TokenPocket to a SECOND signer and tap Confirm Complete Phase 2. id:')) + ' ' + txId);
+                setStartStatus(@json(__('Submit OK. Switch TokenPocket to a SECOND signer and tap Confirm Complete Phase 3. id:')) + ' ' + txId);
             } catch (err) {
                 setStartStatus(err && err.message ? err.message : String(err));
             }
@@ -428,7 +433,7 @@
                 const from = await connectSigner();
                 const pending = await findPendingCompletePhase();
                 if (!pending) {
-                    throw new Error(@json(__('No pending Complete Phase 2 Multisig tx. Tap Submit Complete Phase 2 first from one signer.')));
+                    throw new Error(@json(__('No pending Complete Phase 3 Multisig tx. Tap Submit Complete Phase 3 first from one signer.')));
                 }
                 const alreadyHex = await ethCall(
                     multiSig,
@@ -436,13 +441,13 @@
                 );
                 if (BigInt(alreadyHex || '0x0') === 1n) {
                     setStartStatus(
-                        @json(__('This wallet already confirmed Complete Phase 2. Switch TokenPocket to another signer and tap Confirm again. id:')) +
+                        @json(__('This wallet already confirmed Complete Phase 3. Switch TokenPocket to another signer and tap Confirm again. id:')) +
                             ' ' + pending.id + ' · ' + pending.confirmations + '/3',
                     );
                     return;
                 }
                 window.localStorage.setItem(completeStorageKey, pending.id);
-                setStartStatus(@json(__('Confirming Complete Phase 2…')) + ' id ' + pending.id + ' · ' + pending.confirmations + '/3');
+                setStartStatus(@json(__('Confirming Complete Phase 3…')) + ' id ' + pending.id + ' · ' + pending.confirmations + '/3');
                 const hash = await window.ethereum.request({
                     method: 'eth_sendTransaction',
                     params: [{
@@ -455,11 +460,11 @@
                 await waitReceipt(hash);
                 const after = await findPendingCompletePhase();
                 if (!after) {
-                    setStartStatus(@json(__('Phase 2 should now be complete. Refresh this page, then tap 2. Confirm Phase 3. Do not submit Phase 3 again.')));
+                    setStartStatus(@json(__('Phase 3 / ICO should now be complete. Refresh this page and check “ICO completed” = yes.')));
                     return;
                 }
                 setStartStatus(
-                    @json(__('Confirm saved. Switch to the NEXT signer and tap Confirm Complete Phase 2 again. Still need 3 wallets on the SAME id:')) +
+                    @json(__('Confirm saved. Switch to the NEXT signer and tap Confirm Complete Phase 3 again. Still need 3 wallets on the SAME id:')) +
                         ' ' + after.id + ' · ' + after.confirmations + '/3',
                 );
             } catch (err) {
