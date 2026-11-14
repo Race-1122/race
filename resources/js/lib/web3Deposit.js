@@ -751,8 +751,10 @@ export async function switchToConfiguredNetwork(chainIdOverride) {
 }
 
 /**
- * Login / register: bind the real injected provider, confirm BSC, then return the account.
- * personal_sign happens only after chain ID 56/97 is confirmed.
+ * Login / register: bind provider, try BSC, return account for SIWE.
+ * Trust Wallet often stays on eth_chainId 0x1 after its Disclaimer upgrade —
+ * SIWE itself does not need chain 56 (backend verifies signature only).
+ * ICO / stake / sendContractTx still call ensureBscNetwork and require 56.
  */
 export async function connectWalletForAuth() {
     if (isTrustWalletEnvironment()) {
@@ -800,21 +802,29 @@ export async function connectWalletForAuth() {
 
     if (!isChainIdMatch(chainIdHex, target)) {
         try {
+            // Best-effort BNB switch — Trust may ignore/fail; do not block login.
             await ensureBscNetwork(target);
+            const waited = await waitUntilChainConfirmed(target, {
+                timeoutMs: inTrust ? 8000 : 12000,
+            });
+            chainIdHex = waited.chainHex || chainIdHex;
         } catch (error) {
-            if (isTrustWalletEnvironment() && /cancel|reject|denied/i.test(String(error?.message || ''))) {
-                throw new Error(trustDisclaimerHint());
+            debugLog({
+                phase: 'auth-connect-switch-skipped',
+                trust: inTrust,
+                message: error?.message,
+                currentChainId: chainIdHex,
+            });
+            if (!inTrust) {
+                if (/cancel|reject|denied/i.test(String(error?.message || ''))) {
+                    throw new Error('Network switch cancelled.');
+                }
+                throw new Error(
+                    'BNB Smart Chain is not connected. Choose BNB Smart Chain, then tap Connect again.',
+                );
             }
-            throw error;
-        }
-        const waited = await waitUntilChainConfirmed(target);
-        chainIdHex = waited.chainHex;
-        if (!waited.confirmed) {
-            throw new Error(
-                isTrustWalletEnvironment()
-                    ? trustDisclaimerHint()
-                    : 'BNB Smart Chain is not connected. Choose BNB Smart Chain, then tap Retry.',
-            );
+            // Trust: continue to SIWE on current chain (usually Ethereum 0x1).
+            chainIdHex = await readWalletChainIdHex().catch(() => chainIdHex);
         }
     }
 
@@ -822,6 +832,7 @@ export async function connectWalletForAuth() {
         phase: 'auth-connect-ready',
         walletAddress: address,
         currentChainId: chainIdHex,
+        trustAllowAnyChain: inTrust,
     });
 
     return { address, chainIdHex };

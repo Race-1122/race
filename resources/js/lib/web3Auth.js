@@ -1,5 +1,5 @@
 import { csrfHeaders, getCsrfToken } from '@/lib/csrf';
-import { getActiveChainId, waitUntilChainConfirmed } from '@/lib/web3Deposit';
+import { getActiveChainId, isTrustWalletBrowser, waitUntilChainConfirmed } from '@/lib/web3Deposit';
 import { walletRequest } from '@/lib/web3Wallet';
 
 export { hasWeb3Wallet } from '@/lib/web3Wallet';
@@ -83,11 +83,20 @@ export async function walletAuthPayload({ action, joinCode = null, address = nul
     // Reuse the account from connectWalletForAuth — a second eth_requestAccounts
     // hangs for a long time inside TokenPocket / Trust WebViews.
     const resolved = address || (await requestWalletAccount());
-    const waited = await waitUntilChainConfirmed(getActiveChainId(), { timeoutMs: 8000 });
-    if (!waited.confirmed) {
-        throw new Error(
-            'BNB Smart Chain is not connected. Switch Trust Wallet to BNB Smart Chain, then tap Retry.',
-        );
+    const trust = isTrustWalletBrowser();
+    // Non-Trust wallets: prefer BSC before sign. Trust: SIWE works on any EVM chain;
+    // do not block login when eth_chainId stays 0x1 after Trust Disclaimer upgrade.
+    if (!trust) {
+        const waited = await waitUntilChainConfirmed(getActiveChainId(), { timeoutMs: 8000 });
+        if (!waited.confirmed) {
+            throw new Error(
+                'BNB Smart Chain is not connected. Switch to BNB Smart Chain, then tap Connect again.',
+            );
+        }
+    } else {
+        await waitUntilChainConfirmed(getActiveChainId(), { timeoutMs: 2500 }).catch(() => ({
+            confirmed: false,
+        }));
     }
     const message = await fetchAuthNonce({ address: resolved, action, joinCode });
     const signature = await signWalletMessage(resolved, message);

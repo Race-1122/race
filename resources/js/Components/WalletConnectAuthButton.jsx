@@ -1,6 +1,6 @@
 import { getCsrfToken } from '@/lib/csrf';
 import { walletAuthPayload } from '@/lib/web3Auth';
-import { connectWalletForAuth, isTrustWalletBrowser, trustDisclaimerHint } from '@/lib/web3Deposit';
+import { connectWalletForAuth, isTrustWalletBrowser } from '@/lib/web3Deposit';
 import { motion } from 'framer-motion';
 import { useState } from 'react';
 
@@ -105,12 +105,12 @@ export default function WalletConnectAuthButton({
             });
         } catch (error) {
             const raw = String(error?.message || '');
-            const cancelled = /cancel|reject|denied|4001/i.test(raw);
-            const message = cancelled && isTrustWalletBrowser()
-                ? trustDisclaimerHint()
-                : cancelled
-                  ? 'Wallet connection was cancelled. Approve the request in the wallet, then tap Retry.'
-                  : (raw || 'Wallet connection failed. Retry.');
+            const cancelled = /cancel|reject|denied|4001|disclaimer/i.test(raw);
+            const message = cancelled
+                ? (isTrustWalletBrowser()
+                    ? 'Approve the wallet popup (tick Terms + Confirm if shown), then tap Connect again.'
+                    : 'Wallet connection was cancelled. Approve in the wallet, then tap Connect again.')
+                : (raw || 'Wallet connection failed. Try Connect again.');
             setLocalError(message);
             onError?.(message);
             stopLoading();
