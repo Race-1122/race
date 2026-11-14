@@ -40,49 +40,10 @@ export default function WalletNetworkGate({ children }) {
         snap.status === NETWORK_GATE_STATUS.checking
         || snap.status === NETWORK_GATE_STATUS.waiting;
 
-    const needsNetwork =
-        snap.hasProvider
-        && !snap.readyWithoutWallet
-        && snap.status !== NETWORK_GATE_STATUS.ready
-        && Number(snap.chainId) !== 56
-        && Number(snap.chainId) !== 97;
-
-    // Trust Wallet: never brick the whole site — soft banner only.
+    // Trust Wallet: no top banner / disclaimer copy — site opens clean.
+    // Chain 56 is still enforced only at connect / login / tx time.
     if (snap.softMode) {
-        return (
-            <>
-                {needsNetwork || waiting ? (
-                    <div
-                        className="sticky top-0 z-[190] border-b border-amber-300/40 bg-slate-950 px-3 py-3 text-center shadow-lg"
-                        role="status"
-                        aria-live="polite"
-                    >
-                        <p className="text-sm font-semibold text-amber-100">
-                            {waiting ? 'Switching to BNB Smart Chain…' : snap.message}
-                        </p>
-                        <p className="mt-1 text-[11px] text-slate-300">
-                            Provider: {snap.providerName || 'Trust Wallet'} · eth_chainId:{' '}
-                            {snap.chainHex || '—'} ({snap.chainId || '?'})
-                        </p>
-                        {!waiting ? (
-                            <button
-                                type="button"
-                                className="mt-2 rounded-lg bg-amber-400 px-4 py-2 text-xs font-bold text-slate-950"
-                                onClick={() => requestBscNetworkSwitch()}
-                            >
-                                Switch to BNB Smart Chain
-                            </button>
-                        ) : (
-                            <div className="mt-2 flex justify-center"><Spinner /></div>
-                        )}
-                        {snap.manualHint ? (
-                            <p className="mt-2 text-[11px] leading-4 text-amber-200/90">{snap.manualHint}</p>
-                        ) : null}
-                    </div>
-                ) : null}
-                {children}
-            </>
-        );
+        return children;
     }
 
     const blocking =

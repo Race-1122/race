@@ -119,12 +119,6 @@ export default function WalletConnectAuthButton({
 
     return (
         <div className="space-y-2">
-            {isTrustWalletBrowser() ? (
-                <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-center text-[11px] leading-5 text-amber-900 sm:text-xs">
-                    Trust Wallet Disclaimer aaye to pehle <strong>I accept the Terms of Use</strong> tick karke{' '}
-                    <strong>Confirm</strong> dabao, phir Connect dobara try karo.
-                </p>
-            ) : null}
             <motion.button
                 type="button"
                 disabled={disabled || loading}
@@ -141,9 +135,7 @@ export default function WalletConnectAuthButton({
                                 ? 'Creating account…'
                                 : phase === 'login'
                                   ? 'Signing in…'
-                                  : isTrustWalletBrowser()
-                                    ? 'Accept Trust Disclaimer…'
-                                    : 'Confirm in wallet…'}
+                                  : 'Confirm in wallet…'}
                         </span>
                     </>
                 ) : (
