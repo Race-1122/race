@@ -5,6 +5,7 @@ namespace App\Services\Blockchain;
 use App\Models\BlockchainEvent;
 use App\Models\IcoPurchase;
 use App\Models\User;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
@@ -200,6 +201,22 @@ class BlockchainEventIngestService
                 $contract,
                 $userId,
             );
+        }
+        // Engine ParticipationPurchased (ICO openIcoStake / participate): mirror into investments
+        // via UI-less path when the wallet is already linked to a user.
+        if ($eventName === 'ParticipationPurchased' && $userId) {
+            $user = User::query()->find((int) $userId);
+            if ($user) {
+                try {
+                    app(ParticipationOnChainSyncService::class)->syncFromTransaction($user, $txHash);
+                } catch (\Throwable $e) {
+                    Log::warning('ParticipationPurchased auto-sync failed', [
+                        'tx' => $txHash,
+                        'user_id' => $userId,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
         }
         if ($eventName === 'StakeWithdrawn' || $eventName === 'StakeCompleted') {
             $stakeIndexer->markStakeWithdrawn($topics, (string) ($log['data'] ?? ''), $contract);

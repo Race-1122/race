@@ -72,6 +72,7 @@ class BlockchainEngineStakeIndexer
 
         // Any ICO createStake / openIcoStake: activate Member ID + 24h withdrawal lock.
         $this->activateUserAfterIcoStake($resolvedUserId);
+        $this->creditInvestmentIfPossible($walletLower, (int) $stakeIndex, strtolower($contract));
     }
 
     /**
@@ -189,6 +190,7 @@ class BlockchainEngineStakeIndexer
         );
 
         $this->activateUserAfterIcoStake($resolvedUserId);
+        $this->creditInvestmentIfPossible($walletLower, (int) $stakeIndex, $engine);
     }
 
     public function backfillFromBlockchainEvents(): int
@@ -244,6 +246,19 @@ class BlockchainEngineStakeIndexer
         $user = User::query()->find((int) $userId);
         if ($user) {
             $user->activateIdAndLockWithdrawalsAfterStake();
+        }
+    }
+
+    private function creditInvestmentIfPossible(string $wallet, int $stakeIndex, string $contract): void
+    {
+        try {
+            app(IcoStakeInvestmentCreditor::class)->creditLatestForWalletStake($wallet, $stakeIndex, $contract);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Auto investment credit after ICO stake index failed', [
+                'wallet' => $wallet,
+                'stake_index' => $stakeIndex,
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 

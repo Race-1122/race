@@ -82,7 +82,7 @@ final class IcoStakeFullSyncService
                     ? $status['principal_usdt']
                     : $purchase['usdt_amount'];
 
-                BlockchainEngineStake::query()->updateOrCreate(
+                $engineStake = BlockchainEngineStake::query()->updateOrCreate(
                     [
                         'wallet_address' => $purchase['wallet_address'],
                         'stake_index' => $status['stake_index'],
@@ -110,6 +110,11 @@ final class IcoStakeFullSyncService
                 if ($userId !== null) {
                     $user = User::query()->find($userId);
                     $user?->activateIdAndLockWithdrawalsAfterStake();
+                    try {
+                        app(IcoStakeInvestmentCreditor::class)->creditFromEngineStake($engineStake->fresh() ?? $engineStake);
+                    } catch (\Throwable) {
+                        // Backfill cron will retry.
+                    }
                 }
             } else {
                 $held++;

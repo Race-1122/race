@@ -126,12 +126,10 @@ class ParticipationOnChainSyncService
                 continue;
             }
 
+            // ICO locks are authoritative on-chain — never drop a stake from Active package
+            // just because days rounding differs from RewardPlan tier list.
             $lockDays = $this->lockDaysFromSeconds((int) $parsed['lock_seconds']);
-            if (! RewardPlan::growthDurationIsAllowed($lockDays)) {
-                $skipped++;
-
-                continue;
-            }
+            $lockDays = max(0, $lockDays);
 
             $record = $this->persistStake(
                 $user,
