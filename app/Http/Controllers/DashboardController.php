@@ -302,7 +302,7 @@ class DashboardController extends Controller
             'summary' => [
                 'balance_usd' => number_format($walletBalanceUsd, 2, '.', ''),
                 'race_coin_balance' => $raceCoinBalance,
-                'race_coin_price_usd' => number_format($raceCoin->priceUsd(), 2, '.', ''),
+                'race_coin_price_usd' => $raceCoin->formattedPriceUsd(4),
                 'lifetime_credits_usd' => number_format((float) $lifetimeCredits, 2, '.', ''),
                 'total_income_usd' => number_format((float) $totalIncomeUsd, 2, '.', ''),
                 'today_income_usd' => number_format($todayIncomeUsd, 2, '.', ''),

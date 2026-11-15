@@ -6,9 +6,10 @@ return [
     |--------------------------------------------------------------------------
     | Race Coin — virtual token swapped from on-chain USDT
     |--------------------------------------------------------------------------
-    | Swap display/credit follows the current ICO phase price
-    | (Phase 1 $0.25, Phase 2 $0.35, Phase 3 $0.45) via RaceCoinService.
-    | This fallback is used only if ICO phase config is missing.
+    | Display + Internal Swap quote use live Pancake RACE/USDT via
+    | RacePancakePriceService (RaceICO.liveStakePriceUsdt / Engine).
+    | price_usd below is config fallback only if RPC/pool fails AND
+    | ICO phase config is missing.
     */
     'price_usd' => 0.25,
 

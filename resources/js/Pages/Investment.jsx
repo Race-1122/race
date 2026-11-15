@@ -33,6 +33,17 @@ function formatUsd(n) {
     }).format(v);
 }
 
+function formatRacePriceUsd(n) {
+    const v = Number(n);
+    if (Number.isNaN(v)) return '—';
+    return new Intl.NumberFormat(undefined, {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 4,
+        maximumFractionDigits: 4,
+    }).format(v);
+}
+
 function formatRaceCoins(n) {
     const v = Number(n);
     if (Number.isNaN(v)) return '—';
@@ -372,7 +383,7 @@ export default function Investment({
                                     {formatRaceCoins(race_coin_balance)} RC
                                 </p>
                                 <p className="mt-1 text-[11px] text-fintech-muted">
-                                    @ {formatUsd(race_coin_price_usd)} per coin
+                                    @ {formatRacePriceUsd(race_coin_price_usd)} per coin
                                 </p>
                             </PanelCard>
                         </>
@@ -391,7 +402,7 @@ export default function Investment({
                             {formatRaceCoins(race_coin_balance)} RC
                         </p>
                         <p className="mt-1 text-[11px] text-fintech-muted">
-                            @ {formatUsd(race_coin_price_usd)} per coin
+                            @ {formatRacePriceUsd(race_coin_price_usd)} per coin
                         </p>
                     </PanelCard>
                 ) : null}

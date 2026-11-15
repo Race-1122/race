@@ -236,7 +236,7 @@ export default function Swap({
                             {formatCoins(raceCoin.balance)} RC
                         </p>
                         <p className="mt-1 text-xs text-fintech-muted">
-                            1 Race Coin = {formatUsd(raceCoin.price_usd)}
+                            1 Race Coin = ${raceCoin.price_usd}
                         </p>
                     </div>
 
@@ -363,7 +363,7 @@ export default function Swap({
                                 <div className="mt-1 flex items-center justify-between rounded-xl border border-white/5 bg-white/5 px-3 py-2 text-xs">
                                     <span className="text-slate-400">Rate</span>
                                     <span className="font-medium text-slate-200">
-                                        1 RC = {formatUsd(raceCoin.price_usd)}
+                                        1 RC = ${raceCoin.price_usd}
                                     </span>
                                 </div>
 

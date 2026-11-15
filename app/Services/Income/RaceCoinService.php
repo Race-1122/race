@@ -6,18 +6,38 @@ use App\Models\RaceCoinSwap;
 use App\Models\User;
 use App\Models\UserFundTransaction;
 use App\Models\UserWallet;
+use App\Services\Blockchain\RacePancakePriceService;
 use App\Services\Ledger\UserFundTransactionRecorder;
 use App\Support\RewardPlan;
 use Illuminate\Support\Facades\DB;
 
 class RaceCoinService
 {
+    /**
+     * Display + Internal Swap quote: live Pancake RACE/USDT when available.
+     * Falls back to ICO phase price only if RPC/pool fails.
+     */
     public function priceUsd(): float
+    {
+        $live = app(RacePancakePriceService::class)->priceUsd();
+        if ($live !== null && $live > 0) {
+            return $live;
+        }
+
+        return $this->icoPhasePriceUsd();
+    }
+
+    public function icoPhasePriceUsd(): float
     {
         $phase = (int) config('ico.current_phase_id', 1);
         $price = (float) config("ico.phases.{$phase}.price_usd", 0.25);
 
         return $price > 0 ? $price : 0.25;
+    }
+
+    public function formattedPriceUsd(int $decimals = 4): string
+    {
+        return number_format($this->priceUsd(), $decimals, '.', '');
     }
 
     public function coinsForUsdt(float $usdtAmount): string

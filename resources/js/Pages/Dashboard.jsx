@@ -31,6 +31,17 @@ function formatRaceCoins(value) {
     return `${new Intl.NumberFormat(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 }).format(n)} RC`;
 }
 
+function formatRacePriceUsd(value) {
+    const n = Number(value);
+    if (Number.isNaN(n)) return '—';
+    return new Intl.NumberFormat(undefined, {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 4,
+        maximumFractionDigits: 4,
+    }).format(n);
+}
+
 const defaultSummary = {
     balance_usd: '0.00',
     race_coin_balance: '0.0000',
@@ -633,7 +644,7 @@ export default function Dashboard({ summary: summaryProp = {}, memberActivation:
         {
             title: 'Race Coin',
             value: formatRaceCoins(summary.race_coin_balance),
-            sub: `@ ${formatUsd(summary.race_coin_price_usd)} per coin`,
+            sub: `@ ${formatRacePriceUsd(summary.race_coin_price_usd)} per coin`,
             tintClass: 'bg-violet-400/30',
             icon: (
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
