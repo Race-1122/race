@@ -3,9 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Support\MemberCode;
+use App\Models\BlockchainEngineStake;
 use App\Models\Investment;
 use App\Models\LedgerEntry;
 use App\Models\User;
+use Illuminate\Support\Facades\Schema;
 use App\Services\Income\RaceCoinService;
 use App\Services\Income\ReferralTree;
 use App\Services\Income\WalletBalanceService;
@@ -112,6 +114,36 @@ class DashboardController extends Controller
         $activePrincipalInvested = (string) ($investmentAgg->active_principal ?? '0');
         $roiPaidOnBook = (string) ($investmentAgg->roi_paid ?? '0');
         $activeInvestments = (int) ($investmentAgg->active_count ?? 0);
+
+        // Include on-chain ICO/Engine stakes when investments rows are still catching up.
+        if (Schema::hasTable('blockchain_engine_stakes')) {
+            $enginePrincipal = (float) BlockchainEngineStake::query()
+                ->where('user_id', $uid)
+                ->where('withdrawn', false)
+                ->where(function ($q) {
+                    $q->whereNull('status')
+                        ->orWhere('status', '!=', BlockchainEngineStake::STATUS_WITHDRAWN);
+                })
+                ->sum('principal_usdt');
+            $engineCount = (int) BlockchainEngineStake::query()
+                ->where('user_id', $uid)
+                ->where('withdrawn', false)
+                ->where(function ($q) {
+                    $q->whereNull('status')
+                        ->orWhere('status', '!=', BlockchainEngineStake::STATUS_WITHDRAWN);
+                })
+                ->count();
+
+            if ($enginePrincipal > (float) $activePrincipalInvested) {
+                $activePrincipalInvested = number_format($enginePrincipal, 2, '.', '');
+            }
+            if ($enginePrincipal > (float) $principalInvested) {
+                $principalInvested = number_format($enginePrincipal, 2, '.', '');
+            }
+            if ($engineCount > $activeInvestments) {
+                $activeInvestments = $engineCount;
+            }
+        }
 
         $today = Carbon::now()->startOfDay();
         $todayEnd = Carbon::now()->endOfDay();

@@ -4,7 +4,9 @@ namespace App\Services\Income;
 
 use App\Models\RaceCoinSwap;
 use App\Models\User;
+use App\Models\UserFundTransaction;
 use App\Models\UserWallet;
+use App\Services\Ledger\UserFundTransactionRecorder;
 use App\Support\RewardPlan;
 use Illuminate\Support\Facades\DB;
 
@@ -63,7 +65,7 @@ class RaceCoinService
 
             $wallet->forceFill(['race_coin_balance' => $newBalance])->save();
 
-            return RaceCoinSwap::query()->create([
+            $row = RaceCoinSwap::query()->create([
                 'user_id' => $user->id,
                 'swap_type' => RaceCoinSwap::TYPE_SWAP_CREDIT,
                 'usdt_amount' => $usdtStr,
@@ -75,6 +77,22 @@ class RaceCoinService
                     'method' => 'web3_usdt',
                 ],
             ]);
+
+            app(UserFundTransactionRecorder::class)->record(
+                $user,
+                UserFundTransaction::TYPE_RACE_COIN_SWAP,
+                UserFundTransaction::DIR_IN,
+                $usdtStr,
+                $coins,
+                $txHash,
+                null,
+                RaceCoinSwap::class,
+                $row->id,
+                'Internal swap USDT → Race Coin',
+                ['price_usd' => $this->priceUsd()],
+            );
+
+            return $row;
         });
     }
 
