@@ -43,9 +43,11 @@ class DashboardController extends Controller
         $walletBalanceUsd = $wallets->currentBalanceFloat($user);
         $raceCoinBalance = $raceCoin->currentBalance($user);
 
-        $descendantIds = $referralTree->referralDescendantIds($uid);
+        // Total Team on dashboard: unlimited depth (same as Total Team page). Income rules stay L1–L10.
+        $descendantIds = $referralTree->referralDescendantIds($uid, null);
         $teamSize = count($descendantIds);
         $directReferrals = User::query()->where('referred_by', $uid)->count();
+        $totalTeamBusinessUsd = $referralTree->downlineInvestmentVolumeUsd($uid, true);
 
         $creditGroups = LedgerEntry::query()
             ->production()
@@ -319,6 +321,7 @@ class DashboardController extends Controller
                 'recent_ledger' => $recentLedger,
                 'direct_referrals' => $directReferrals,
                 'team_size' => $teamSize,
+                'total_team_business_usd' => $totalTeamBusinessUsd,
                 'income_pct' => [
                     'total' => $this->pctChange($bucket, 'total'),
                     'direct' => $this->pctChange($bucket, 'direct'),
