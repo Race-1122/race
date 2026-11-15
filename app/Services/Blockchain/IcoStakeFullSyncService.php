@@ -106,6 +106,11 @@ final class IcoStakeFullSyncService
                 $stakesUpserted++;
 
                 $purchasesMarked += $this->markPurchase($purchaseId, $purchase, $userId, 'staked');
+
+                if ($userId !== null) {
+                    $user = User::query()->find($userId);
+                    $user?->activateIdAndLockWithdrawalsAfterStake();
+                }
             } else {
                 $held++;
                 $purchasesMarked += $this->markPurchase($purchaseId, $purchase, $userId, 'held');

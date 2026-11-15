@@ -5,7 +5,6 @@ namespace App\Services\Blockchain;
 use App\Models\BlockchainEngineStake;
 use App\Models\BlockchainEvent;
 use App\Models\User;
-use App\Support\RewardPlan;
 use Illuminate\Support\Str;
 
 /**
@@ -71,22 +70,8 @@ class BlockchainEngineStakeIndexer
             ],
         );
 
-        // ICO openIcoStake ($50+) must flip Member ID / participation on the Laravel user row.
-        if ($resolvedUserId && RewardPlan::isQualifyingParticipationAmount((string) $parsed['principal_usdt'])) {
-            $user = User::query()->find($resolvedUserId);
-            if ($user) {
-                $patch = [];
-                if ($user->participation_activated_at === null) {
-                    $patch['participation_activated_at'] = now();
-                }
-                if ($user->id_activated_at === null) {
-                    $patch['id_activated_at'] = now();
-                }
-                if ($patch !== []) {
-                    $user->forceFill($patch)->save();
-                }
-            }
-        }
+        // Any ICO createStake / openIcoStake: activate Member ID + 24h withdrawal lock.
+        $this->activateUserAfterIcoStake($resolvedUserId);
     }
 
     /**
@@ -202,6 +187,8 @@ class BlockchainEngineStakeIndexer
                 'block_number' => $blockNumber,
             ],
         );
+
+        $this->activateUserAfterIcoStake($resolvedUserId);
     }
 
     public function backfillFromBlockchainEvents(): int
@@ -246,6 +233,18 @@ class BlockchainEngineStakeIndexer
             });
 
         return $count;
+    }
+
+    private function activateUserAfterIcoStake(mixed $userId): void
+    {
+        if ($userId === null || $userId === '' || (int) $userId <= 0) {
+            return;
+        }
+
+        $user = User::query()->find((int) $userId);
+        if ($user) {
+            $user->activateIdAndLockWithdrawalsAfterStake();
+        }
     }
 
     private function dailyRateBps(int $lockSeconds): int
