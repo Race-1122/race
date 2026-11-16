@@ -40,17 +40,31 @@ export default function GlobalFlashModal() {
     const [title, setTitle] = useState('Notice');
     const [messages, setMessages] = useState([]);
     const dismissedKey = useRef('');
+    const autoCloseTimer = useRef(null);
+
+    const clearAutoClose = useCallback(() => {
+        if (autoCloseTimer.current != null) {
+            clearTimeout(autoCloseTimer.current);
+            autoCloseTimer.current = null;
+        }
+    }, []);
 
     const showPopup = useCallback((nextVariant, nextTitle, nextMessages) => {
         const key = `${nextVariant}:${JSON.stringify(nextMessages)}`;
         if (nextMessages.length === 0 || key === dismissedKey.current) {
             return;
         }
+        clearAutoClose();
         setVariant(nextVariant);
         setTitle(nextTitle);
         setMessages(nextMessages);
         setOpen(true);
-    }, []);
+        autoCloseTimer.current = setTimeout(() => {
+            dismissedKey.current = key;
+            setOpen(false);
+            autoCloseTimer.current = null;
+        }, 5000);
+    }, [clearAutoClose]);
 
     useEffect(() => {
         const onInertiaFinish = () => {
@@ -124,7 +138,10 @@ export default function GlobalFlashModal() {
         };
     }, [showPopup]);
 
+    useEffect(() => () => clearAutoClose(), [clearAutoClose]);
+
     const close = () => {
+        clearAutoClose();
         dismissedKey.current = `${variant}:${JSON.stringify(messages)}`;
         setOpen(false);
     };

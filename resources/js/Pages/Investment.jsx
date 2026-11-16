@@ -15,6 +15,7 @@ import {
     stakeRaceFromWallet,
     withdrawOnChainStake,
 } from '@/lib/web3Engine';
+import { notifyError, notifySuccess } from '@/lib/appNotify';
 import { syncBlockchainTx } from '@/lib/web3Deposit';
 import { syncParticipationTx } from '@/lib/web3Participation';
 import { readErc20Balance, formatTokenWei } from '@/lib/web3PancakeSwap';
@@ -121,8 +122,6 @@ export default function Investment({
         engineConfig?.engine_contract || engineConfig?.contract || '';
     const raceToken = engineConfig?.race_token || blockchain?.contracts?.race_token || '';
     const [onChainBusy, setOnChainBusy] = useState(false);
-    const [onChainError, setOnChainError] = useState('');
-    const [onChainStatus, setOnChainStatus] = useState('');
     /** usdt = Engine.participate (USDT→Pancake); wallet_race = Engine.stakeRace (wallet BEP-20 RACE) */
     const [stakeSource, setStakeSource] = useState('usdt');
     const [walletRaceBalance, setWalletRaceBalance] = useState(0n);
@@ -243,29 +242,30 @@ export default function Investment({
         return () => {
             cancelled = true;
         };
-    }, [onChain, walletAddress, raceToken, engineConfig.rpc_url, blockchain?.rpc_url, onChainStatus]);
+    }, [onChain, walletAddress, raceToken, engineConfig.rpc_url, blockchain?.rpc_url]);
 
     const submitOnChain = async (e) => {
         e.preventDefault();
-        setOnChainError('');
-        setOnChainStatus('');
 
         if (!walletAddress) {
-            setOnChainError('Connect your crypto wallet first.');
+            notifyError('Connect your crypto wallet first.', 'Stake');
             return;
         }
         if (!chainOk) {
             try {
                 await switchNetwork();
             } catch (err) {
-                setOnChainError(err?.message || 'Please switch your wallet to BNB Smart Chain (Chain ID 56).');
+                notifyError(
+                    err?.message || 'Please switch your wallet to BNB Smart Chain (Chain ID 56).',
+                    'Network',
+                );
                 return;
             }
         }
 
         const tier = durationTiersForDays(data.duration_days, durationTiers);
         if (!tier) {
-            setOnChainError('Select a valid lock tier.');
+            notifyError('Select a valid lock tier.', 'Stake');
             return;
         }
 
@@ -300,20 +300,22 @@ export default function Investment({
             } catch (syncErr) {
                 console.warn('participate sync:', syncErr?.message || syncErr);
             }
-            setOnChainStatus(
+            notifySuccess(
                 stakeSource === 'wallet_race'
                     ? 'Wallet RACE staked. Claimed income stays in your income wallet — bring it to your wallet anytime.'
                     : 'Stake opened. Claimed income stays in your income wallet — bring it to your wallet anytime.',
+                'Stake',
             );
             router.reload({ only: ['investments', 'blockchainParticipations', 'communityEngineStakes', 'memberActivation', 'web3Engine'] });
         } catch (err) {
             const msg = err?.message || 'On-chain participation failed.';
             if (/stakeRace|function selector|execution reverted/i.test(msg)) {
-                setOnChainError(
+                notifyError(
                     `${msg} — If this Engine is an older deployment, stakeRace must be redeployed/upgraded first.`,
+                    'Stake',
                 );
             } else {
-                setOnChainError(msg);
+                notifyError(msg, 'Stake');
             }
         } finally {
             setOnChainBusy(false);
@@ -782,13 +784,6 @@ export default function Investment({
                                     ? `Pay ${formatRaceCoins(coinsRequired)} RC & confirm`
                                     : 'Confirm participation'}
                         </button>
-
-                        {onChainError ? (
-                            <p className="text-sm font-medium text-red-600">{onChainError}</p>
-                        ) : null}
-                        {onChainStatus ? (
-                            <p className="text-sm font-medium text-emerald-700">{onChainStatus}</p>
-                        ) : null}
 
                         {onChain ? (
                             <p className="text-[11px] leading-relaxed text-fintech-muted">
