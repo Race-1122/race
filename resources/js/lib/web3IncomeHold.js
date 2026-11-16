@@ -71,7 +71,8 @@ async function ethCall({ to, data, rpcUrl }) {
         }
     }
 
-    return (await viaWallet()) || (await viaRpc()) || '0x0';
+    // Prefer configured BSC RPC — wallet eth_call often posts to the page URL (405).
+    return (await viaRpc()) ?? (await viaWallet()) ?? '0x0';
 }
 
 function decodeUint(hex) {

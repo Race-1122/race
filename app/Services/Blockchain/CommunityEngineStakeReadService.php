@@ -63,16 +63,27 @@ class CommunityEngineStakeReadService
         $stakedRace = (string) $row->staked_race;
         $principalUsdt = (string) $row->principal_usdt;
 
-        if ($enrichLiveState && $this->rpcReader !== null) {
-            $live = $this->rpcReader->readStakeAt($wallet, (int) $row->stake_index);
-            if ($this->isPlausibleLiveStake($live, $row)) {
-                $stakedRace = (string) ($live['staked_race'] ?? $stakedRace);
-                $principalUsdt = (string) ($live['principal_usdt'] ?? $principalUsdt);
-                $lockSeconds = (int) ($live['lock_seconds'] ?? $lockSeconds);
-                $lockDays = $lockSeconds > 0 ? (int) round($lockSeconds / 86400) : 0;
-                $startedAt = isset($live['started_at']) ? (int) $live['started_at'] : $startedAt;
-                $unlockAt = isset($live['unlock_at']) ? (int) $live['unlock_at'] : $unlockAt;
-                $withdrawn = (bool) ($live['withdrawn'] ?? $withdrawn);
+        // Wallet RACE stakes live on RaceWalletRaceStake — never Engine.stakeAt.
+        $source = strtolower((string) $row->source_type);
+        $canEnrich = $enrichLiveState
+            && $this->rpcReader !== null
+            && $source !== BlockchainEngineStake::SOURCE_WALLET_RACE
+            && $source !== 'wallet_race';
+
+        if ($canEnrich) {
+            try {
+                $live = $this->rpcReader->readStakeAt($wallet, (int) $row->stake_index);
+                if ($this->isPlausibleLiveStake($live, $row)) {
+                    $stakedRace = (string) ($live['staked_race'] ?? $stakedRace);
+                    $principalUsdt = (string) ($live['principal_usdt'] ?? $principalUsdt);
+                    $lockSeconds = (int) ($live['lock_seconds'] ?? $lockSeconds);
+                    $lockDays = $lockSeconds > 0 ? (int) round($lockSeconds / 86400) : 0;
+                    $startedAt = isset($live['started_at']) ? (int) $live['started_at'] : $startedAt;
+                    $unlockAt = isset($live['unlock_at']) ? (int) $live['unlock_at'] : $unlockAt;
+                    $withdrawn = (bool) ($live['withdrawn'] ?? $withdrawn);
+                }
+            } catch (\Throwable) {
+                // Keep indexed row — never 500 the investment page on RPC decode noise.
             }
         }
 
@@ -124,7 +135,7 @@ class CommunityEngineStakeReadService
             return false;
         }
 
-        if ($indexedRace !== '' && function_exists('bccomp')) {
+        if ($indexedRace !== '' && preg_match('/^\d+(\.\d+)?$/', $indexedRace) && function_exists('bccomp')) {
             $maxDelta = bcadd($indexedRace, bcdiv($indexedRace, '2', 8), 8);
             if (bccomp($liveRace, $maxDelta, 8) > 0) {
                 return false;
