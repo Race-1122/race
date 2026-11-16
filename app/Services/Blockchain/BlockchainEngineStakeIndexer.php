@@ -76,6 +76,66 @@ class BlockchainEngineStakeIndexer
     }
 
     /**
+     * RaceWalletRaceStake.StakeOpened → blockchain_engine_stakes (source wallet_race).
+     *
+     * @param  list<string>  $topics
+     */
+    public function storeWalletRaceStakeOpened(
+        array $topics,
+        string $data,
+        string $txHash,
+        int $blockNumber,
+        string $contract,
+        mixed $userId,
+    ): void {
+        if (! \Illuminate\Support\Facades\Schema::hasTable('blockchain_engine_stakes')) {
+            return;
+        }
+
+        $wallet = isset($topics[1]) ? '0x'.substr((string) $topics[1], 26) : '';
+        $stakeIndex = isset($topics[2]) ? hexdec((string) $topics[2]) : null;
+        if ($wallet === '' || $stakeIndex === null || $txHash === '') {
+            return;
+        }
+
+        $hex = Str::lower(Str::startsWith($data, '0x') ? substr($data, 2) : $data);
+        // principalUsdt, raceStaked, lockPeriod, dailyRateBps
+        if (strlen($hex) < 256) {
+            return;
+        }
+
+        $usdtWei = $this->hexToDecimalString(substr($hex, 0, 64));
+        $raceWei = $this->hexToDecimalString(substr($hex, 64, 64));
+        $lockSeconds = (int) hexdec(substr($hex, 128, 64));
+        $dailyRateBps = (int) hexdec(substr($hex, 192, 64));
+        $walletLower = strtolower($wallet);
+        $resolvedUserId = $userId ?? $this->walletSync->resolveUserIdForWallet($walletLower);
+
+        BlockchainEngineStake::query()->updateOrCreate(
+            [
+                'wallet_address' => $walletLower,
+                'stake_index' => (int) $stakeIndex,
+                'contract_address' => strtolower($contract),
+            ],
+            [
+                'user_id' => $resolvedUserId,
+                'ico_purchase_id' => null,
+                'principal_usdt' => $this->weiToToken($usdtWei),
+                'staked_race' => $this->weiToToken($raceWei),
+                'lock_seconds' => $lockSeconds,
+                'daily_rate_bps' => $dailyRateBps,
+                'unlock_at' => 0,
+                'started_at' => 0,
+                'source_type' => BlockchainEngineStake::SOURCE_WALLET_RACE,
+                'withdrawn' => false,
+                'status' => BlockchainEngineStake::STATUS_ACTIVE,
+                'tx_hash' => strtolower($txHash),
+                'block_number' => $blockNumber,
+            ],
+        );
+    }
+
+    /**
      * @param  list<string>  $topics
      */
     public function markStakeWithdrawn(array $topics, string $data, string $contract): void

@@ -119,6 +119,47 @@
     </div>
 </div>
 
+<div class="bg-white rounded shadow-sm p-4 mb-3 border border-primary">
+    <h5 class="mb-2">{{ __('Wallet RACE stake — Start daily claim (Multisig)') }}</h5>
+    <p class="small mb-2">
+        {{ __('Turns on RaceWalletRaceStake.claimEnabled for wallet BEP-20 RACE stakes. Same 3-of-5 Multisig flow. Owner of this stake contract must be Multisig.') }}
+    </p>
+    <p class="small mb-2">
+        <strong>{{ __('Wallet RACE stake') }}:</strong>
+        <code class="user-select-all">{{ $wallet_race_stake ?: '—' }}</code>
+    </p>
+    <p class="small mb-2">
+        <strong>{{ __('Reward vault') }}:</strong>
+        <code class="user-select-all">{{ $reward_vault ?: '—' }}</code>
+    </p>
+    <p class="small mb-2 text-warning">
+        {{ __('Claims mint only after RewardVault authorizes this stake as payer (setPayer). Live vault must support setPayer — otherwise redeploy/upgrade vault first.') }}
+    </p>
+    <p class="small mb-3">
+        <strong>{{ __('Wallet stake claim enabled (live)') }}:</strong>
+        <span class="badge {{ ($wallet_claim_enabled ?? '') === 'yes' ? 'bg-success' : 'bg-secondary' }}">
+            {{ $wallet_claim_enabled ?? '—' }}
+        </span>
+    </p>
+    <ol class="small mb-3">
+        <li>{{ __('Use 3 of the 5 Multisig signer wallets in TokenPocket.') }}</li>
+        <li>{{ __('First signer: tap “1. Submit Wallet Stake Claim”.') }}</li>
+        <li>{{ __('Second and third: tap “2. Confirm Wallet Stake Claim” on the SAME Multisig id.') }}</li>
+        <li>{{ __('Indexer stores StakeOpened / RewardPaid into DB when txs are synced.') }}</li>
+    </ol>
+    <p class="small mb-2" id="wallet-stake-claim-status"></p>
+    <div class="d-flex flex-wrap gap-2">
+        <button type="button" class="btn btn-primary" id="wallet-submit-start-claim"
+            @if (($wallet_claim_enabled ?? '') === 'yes' || empty($wallet_race_stake)) disabled @endif>
+            {{ __('1. Submit Wallet Stake Claim') }}
+        </button>
+        <button type="button" class="btn btn-outline-primary" id="wallet-confirm-start-claim"
+            @if (empty($wallet_race_stake)) disabled @endif>
+            {{ __('2. Confirm Wallet Stake Claim') }}
+        </button>
+    </div>
+</div>
+
 <div class="bg-white rounded shadow-sm p-4 mb-3">
     <h5 class="mb-2">{{ __('Deposit 600,000 RACE into ICO Contract') }}</h5>
     <p class="small text-muted">{{ __('Connect the admin wallet in MetaMask on the same chain, then approve + deposit. ICO Contract must already list this wallet as admin.') }}</p>
@@ -147,6 +188,7 @@
     const raceToken = @json($race_token);
     const adminWallet = @json($ico_admin_wallet);
     const communityEngine = @json($community_engine ?? '');
+    const walletRaceStake = @json($wallet_race_stake ?? '');
     const chainId = Number(@json($chain_id));
     const amountWei = @json($deposit_amount_wei);
     const approveSel = '0x095ea7b3';
@@ -318,8 +360,8 @@
         if (!multiSig) {
             throw new Error(@json(__('Multisig address is missing. Save setup / check config.')));
         }
-        if (!raceIco && !communityEngine) {
-            throw new Error(@json(__('Save RaceICO and/or Community Engine address first.')));
+        if (!raceIco && !communityEngine && !walletRaceStake) {
+            throw new Error(@json(__('Save RaceICO / Community Engine / Wallet RACE stake address first.')));
         }
         const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
         const from = (accounts[0] || '').toLowerCase();
@@ -611,6 +653,108 @@
                 );
             } catch (err) {
                 setClaimStatus(err && err.message ? err.message : String(err));
+            }
+        });
+    }
+
+    const walletClaimStatus = document.getElementById('wallet-stake-claim-status');
+    const submitWalletClaimBtn = document.getElementById('wallet-submit-start-claim');
+    const confirmWalletClaimBtn = document.getElementById('wallet-confirm-start-claim');
+    const walletClaimStorageKey = 'race.multisig.walletStakeStartClaim.txId';
+
+    function setWalletClaimStatus(msg) {
+        if (walletClaimStatus) walletClaimStatus.textContent = msg;
+    }
+
+    async function findPendingWalletStartClaim() {
+        if (!walletRaceStake) return null;
+        return findPendingInner(setClaimEnabledData.toLowerCase(), walletRaceStake);
+    }
+
+    if (submitWalletClaimBtn) {
+        submitWalletClaimBtn.addEventListener('click', async function () {
+            try {
+                if (!walletRaceStake) {
+                    throw new Error(@json(__('Wallet RACE stake address missing (RACE_WALLET_STAKE_CONTRACT).')));
+                }
+                const from = await connectSigner();
+                const pending = await findPendingWalletStartClaim();
+                if (pending) {
+                    window.localStorage.setItem(walletClaimStorageKey, pending.id);
+                    setWalletClaimStatus(
+                        @json(__('Wallet Stake Claim already submitted. Switch signer and Confirm. Multisig id:')) +
+                            ' ' + pending.id + ' · confirms ' + pending.confirmations + '/3',
+                    );
+                    return;
+                }
+                setWalletClaimStatus(@json(__('Submitting setClaimEnabled(true) for Wallet RACE stake… To = Multisig.')));
+                const hash = await window.ethereum.request({
+                    method: 'eth_sendTransaction',
+                    params: [{
+                        from: from,
+                        to: multiSig,
+                        data: encodeSubmit(walletRaceStake, setClaimEnabledData),
+                    }],
+                });
+                setWalletClaimStatus(@json(__('Waiting for submit to mine…')) + ' ' + hash);
+                await waitReceipt(hash);
+                const created = await findPendingWalletStartClaim();
+                const txId = created ? created.id : '';
+                if (txId !== '') {
+                    window.localStorage.setItem(walletClaimStorageKey, txId);
+                }
+                setWalletClaimStatus(@json(__('Submit OK. Switch to a SECOND Multisig signer and Confirm. id:')) + ' ' + txId);
+            } catch (err) {
+                setWalletClaimStatus(err && err.message ? err.message : String(err));
+            }
+        });
+    }
+
+    if (confirmWalletClaimBtn) {
+        confirmWalletClaimBtn.addEventListener('click', async function () {
+            try {
+                if (!walletRaceStake) {
+                    throw new Error(@json(__('Wallet RACE stake address missing (RACE_WALLET_STAKE_CONTRACT).')));
+                }
+                const from = await connectSigner();
+                const pending = await findPendingWalletStartClaim();
+                if (!pending) {
+                    throw new Error(@json(__('No pending Wallet Stake Claim Multisig tx. Tap Submit first.')));
+                }
+                const alreadyHex = await ethCall(
+                    multiSig,
+                    isConfirmedSel + padUint(pending.id) + padAddr(from),
+                );
+                if (BigInt(alreadyHex || '0x0') === 1n) {
+                    setWalletClaimStatus(
+                        @json(__('This wallet already confirmed. Switch signer. id:')) +
+                            ' ' + pending.id + ' · ' + pending.confirmations + '/3',
+                    );
+                    return;
+                }
+                window.localStorage.setItem(walletClaimStorageKey, pending.id);
+                setWalletClaimStatus(@json(__('Confirming Wallet Stake Claim…')) + ' id ' + pending.id + ' · ' + pending.confirmations + '/3');
+                const hash = await window.ethereum.request({
+                    method: 'eth_sendTransaction',
+                    params: [{
+                        from: from,
+                        to: multiSig,
+                        data: '0x' + confirmSel + padUint(pending.id),
+                    }],
+                });
+                setWalletClaimStatus(@json(__('Waiting for confirm to mine…')) + ' ' + hash);
+                await waitReceipt(hash);
+                const after = await findPendingWalletStartClaim();
+                if (!after) {
+                    setWalletClaimStatus(@json(__('Wallet stake daily claim should now be ON. Refresh — badge = yes. Ensure vault setPayer before members claim.')));
+                    return;
+                }
+                setWalletClaimStatus(
+                    @json(__('Confirm saved. Next signer must Confirm again. Still need 3 on SAME id:')) +
+                        ' ' + after.id + ' · ' + after.confirmations + '/3',
+                );
+            } catch (err) {
+                setWalletClaimStatus(err && err.message ? err.message : String(err));
             }
         });
     }

@@ -29,6 +29,7 @@ final class ContractWatchService
             'ico_contract' => SiteSetting::icoContractAddress(),
             'ico_admin_wallet' => SiteSetting::icoAdminWallet(),
             'community_engine' => (string) ($cfg['community_engine'] ?? ''),
+            'wallet_race_stake' => (string) ($cfg['wallet_race_stake'] ?? ''),
             'reward_vault' => (string) ($cfg['reward_vault'] ?? ''),
             'income_hold' => SiteSetting::incomeHoldAddress(),
             'reward_price_oracle' => (string) ($cfg['reward_price_oracle'] ?? ''),
@@ -250,6 +251,11 @@ final class ContractWatchService
                 'status' => ! empty($live['engine'])
                     ? 'Stakes '.$engineStakes.' · Locked '.$engineLocked.' · Claim '.$engineClaim
                     : 'Not readable',
+            ],
+            'wallet_race_stake' => [
+                'label' => 'Wallet RACE stake',
+                'role' => 'BEP-20 RACE staking (timed/flexible) with daily claim mint via RewardVault.',
+                'status' => $addresses['wallet_race_stake'] !== '' ? 'Address set' : 'Not set',
             ],
             'reward_vault' => [
                 'label' => 'Reward Vault',

@@ -37,14 +37,23 @@ class IcoContractSettingsScreen extends Screen
         }
 
         $engine = strtolower(trim((string) config('blockchain.contracts.community_engine', '')));
+        $walletRaceStake = strtolower(trim((string) config('blockchain.contracts.wallet_race_stake', '')));
+        $rewardVault = strtolower(trim((string) config('blockchain.contracts.reward_vault', '')));
         $claimEnabled = '—';
-        if ($engine !== '' && ($status['rpc_ok'] ?? false)) {
+        $walletClaimEnabled = '—';
+        if (($status['rpc_ok'] ?? false)) {
             try {
                 $rpc = BscJsonRpcClient::fromConfig();
-                $claimHex = $rpc->call('eth_call', [['to' => $engine, 'data' => '0x2866ed21'], 'latest']);
-                $claimEnabled = (is_string($claimHex) && $this->hexToDec($claimHex) !== '0') ? 'yes' : 'no';
+                if ($engine !== '') {
+                    $claimHex = $rpc->call('eth_call', [['to' => $engine, 'data' => '0x2866ed21'], 'latest']);
+                    $claimEnabled = (is_string($claimHex) && $this->hexToDec($claimHex) !== '0') ? 'yes' : 'no';
+                }
+                if ($walletRaceStake !== '') {
+                    $wClaimHex = $rpc->call('eth_call', [['to' => $walletRaceStake, 'data' => '0x2866ed21'], 'latest']);
+                    $walletClaimEnabled = (is_string($wClaimHex) && $this->hexToDec($wClaimHex) !== '0') ? 'yes' : 'no';
+                }
             } catch (\Throwable) {
-                $claimEnabled = '—';
+                // keep defaults
             }
         }
 
@@ -57,7 +66,10 @@ class IcoContractSettingsScreen extends Screen
             'chain_id' => $chainId,
             'multisig_contract' => $multisig,
             'community_engine' => $engine,
+            'wallet_race_stake' => $walletRaceStake,
+            'reward_vault' => $rewardVault,
             'claim_enabled' => $claimEnabled,
+            'wallet_claim_enabled' => $walletClaimEnabled,
             'multisig_signers' => [
                 '0xCc2B87f8E8AABc295e1119E186c3021bA6F32339',
                 '0x8B2Ac41931d4869E7a53144BaF5C1fa052E8Df24',

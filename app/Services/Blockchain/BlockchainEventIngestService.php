@@ -91,10 +91,20 @@ class BlockchainEventIngestService
             $raceIco = (string) config('blockchain.contracts.ico', '');
         }
 
+        $incomeHold = '';
+        try {
+            $incomeHold = \App\Models\SiteSetting::incomeHoldAddress();
+        } catch (\Throwable) {
+            $incomeHold = (string) config('blockchain.contracts.income_hold', '');
+        }
+
         $list = array_filter([
             config('blockchain.contracts.community_engine'),
+            config('blockchain.contracts.wallet_race_stake'),
+            config('blockchain.contracts.reward_vault'),
             config('blockchain.contracts.ico'),
             $raceIco,
+            $incomeHold,
             config('income_vault.contract_address'),
             \App\Support\LegacyParticipationGuard::applicationEnabled()
                 ? config('blockchain.contracts.participation')
@@ -194,6 +204,16 @@ class BlockchainEventIngestService
         }
         if ($eventName === 'ICOStakeCreated') {
             $stakeIndexer->storeIcoStakeCreated(
+                $topics,
+                (string) ($log['data'] ?? ''),
+                $txHash,
+                $blockNumber,
+                $contract,
+                $userId,
+            );
+        }
+        if ($eventName === 'StakeOpened') {
+            $stakeIndexer->storeWalletRaceStakeOpened(
                 $topics,
                 (string) ($log['data'] ?? ''),
                 $txHash,
@@ -425,6 +445,7 @@ class BlockchainEventIngestService
             '0x37a30c83bfb682c70517a0dfc60043aff2fea05fb7c5c81fa30ca94180ff336c' => 'MemberActivated',
             '0x3cef2b6f76a0f4f96feb02de766f08fcafd52c0677585fad3627da2aa9f2e0d2' => 'ParticipationPurchased',
             '0x771e2f913fe17bca4c8610ec22f97692df4570133fa1f02f726012e653b14e81' => 'ParticipationPurchased',
+            '0x16095dd9f69a744798b6add21e5f0b8d9a5aa4d4a65b0a1b37682df0d8c2c5bc' => 'StakeOpened',
             '0x6a1c9812f6d42eaf5c00058b4fc1d00233e24805a4965009d650401f50adc53e' => 'RewardClaimed',
             '0xe54fc68849b79ff873dd338d4d2ff76eef5862d086fd81d0f6eb4390b23f10f8' => 'RewardPaid',
             '0xae4ee54fa5e43b33c459251efe0d9f141e6991f03a684990d560e7222f990966' => 'CommunityReferralPaid',
@@ -447,8 +468,11 @@ class BlockchainEventIngestService
             '0xd6cbeb8fb06a3dc6bbdcb20549e0e06d2c36ce056c6e7c761a90103a6549910b' => 'MaturityFeePaid',
             '0x8c73a49f3f6586364f59cf469ef269547fcedb2de29dd6c3b36991ca934ae4cd' => 'EmiScheduleCreated',
             '0x91cc73c8d39d5d45410514a0b5cc2654f38ea8ea2d107a94d97b380896e38ff1' => 'EmiClaimed',
+            '0x4774a7facfda3d9ca77e897b7afd1000b17097d91f0cc049333b3f36b6213e40' => 'EmiClaimed',
             '0x0cb4112864bc0c6ec295623acc6a9ba59fea56470dea9a9c148147e0fcacb7e5' => 'ClaimEnabledUpdated',
             '0xfb35bc3dbd47c90557125dfd782126de55fa2234e0af58ca22cb1fbe2192df71' => 'ClaimCooldownRecorded',
+            '0x8610b036ffc63fda2bfc74e682c981f33b2c27bb73410def2ef3999ecfbe7f4f' => 'AdminReleaseExecuted',
+            '0x85760b4e4b157977c1bf41625812916882bda38af04241dbaa7e98a053e16256' => 'PayerUpdated',
             '0x4bbbbde586ec8458978ef402a3cb438457683a7728089113fd5f0366e10f0c2a' => 'IncomeHeld',
             '0xf7e53c620d878c87124e60bf2894bd049f0443ef2edaf7c8d52e02571acde561' => 'IncomeWithdrawn',
             '0xab510e8c7328f8e29842e7a2df193ca3a39a24f491c0fb715dd819293344cef3' => 'IncomeWithdrawn',
