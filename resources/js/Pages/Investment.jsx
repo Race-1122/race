@@ -317,6 +317,10 @@ export default function Investment({
         }
 
         if (stakeSource === 'wallet_race') {
+            if (!walletRaceStakeContract) {
+                notifyError('Wallet RACE stake contract is not configured.', 'Stake');
+                return;
+            }
             const needWei = (() => {
                 try {
                     return BigInt(Math.floor(Number(amountRace) * 1e18));
@@ -564,7 +568,62 @@ export default function Investment({
                             />
                             <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs text-sky-950">
                                 Min {formatUsd(onChainParticipation.min_usdt ?? '1')} USDT · Live Pancake{' '}
-                                {pancakePrice > 0 ? formatRacePriceUsd(pancakePrice) : '—'} / RACE · Wallet USDT stake
+                                {pancakePrice > 0 ? formatRacePriceUsd(pancakePrice) : '—'} / RACE · Choose USDT or
+                                wallet RACE below, then lock period.
+                            </div>
+                            <div>
+                                <p className="mb-3 text-[11px] font-bold uppercase tracking-wider text-fintech-muted">
+                                    Stake with
+                                </p>
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                    <label
+                                        className={`cursor-pointer rounded-xl border px-4 py-3 transition ${
+                                            stakeSource === 'usdt'
+                                                ? 'border-[#2563EB] bg-sky-50 ring-2 ring-[#2563EB]/20'
+                                                : 'border-slate-200 bg-white hover:border-slate-300'
+                                        }`}
+                                    >
+                                        <input
+                                            type="radio"
+                                            name="stake_source"
+                                            value="usdt"
+                                            className="sr-only"
+                                            checked={stakeSource === 'usdt'}
+                                            onChange={() => setStakeSource('usdt')}
+                                        />
+                                        <p className="text-sm font-bold text-fintech-ink">Wallet USDT</p>
+                                        <p className="mt-1 text-xs text-fintech-muted">
+                                            Swap USDT → RACE on Pancake inside Engine, then stake
+                                        </p>
+                                    </label>
+                                    <label
+                                        className={`cursor-pointer rounded-xl border px-4 py-3 transition ${
+                                            !walletRaceStakeContract
+                                                ? 'cursor-not-allowed border-slate-200 bg-slate-50 opacity-60'
+                                                : stakeSource === 'wallet_race'
+                                                  ? 'border-violet-500 bg-violet-50 ring-2 ring-violet-300/40'
+                                                  : 'border-slate-200 bg-white hover:border-slate-300'
+                                        }`}
+                                    >
+                                        <input
+                                            type="radio"
+                                            name="stake_source"
+                                            value="wallet_race"
+                                            className="sr-only"
+                                            disabled={!walletRaceStakeContract}
+                                            checked={stakeSource === 'wallet_race'}
+                                            onChange={() => {
+                                                if (walletRaceStakeContract) setStakeSource('wallet_race');
+                                            }}
+                                        />
+                                        <p className="text-sm font-bold text-fintech-ink">Wallet RACE</p>
+                                        <p className="mt-1 text-xs text-fintech-muted">
+                                            {walletRaceStakeContract
+                                                ? `Use BEP-20 RACE in your wallet · ${formatTokenWei(walletRaceBalance, 18, 4)} RACE`
+                                                : 'Contract not configured (RACE_WALLET_STAKE_CONTRACT)'}
+                                        </p>
+                                    </label>
+                                </div>
                             </div>
                         </div>
                     ) : null}
