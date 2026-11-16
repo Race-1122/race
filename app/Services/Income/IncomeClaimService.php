@@ -34,19 +34,27 @@ class IncomeClaimService
     /**
      * Move all accrued staking rewards into virtual USDT wallet. No Admin Fee.
      *
+     * @param  array{from_cron?: bool, ignore_cooldown?: bool}  $options
      * @return array{claimed_usd: string, virtual_balance_usd: string}
      */
-    public function claimAccruedIncome(User $user): array
+    public function claimAccruedIncome(User $user, array $options = []): array
     {
-        BlockchainMode::assertReadOnlyRewards();
+        $fromCron = (bool) ($options['from_cron'] ?? false);
+        $ignoreCooldown = (bool) ($options['ignore_cooldown'] ?? false);
 
-        if (config('participation_contract.on_chain.enabled') || BlockchainMode::blockchainOnly()) {
-            throw ValidationException::withMessages([
-                'claim' => __('Income claim is for platform staking. On-chain rewards use wallet claim on the staking page.'),
-            ]);
+        // Platform accrued ROI → virtual wallet. Allowed when auto_claim cron is enabled
+        // even if REWARDS_ENGINE=blockchain_only (on-chain Engine claim stays separate on ICO page).
+        if (! config('income.auto_claim.enabled', true)) {
+            BlockchainMode::assertReadOnlyRewards();
+
+            if (config('participation_contract.on_chain.enabled') || BlockchainMode::blockchainOnly()) {
+                throw ValidationException::withMessages([
+                    'claim' => __('Income claim is for platform staking. On-chain rewards use wallet claim on the staking page.'),
+                ]);
+            }
         }
 
-        return DB::transaction(function () use ($user) {
+        return DB::transaction(function () use ($user, $fromCron, $ignoreCooldown) {
             $locked = User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
 
             if ($locked->is_blocked) {
@@ -55,13 +63,15 @@ class IncomeClaimService
                 ]);
             }
 
-            $next = $this->nextClaimAt($locked);
-            if ($next !== null && now()->lt($next)) {
-                throw ValidationException::withMessages([
-                    'claim' => __('Next claim available after :when.', [
-                        'when' => $next->timezone(config('app.timezone'))->format('d M Y, h:i A'),
-                    ]),
-                ]);
+            if (! $ignoreCooldown) {
+                $next = $this->nextClaimAt($locked);
+                if ($next !== null && now()->lt($next)) {
+                    throw ValidationException::withMessages([
+                        'claim' => __('Next claim available after :when.', [
+                            'when' => $next->timezone(config('app.timezone'))->format('d M Y, h:i A'),
+                        ]),
+                    ]);
+                }
             }
 
             $stakes = Investment::query()
@@ -97,9 +107,12 @@ class IncomeClaimService
                     'investment',
                     $stake->id,
                     [
-                        'source' => 'platform_income_claim',
+                        'source' => $fromCron ? 'cron_income_auto_claim' : 'platform_income_claim',
+                        'from_cron' => $fromCron,
                         'admin_fee_usd' => '0.00',
-                        'note' => 'Accrued ROI claimed to virtual income — no Admin Fee',
+                        'note' => $fromCron
+                            ? 'Accrued ROI auto-claimed by cron to virtual income — no Admin Fee'
+                            : 'Accrued ROI claimed to virtual income — no Admin Fee',
                     ],
                 );
 

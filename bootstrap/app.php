@@ -68,12 +68,37 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withSchedule(function (Schedule $schedule): void {
-        if (config('blockchain.rewards_engine') !== 'blockchain_only') {
-            $schedule->command('income:pay-roi')->dailyAt('02:00');
-            $schedule->command('income:pay-community-leadership')->dailyAt('03:00');
-            $schedule->command('income:pay-community-leadership-rank11-monthly')->monthlyOn(1, '04:00');
-            $schedule->command('income:release-stake-emis')->dailyAt('02:30');
-            $schedule->command('income:rollover-holdings')->hourly();
+        $incomeTz = (string) config('income.auto_claim.timezone', config('app.timezone', 'Asia/Kolkata'));
+        $autoClaimOn = (bool) config('income.auto_claim.enabled', true);
+        $hybridIncome = config('blockchain.rewards_engine') !== 'blockchain_only';
+
+        // Daily ROI accrual + auto-claim → Virtual Income Wallet (user Claim button remains).
+        if ($hybridIncome || $autoClaimOn) {
+            $payAt = (string) config('income.auto_claim.pay_roi_at', '00:15');
+            $claimAt = (string) config('income.auto_claim.auto_claim_at', '00:30');
+            $every = max(5, (int) config('income.auto_claim.due_every_minutes', 5));
+
+            $schedule->command('income:pay-roi')
+                ->dailyAt($payAt)
+                ->timezone($incomeTz)
+                ->withoutOverlapping(30);
+
+            $schedule->command('income:auto-claim --midnight-batch')
+                ->dailyAt($claimAt)
+                ->timezone($incomeTz)
+                ->withoutOverlapping(30);
+
+            $schedule->command('income:auto-claim --due-only')
+                ->cron('*/'.$every.' * * * *')
+                ->timezone($incomeTz)
+                ->withoutOverlapping(4);
+        }
+
+        if ($hybridIncome) {
+            $schedule->command('income:pay-community-leadership')->dailyAt('03:00')->timezone($incomeTz);
+            $schedule->command('income:pay-community-leadership-rank11-monthly')->monthlyOn(1, '04:00')->timezone($incomeTz);
+            $schedule->command('income:release-stake-emis')->dailyAt('02:30')->timezone($incomeTz);
+            $schedule->command('income:rollover-holdings')->hourly()->timezone($incomeTz);
         }
 
         if (config('blockchain.indexer.enabled')) {

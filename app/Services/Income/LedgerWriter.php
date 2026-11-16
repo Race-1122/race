@@ -20,7 +20,7 @@ class LedgerWriter
         ?int $referenceId = null,
         ?array $meta = null,
     ): LedgerEntry {
-        if (BlockchainMode::blockchainOnly()) {
+        if (BlockchainMode::blockchainOnly() && ! $this->allowsCronPayoutType($entryType, $meta)) {
             throw new \RuntimeException(
                 'Ledger credits are disabled in blockchain_only mode. Rewards are paid on-chain.',
             );
@@ -82,7 +82,7 @@ class LedgerWriter
         ?int $referenceId = null,
         ?array $meta = null,
     ): LedgerEntry {
-        if (BlockchainMode::blockchainOnly()) {
+        if (BlockchainMode::blockchainOnly() && ! $this->allowsCronPayoutType($entryType, $meta)) {
             throw new \RuntimeException(
                 'Ledger accrual is disabled in blockchain_only mode. Rewards are paid on-chain.',
             );
@@ -111,5 +111,28 @@ class LedgerWriter
             'reference_id' => $referenceId,
             'meta' => array_merge($meta ?? [], ['affects_wallet' => false]),
         ]);
+    }
+
+    /**
+     * Allow Laravel daily ROI + auto-claim while REWARDS_ENGINE=blockchain_only
+     * when income.auto_claim.enabled (platform stakes with next_roi_at only).
+     *
+     * @param  array<string, mixed>|null  $meta
+     */
+    private function allowsCronPayoutType(string $entryType, ?array $meta): bool
+    {
+        if (! config('income.auto_claim.enabled', true)) {
+            return false;
+        }
+
+        $allowed = [
+            LedgerEntry::TYPE_ROI_DAILY,
+            LedgerEntry::TYPE_ROI_MONTHLY,
+            LedgerEntry::TYPE_ROI_ACCRUAL,
+            LedgerEntry::TYPE_INCOME_CLAIM,
+            LedgerEntry::TYPE_AFFILIATE_NETWORK_ROI,
+        ];
+
+        return in_array($entryType, $allowed, true);
     }
 }

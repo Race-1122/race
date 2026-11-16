@@ -452,69 +452,60 @@ export default function Investment({
                     </>
                 </MemberPageHero>
 
-                {onChain ? (
-                    <PanelCard title="Live Pancake price" icon="swap" className="border-fintech-line !p-4">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {onChain ? (
+                        <PanelCard title="Live Pancake price" icon="swap" className="border-fintech-line !p-4">
+                            <p className="mt-1 text-2xl font-bold text-fintech-ink">
+                                {pancakePrice > 0 ? formatRacePriceUsd(pancakePrice) : '—'}{' '}
+                                <span className="text-sm font-semibold text-fintech-muted">USDT / RACE</span>
+                            </p>
+                            <p className="mt-1 text-[11px] text-fintech-muted">
+                                PancakeSwap RACE→USDT · Min stake ≈{' '}
+                                {minRaceForOneUsd != null ? `${minRaceForOneUsd} RACE` : '—'} (after 4% fee ≥ $1)
+                            </p>
+                        </PanelCard>
+                    ) : null}
+                    <PanelCard title="Accrued reward" icon="investment" className="border-fintech-line !p-4">
                         <p className="mt-1 text-2xl font-bold text-fintech-ink">
-                            {pancakePrice > 0 ? formatRacePriceUsd(pancakePrice) : '—'}{' '}
-                            <span className="text-sm font-semibold text-fintech-muted">USDT / RACE</span>
+                            {formatUsd(income_policy?.accrued_reward_usd ?? 0)}
                         </p>
                         <p className="mt-1 text-[11px] text-fintech-muted">
-                            PancakeSwap RACE→USDT · Min stake ≈{' '}
-                            {minRaceForOneUsd != null ? `${minRaceForOneUsd} RACE` : '—'} (after 4% fee ≥ $1)
+                            Daily cron accrues ROI — midnight auto-claim moves it to income wallet
                         </p>
                     </PanelCard>
-                ) : (
-                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                        <PanelCard title="Accrued reward" icon="investment" className="border-fintech-line !p-4">
-                            <p className="mt-1 text-2xl font-bold text-fintech-ink">
-                                {formatUsd(income_policy?.accrued_reward_usd ?? 0)}
+                    <PanelCard title="Virtual Income Wallet" icon="wallet" className="border-fintech-line !p-4">
+                        <p className="mt-1 text-2xl font-bold text-fintech-ink">
+                            {formatUsd(income_policy?.virtual_income_usd ?? wallet_balance_usd ?? 0)}
+                        </p>
+                        <p className="mt-1 text-[11px] text-fintech-muted">
+                            Auto-claimed by cron · you can still Claim manually anytime due
+                        </p>
+                    </PanelCard>
+                    <PanelCard title="Claim income" icon="payout" className="border-fintech-line !p-4">
+                        <p className="mt-1 text-xs text-fintech-muted">
+                            Optional manual claim. Nightly cron also credits this wallet automatically.
+                        </p>
+                        {income_policy?.next_claim_at ? (
+                            <p className="mt-2 text-[11px] text-amber-800">
+                                Next claim after{' '}
+                                {new Date(income_policy.next_claim_at).toLocaleString(undefined, {
+                                    month: 'short',
+                                    day: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                })}
                             </p>
-                            <p className="mt-1 text-[11px] text-fintech-muted">
-                                Earned on schedule — claim to virtual balance (no Admin Fee)
-                            </p>
-                        </PanelCard>
-                        <PanelCard title="Virtual Income Wallet" icon="wallet" className="border-fintech-line !p-4">
-                            <p className="mt-1 text-2xl font-bold text-fintech-ink">
-                                {formatUsd(income_policy?.virtual_income_usd ?? wallet_balance_usd ?? 0)}
-                            </p>
-                            <p className="mt-1 text-[11px] text-fintech-muted">
-                                Combined earned income — not on-chain RACE until compound/mint
-                            </p>
-                        </PanelCard>
-                        <PanelCard title="Claim income" icon="payout" className="border-fintech-line !p-4 sm:col-span-2 lg:col-span-1">
-                            <p className="mt-1 text-xs text-fintech-muted">
-                                Separate from withdrawal. Claim does not send USDT outside the platform.
-                            </p>
-                            {income_policy?.next_claim_at ? (
-                                <p className="mt-2 text-[11px] text-amber-800">
-                                    Next claim after{' '}
-                                    {new Date(income_policy.next_claim_at).toLocaleString(undefined, {
-                                        month: 'short',
-                                        day: 'numeric',
-                                        hour: '2-digit',
-                                        minute: '2-digit',
-                                    })}
-                                </p>
-                            ) : null}
-                            <PrimaryButton
-                                type="button"
-                                className="mt-3 w-full justify-center"
-                                disabled={!income_policy?.can_claim || claimBusy}
-                                onClick={requestIncomeClaim}
-                            >
-                                {claimBusy ? 'Claiming…' : 'Claim to virtual income'}
-                            </PrimaryButton>
-                        </PanelCard>
-                        <PanelCard title="Race Coin" icon="swap" className="border-fintech-line !p-4 sm:col-span-2 lg:col-span-3">
-                            <p className="mt-1 text-2xl font-bold text-fintech-ink">
-                                {formatRaceCoins(race_coin_balance)} RC
-                            </p>
-                            <p className="mt-1 text-[11px] text-fintech-muted">
-                                @ {formatRacePriceUsd(race_coin_price_usd)} per coin
-                            </p>
-                        </PanelCard>
-                    </div>
-                )}
+                        ) : null}
+                        <PrimaryButton
+                            type="button"
+                            className="mt-3 w-full justify-center"
+                            disabled={!income_policy?.can_claim || claimBusy}
+                            onClick={requestIncomeClaim}
+                        >
+                            {claimBusy ? 'Claiming…' : 'Claim to virtual income'}
+                        </PrimaryButton>
+                    </PanelCard>
+                </div>
 
                 {!onChain ? (
                     <RacePdfPanel>
