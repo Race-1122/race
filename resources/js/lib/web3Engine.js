@@ -401,16 +401,21 @@ export async function stakeRaceFromWallet({
         throw new Error('Enter a RACE amount greater than zero.');
     }
 
-    await sendContractTx({
+    const approveTxHash = await sendContractTx({
         from: walletAddress,
         to: raceToken,
         data: encodeApprove(target, amountWei),
+    });
+    // Must wait — estimateGas on stakeRace reverts while allowance is still 0.
+    await waitForConfirmations(approveTxHash, {
+        minConfirmations: 1,
+        rpcUrl: rpcUrl || '',
     });
 
     return sendContractTx({
         from: walletAddress,
         to: target,
-        data: encodeStakeRace(amountWei, lockSeconds),
+        data: encodeStakeRace(amountWei, BigInt(lockSeconds || 0)),
     });
 }
 

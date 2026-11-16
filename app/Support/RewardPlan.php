@@ -618,6 +618,7 @@ final class RewardPlan
 
             $out[] = [
                 'days' => $days,
+                'seconds' => $days > 0 ? $days * 86400 : 0,
                 'label' => $label,
                 'daily_roi_percent' => number_format((float) ($tier['daily_roi_percent'] ?? $tier['daily_reward_percent'] ?? 0), 2, '.', ''),
             ];
