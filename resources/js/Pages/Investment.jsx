@@ -434,29 +434,11 @@ export default function Investment({
                         )
                     }
                 >
-                    {onChain ? (
-                        <>
-                            Min <strong className="text-white">$1</strong> · Qualify{' '}
-                            <strong className="text-white">$50+</strong> for referral. Price from live PancakeSwap.
-                        </>
-                    ) : (
-                        <>
-                            Stake from <strong className="text-white">$1</strong>. Amounts{' '}
-                            <strong className="text-white">$1–$49</strong> earn personal ROI and count in leadership
-                            team volume, but pay no upline referral reward.{' '}
-                            <strong className="text-white">$50+</strong> also activates full participation and referral
-                            eligibility.
-                        </>
-                    )}
+                    <>
+                        Stake from <strong className="text-white">$1</strong> — jitna marzi (temporary).
+                        {onChain ? ' Live PancakeSwap price.' : ''}
+                    </>
                 </MemberPageHero>
-
-                {!onChain && !idActive ? (
-                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-                        Your full participation is not active yet. A $1–$49 stake earns its own ROI and leadership
-                        volume only. First <strong>$50+</strong> participation activates referral and full-program
-                        eligibility.
-                    </div>
-                ) : null}
 
                 {onChain ? (
                     <PanelCard title="Live Pancake price" icon="swap" className="border-fintech-line !p-4">
@@ -558,11 +540,7 @@ export default function Investment({
                 <PanelCard title={onChain ? 'Stake' : 'Open participation'} icon="investment" className="border-fintech-line">
                     {!onChain ? (
                     <p className="mb-5 text-sm text-fintech-muted">
-                            Enter {formatUsd(builtForGrowth.min_amount_usd)} or more. Below{' '}
-                            {formatUsd(builtForGrowth.qualifying_amount_usd ?? '50')} earns personal ROI and counts
-                            toward leadership rank/team volume, but pays no referral reward.{' '}
-                            {formatUsd(builtForGrowth.qualifying_amount_usd ?? '50')}+ also activates participation
-                            and referral eligibility.
+                            Enter {formatUsd(builtForGrowth.min_amount_usd)} or more — amount open (temporary).
                     </p>
                     ) : null}
 
@@ -578,57 +556,8 @@ export default function Investment({
                                 showWhenConnected={Boolean(walletAddress)}
                             />
                             <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs text-sky-950">
-                                Min {formatUsd(onChainParticipation.min_usdt ?? '1')} · Qualify{' '}
-                                {formatUsd(onChainParticipation.qualifying_usdt ?? '50')}+ · Live Pancake{' '}
-                                {pancakePrice > 0 ? formatRacePriceUsd(pancakePrice) : '—'} / RACE
-                            </div>
-                            <div>
-                                <p className="mb-3 text-[11px] font-bold uppercase tracking-wider text-fintech-muted">
-                                    Stake with
-                                </p>
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                    <label
-                                        className={`cursor-pointer rounded-xl border px-4 py-3 transition ${
-                                            stakeSource === 'usdt'
-                                                ? 'border-[#2563EB] bg-sky-50 ring-2 ring-[#2563EB]/20'
-                                                : 'border-slate-200 bg-white hover:border-slate-300'
-                                        }`}
-                                    >
-                                        <input
-                                            type="radio"
-                                            name="stake_source"
-                                            value="usdt"
-                                            className="sr-only"
-                                            checked={stakeSource === 'usdt'}
-                                            onChange={() => setStakeSource('usdt')}
-                                        />
-                                        <p className="text-sm font-bold text-fintech-ink">Wallet USDT</p>
-                                        <p className="mt-1 text-xs text-fintech-muted">
-                                            Swap USDT → RACE on Pancake inside Engine, then stake
-                                        </p>
-                                    </label>
-                                    <label
-                                        className={`cursor-pointer rounded-xl border px-4 py-3 transition ${
-                                            stakeSource === 'wallet_race'
-                                                ? 'border-violet-500 bg-violet-50 ring-2 ring-violet-300/40'
-                                                : 'border-slate-200 bg-white hover:border-slate-300'
-                                        }`}
-                                    >
-                                        <input
-                                            type="radio"
-                                            name="stake_source"
-                                            value="wallet_race"
-                                            className="sr-only"
-                                            checked={stakeSource === 'wallet_race'}
-                                            onChange={() => setStakeSource('wallet_race')}
-                                        />
-                                        <p className="text-sm font-bold text-fintech-ink">Wallet RACE</p>
-                                        <p className="mt-1 text-xs text-fintech-muted">
-                                            Use BEP-20 RACE already in your wallet (e.g. Pancake buy) ·{' '}
-                                            {formatTokenWei(walletRaceBalance, 18, 4)} RACE
-                                        </p>
-                                    </label>
-                                </div>
+                                Min {formatUsd(onChainParticipation.min_usdt ?? '1')} USDT · Live Pancake{' '}
+                                {pancakePrice > 0 ? formatRacePriceUsd(pancakePrice) : '—'} / RACE · Wallet USDT stake
                             </div>
                         </div>
                     ) : null}
