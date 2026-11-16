@@ -125,8 +125,12 @@ export default function Investment({
     const usdtContract =
         engineConfig?.usdt_contract || blockchain?.contracts?.usdt || '';
     const [onChainBusy, setOnChainBusy] = useState(false);
-    /** usdt = Engine.participate (USDT→Pancake); wallet_race = Engine.stakeRace (wallet BEP-20 RACE) */
+    /** usdt = Engine.participate; wallet_race = RaceWalletRaceStake.stakeRace */
     const [stakeSource, setStakeSource] = useState('usdt');
+    const walletRaceStakeContract =
+        engineConfig?.wallet_race_stake_contract ||
+        blockchain?.contracts?.wallet_race_stake ||
+        '';
     const [walletRaceBalance, setWalletRaceBalance] = useState(0n);
     const [amountRace, setAmountRace] = useState('50');
     const [livePancakePriceUsd, setLivePancakePriceUsd] = useState(() =>
@@ -335,6 +339,7 @@ export default function Investment({
                 stakeSource === 'wallet_race'
                     ? await stakeRaceFromWallet({
                           walletAddress,
+                          stakeContract: walletRaceStakeContract,
                           engineContract,
                           raceToken,
                           raceAmount: amountRace,
@@ -371,7 +376,9 @@ export default function Investment({
             const msg = err?.message || 'On-chain participation failed.';
             if (/stakeRace|function selector|execution reverted/i.test(msg)) {
                 notifyError(
-                    `${msg} — If this Engine is an older deployment, stakeRace must be redeployed/upgraded first.`,
+                    walletRaceStakeContract
+                        ? `${msg} — Check Multisig setPayer + wallet RACE balance/allowance.`
+                        : `${msg} — Set RACE_WALLET_STAKE_CONTRACT in .env.`,
                     'Stake',
                 );
             } else {

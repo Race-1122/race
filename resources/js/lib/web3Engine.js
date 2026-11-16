@@ -357,11 +357,11 @@ export async function purchaseOnChainParticipation({
 }
 
 /**
- * Stake BEP-20 RACE already in the wallet (Pancake buy, transfer, etc.).
- * Requires Engine deployment that includes stakeRace() — live Engine must be upgraded/redeployed.
+ * Stake BEP-20 RACE already in the wallet via RaceWalletRaceStake (not CommunityEngine).
  */
 export async function stakeRaceFromWallet({
     walletAddress,
+    stakeContract,
     engineContract,
     raceToken,
     raceAmount,
@@ -369,18 +369,32 @@ export async function stakeRaceFromWallet({
     sponsorWallet,
     rpcUrl,
 }) {
+    const target =
+        stakeContract && /^0x[a-fA-F0-9]{40}$/.test(stakeContract)
+            ? stakeContract
+            : engineContract;
+    if (!target || !/^0x[a-fA-F0-9]{40}$/.test(target)) {
+        throw new Error('Wallet RACE stake contract is not configured.');
+    }
     if (!raceToken || !/^0x[a-fA-F0-9]{40}$/.test(raceToken)) {
         throw new Error('RACE token address is not configured.');
     }
     await ensureBscNetwork();
 
-    await ensureEngineReferralBeforeStake({
-        walletAddress,
-        engineContract,
-        rpcUrl,
-        sponsorWallet,
-        waitConfirmations: 1,
-    });
+    // Engine referral only when falling back to CommunityEngine.stakeRace.
+    if (
+        engineContract &&
+        /^0x[a-fA-F0-9]{40}$/.test(engineContract) &&
+        target.toLowerCase() === engineContract.toLowerCase()
+    ) {
+        await ensureEngineReferralBeforeStake({
+            walletAddress,
+            engineContract,
+            rpcUrl,
+            sponsorWallet,
+            waitConfirmations: 1,
+        });
+    }
 
     const amountWei = parseTokenAmount(String(raceAmount), 18);
     if (amountWei <= 0n) {
@@ -390,12 +404,12 @@ export async function stakeRaceFromWallet({
     await sendContractTx({
         from: walletAddress,
         to: raceToken,
-        data: encodeApprove(engineContract, amountWei),
+        data: encodeApprove(target, amountWei),
     });
 
     return sendContractTx({
         from: walletAddress,
-        to: engineContract,
+        to: target,
         data: encodeStakeRace(amountWei, lockSeconds),
     });
 }
