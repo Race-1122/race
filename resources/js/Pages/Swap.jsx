@@ -10,11 +10,13 @@ import { parseTokenAmount } from '@/lib/web3Deposit';
 import {
     applySlippage,
     buyRaceWithUsdt,
+    expectedNetAfterTransferTax,
     formatTokenWei,
     friendlySwapError,
     getSwapQuote,
     readErc20Balance,
     readRaceUsdtPrice,
+    RACE_TRANSFER_TAX_BPS,
     sellRaceForUsdt,
 } from '@/lib/web3PancakeSwap';
 import { Head, useForm, usePage } from '@inertiajs/react';
@@ -147,9 +149,15 @@ export default function Swap({
             if (!configured || !amountIn || Number(amountIn) <= 0) return;
             try {
                 const wei = parseTokenAmount(String(amountIn), 18);
+                // Sell: only ~96% RACE reaches the pair after transfer tax.
+                const quoteIn =
+                    direction === 'sell' ? expectedNetAfterTransferTax(wei, RACE_TRANSFER_TAX_BPS) : wei;
                 const path = direction === 'buy' ? [usdtContract, raceToken] : [raceToken, usdtContract];
-                const out = await getSwapQuote({ router, path, amountIn: wei, rpcUrl });
-                if (!cancelled) setQuoteOut(out);
+                const out = await getSwapQuote({ router, path, amountIn: quoteIn, rpcUrl });
+                // Buy: wallet receives ~96% of router out (RACE tax on transfer from pair).
+                const displayOut =
+                    direction === 'buy' ? expectedNetAfterTransferTax(out, RACE_TRANSFER_TAX_BPS) : out;
+                if (!cancelled) setQuoteOut(displayOut);
             } catch {
                 if (!cancelled) setQuoteOut(0n);
             }
@@ -223,6 +231,7 @@ export default function Swap({
                 raceToken,
                 slippageBps,
                 deadlineSeconds,
+                rpcUrl,
             };
             const txHash =
                 direction === 'buy'
@@ -428,7 +437,9 @@ export default function Swap({
 
                                 <div className="mt-1 space-y-1 rounded-xl border border-white/5 bg-white/5 px-3 py-2 text-xs text-slate-300">
                                     <div className="flex justify-between">
-                                        <span className="text-slate-400">Min received ({slippageBps / 100}% slip)</span>
+                                        <span className="text-slate-400">
+                                            Min received (4% tax + {slippageBps / 100}% slip)
+                                        </span>
                                         <span className="font-medium">
                                             {minOut > 0n ? formatTokenWei(minOut, 18, 4) : '—'} {receiveSymbol}
                                         </span>

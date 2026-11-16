@@ -107,9 +107,22 @@ export function formatTokenWei(wei, decimals = 18, maxFraction = 6) {
     return fracStr ? `${whole}.${fracStr}` : String(whole);
 }
 
+/** RACE BEP-20 transfer fee (4%). Pancake getAmountsOut ignores this. */
+export const RACE_TRANSFER_TAX_BPS = 400;
+
 export function applySlippage(amountOut, slippageBps = 100) {
-    const bps = BigInt(slippageBps);
-    return (amountOut * (10000n - bps)) / 10000n;
+    const bps = BigInt(Math.max(0, Number(slippageBps) || 0));
+    return (BigInt(amountOut) * (10000n - bps)) / 10000n;
+}
+
+/** After transfer tax, then slippage — use for RACE amountOutMin. */
+export function applyTransferTaxThenSlippage(amountOut, taxBps = RACE_TRANSFER_TAX_BPS, slippageBps = 100) {
+    const taxed = applySlippage(amountOut, taxBps);
+    return applySlippage(taxed, slippageBps);
+}
+
+export function expectedNetAfterTransferTax(amountIn, taxBps = RACE_TRANSFER_TAX_BPS) {
+    return applySlippage(amountIn, taxBps);
 }
 
 export async function readErc20Balance({ token, wallet, rpcUrl }) {
@@ -191,14 +204,30 @@ export async function swapExactTokens({
     slippageBps = 100,
     deadlineSeconds = 1200,
     waitConfirmations = 3,
+    /** When tokenOut is fee-on-transfer (RACE), shrink minOut by tax+slippage. */
+    outputTransferTaxBps = 0,
+    /** When tokenIn is fee-on-transfer, quote as if only net arrives at the pair. */
+    inputTransferTaxBps = 0,
+    rpcUrl = '',
 }) {
     await ensureBscNetwork();
 
     const path = [tokenIn, tokenOut];
     let minOut = amountOutMin;
     if (minOut === undefined || minOut === null) {
-        const quoted = await getSwapQuote({ router, path, amountIn });
-        minOut = applySlippage(quoted, slippageBps);
+        const quoteIn =
+            inputTransferTaxBps > 0
+                ? expectedNetAfterTransferTax(amountIn, inputTransferTaxBps)
+                : amountIn;
+        const quoted = await getSwapQuote({ router, path, amountIn: quoteIn, rpcUrl });
+        minOut =
+            outputTransferTaxBps > 0
+                ? applyTransferTaxThenSlippage(quoted, outputTransferTaxBps, slippageBps)
+                : applySlippage(quoted, slippageBps);
+    }
+
+    if (minOut <= 0n) {
+        throw new Error('Swap quote is zero — check Pancake liquidity / amount.');
     }
 
     const deadline = BigInt(Math.floor(Date.now() / 1000) + deadlineSeconds);
@@ -209,7 +238,7 @@ export async function swapExactTokens({
         data: encodeApprove(router, amountIn),
     });
     // Wait — estimateGas on swap reverts while allowance is still 0.
-    await waitForConfirmations(approveTxHash, { minConfirmations: 1 });
+    await waitForConfirmations(approveTxHash, { minConfirmations: 1, rpcUrl: rpcUrl || '' });
 
     const swapData = encodeSwapSupportingFee(amountIn, minOut, path, walletAddress, deadline);
     const txHash = await sendContractTx({
@@ -219,7 +248,7 @@ export async function swapExactTokens({
     });
 
     if (waitConfirmations > 0) {
-        await waitForConfirmations(txHash, { minConfirmations: waitConfirmations });
+        await waitForConfirmations(txHash, { minConfirmations: waitConfirmations, rpcUrl: rpcUrl || '' });
     }
 
     return txHash;
@@ -233,6 +262,7 @@ export async function buyRaceWithUsdt({
     amountUsd,
     slippageBps,
     deadlineSeconds,
+    rpcUrl,
 }) {
     assertOfficialUsdtContract(usdtContract);
     const amountIn = parseTokenAmount(amountUsd, 18);
@@ -244,6 +274,9 @@ export async function buyRaceWithUsdt({
         amountIn,
         slippageBps,
         deadlineSeconds,
+        // RACE out: pair → wallet takes 4% tax; minOut must allow that.
+        outputTransferTaxBps: RACE_TRANSFER_TAX_BPS,
+        rpcUrl,
     });
 }
 
@@ -255,6 +288,7 @@ export async function sellRaceForUsdt({
     amountRace,
     slippageBps,
     deadlineSeconds,
+    rpcUrl,
 }) {
     assertOfficialUsdtContract(usdtContract);
     const amountIn = parseTokenAmount(amountRace, 18);
@@ -266,6 +300,9 @@ export async function sellRaceForUsdt({
         amountIn,
         slippageBps,
         deadlineSeconds,
+        // RACE in: only ~96% hits the pair; quote from net.
+        inputTransferTaxBps: RACE_TRANSFER_TAX_BPS,
+        rpcUrl,
     });
 }
 
@@ -291,8 +328,8 @@ export function friendlySwapError(error) {
     if (/Only official BEP20 USDT/i.test(message)) {
         return 'Only official BEP20 USDT is supported.';
     }
-    if (/execution reverted/i.test(message)) {
-        return 'Swap reverted on-chain. Check liquidity, slippage, or token approval.';
+    if (/Transaction would revert on-chain|execution reverted|INSUFFICIENT_OUTPUT/i.test(message)) {
+        return 'Swap would revert — usually RACE 4% tax vs min received, low liquidity, or approval still pending. Retry with the latest Swap build.';
     }
     if (/timeout/i.test(message)) {
         return 'Transaction confirmation timed out. Check BscScan for status.';
