@@ -291,13 +291,20 @@ Server path (typical):
 /home/racenetwork/htdocs/racenetwork.live
 ```
 
-### Safe deploy of a feature branch (example)
+### Git source (server)
+
+```text
+https://github.com/hari-s-001/hari.git
+```
+
+### Deploy from `main` (hari)
 
 ```bash
 cd /home/racenetwork/htdocs/racenetwork.live
+git remote set-url origin https://github.com/hari-s-001/hari.git
 git fetch origin
-git checkout fix/ico-wrong-network-message
-git pull origin fix/ico-wrong-network-message
+git checkout main
+git reset --hard origin/main
 npm install
 npx vite build
 php artisan optimize:clear
@@ -307,7 +314,7 @@ php artisan optimize:clear
 
 - Apex host par `SESSION_DOMAIN` **empty** rakho (TokenPocket/Trust CSRF 419 avoid).
 - `vite: not found` aaye to pehle `npm install`, phir `npx vite build`.
-- `main` diverge ho to blind `git pull origin main` mat karo — pehle branch/commit confirm karo.
+- Code sirf `hari-s-001/hari` se aana chahiye (Yogesh283/hrace use mat karo).
 - Full env + contract set steps: **`deploy.md`**
 
 ---

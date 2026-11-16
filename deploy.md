@@ -20,14 +20,29 @@ Do **not** use `arogyaspaa.com` — that is a different host.
 
 On the apex host `racenetwork.live` keep `SESSION_DOMAIN` **empty**. `SESSION_DOMAIN=.racenetwork.live` causes CSRF 419 in TokenPocket / in-app browsers.
 
-### 0) One-shot: pull code + set APP_URL + new contracts
+### Git remote (source of truth)
+
+Server must pull **only** from:
+
+```text
+https://github.com/hari-s-001/hari.git
+```
+
+Default branch: `main` (latest RACE wallet stake + app code).
+
+### 0) One-shot: point remote to hari + pull + set APP_URL + contracts
 
 SSH into the live server, then paste this entire block once:
 
 ```bash
 cd /home/racenetwork/htdocs/racenetwork.live || cd /var/www/racenetwork.live
 
-git pull
+# Use hari-s-001/hari only (not Yogesh283/hrace)
+git remote remove origin 2>/dev/null || true
+git remote add origin https://github.com/hari-s-001/hari.git
+git fetch origin
+git checkout main
+git reset --hard origin/main
 
 set_env() {
   key="$1"
@@ -55,6 +70,7 @@ set_env RACE_OPERATIONS_TREASURY_CONTRACT 0x2BBCC874a556540da04e9604b4A33B9FFFD1
 set_env RACE_REWARD_VAULT_CONTRACT 0xa59543817202fE2967be2B6e9EE081b765aE8958
 set_env RACE_REWARD_PRICE_ORACLE_CONTRACT 0x9504f0c9A81370443F0F1B97Bc92B4DE176C8bbF
 set_env RACE_COMMUNITY_ENGINE_CONTRACT 0x93E75234026aA3942624Dd61Dc4EF2aCf958E1DE
+set_env RACE_WALLET_STAKE_CONTRACT 0xbcb76726D87e0c794Ae34BBf692c2D204eF9B29c
 set_env RACE_PARTICIPATION_CONTRACT 0x0cbBb4d3871343AB25EAe2A707956DC4E5779821
 set_env RACE_ICO_CONTRACT 0x631C12254A98cC69516859fD43c4Da494F5073CA
 set_env ICO_CONTRACT 0xc618bc4f36877F5d81539f7275958f4B21677d27
@@ -67,9 +83,14 @@ set_env ICO_ADMIN_WALLET 0x568B11c83A104c81c70cde58cCdbF4aa9c97b225
 
 rm -f bootstrap/cache/packages.php bootstrap/cache/services.php bootstrap/cache/config.php
 composer install --no-dev --optimize-autoloader
+npm install
+npx vite build
 php artisan package:discover --ansi
 php artisan optimize:clear
 
+echo "=== git remote ==="
+git remote -v
+git rev-parse --short HEAD
 echo "=== live urls + contracts ==="
 grep -E '^(APP_URL|ASSET_URL|SESSION_DOMAIN|BSC_CHAIN_ID|RACE_|ICO_CONTRACT|ICO_ADMIN_WALLET)=' .env
 ```
