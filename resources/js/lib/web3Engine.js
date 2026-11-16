@@ -12,6 +12,7 @@ const SELECTORS = {
     approve: '0x095ea7b3',
     register: '0x4420e486',
     participate: '0x129874aa',
+    stakeRace: '0x3a9f20c2',
     claimReward: '0xae169a50',
     compoundReward: '0x4060e257',
     withdrawStake: '0x25d5971f',
@@ -57,6 +58,10 @@ function encodeRegister(referrer) {
 
 function encodeParticipate(usdtWei, lockSeconds) {
     return SELECTORS.participate + padUint256(usdtWei) + padUint256(lockSeconds);
+}
+
+function encodeStakeRace(raceWei, lockSeconds) {
+    return SELECTORS.stakeRace + padUint256(raceWei) + padUint256(lockSeconds);
 }
 
 function encodeClaimReward(stakeIndex) {
@@ -348,6 +353,50 @@ export async function purchaseOnChainParticipation({
         from: walletAddress,
         to: engineContract,
         data: encodeParticipate(amountWei, lockSeconds),
+    });
+}
+
+/**
+ * Stake BEP-20 RACE already in the wallet (Pancake buy, transfer, etc.).
+ * Requires Engine deployment that includes stakeRace() — live Engine must be upgraded/redeployed.
+ */
+export async function stakeRaceFromWallet({
+    walletAddress,
+    engineContract,
+    raceToken,
+    raceAmount,
+    lockSeconds,
+    sponsorWallet,
+    rpcUrl,
+}) {
+    if (!raceToken || !/^0x[a-fA-F0-9]{40}$/.test(raceToken)) {
+        throw new Error('RACE token address is not configured.');
+    }
+    await ensureBscNetwork();
+
+    await ensureEngineReferralBeforeStake({
+        walletAddress,
+        engineContract,
+        rpcUrl,
+        sponsorWallet,
+        waitConfirmations: 1,
+    });
+
+    const amountWei = parseTokenAmount(String(raceAmount), 18);
+    if (amountWei <= 0n) {
+        throw new Error('Enter a RACE amount greater than zero.');
+    }
+
+    await sendContractTx({
+        from: walletAddress,
+        to: raceToken,
+        data: encodeApprove(engineContract, amountWei),
+    });
+
+    return sendContractTx({
+        from: walletAddress,
+        to: engineContract,
+        data: encodeStakeRace(amountWei, lockSeconds),
     });
 }
 

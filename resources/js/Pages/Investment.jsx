@@ -12,12 +12,14 @@ import { useWalletNetwork } from '@/hooks/useWalletNetwork';
 import {
     claimOnChainReward,
     purchaseOnChainParticipation,
+    stakeRaceFromWallet,
     withdrawOnChainStake,
 } from '@/lib/web3Engine';
 import { syncBlockchainTx } from '@/lib/web3Deposit';
 import { syncParticipationTx } from '@/lib/web3Participation';
+import { readErc20Balance, formatTokenWei } from '@/lib/web3PancakeSwap';
 import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 const fieldClass =
     'w-full rounded-xl border border-sky-500/30 bg-slate-900/60 px-4 py-3 text-sm font-medium text-slate-100 shadow-sm outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-400/25';
@@ -117,9 +119,14 @@ export default function Investment({
     } = useWalletNetwork({ expectedChainId: engineConfig?.chain_id ?? blockchain?.chain_id });
     const engineContract =
         engineConfig?.engine_contract || engineConfig?.contract || '';
+    const raceToken = engineConfig?.race_token || blockchain?.contracts?.race_token || '';
     const [onChainBusy, setOnChainBusy] = useState(false);
     const [onChainError, setOnChainError] = useState('');
     const [onChainStatus, setOnChainStatus] = useState('');
+    /** usdt = Engine.participate (USDT→Pancake); wallet_race = Engine.stakeRace (wallet BEP-20 RACE) */
+    const [stakeSource, setStakeSource] = useState('usdt');
+    const [walletRaceBalance, setWalletRaceBalance] = useState(0n);
+    const [amountRace, setAmountRace] = useState('50');
     const [unlockBusyId, setUnlockBusyId] = useState(null);
     const [compoundBusyId, setCompoundBusyId] = useState(null);
     const [claimBusy, setClaimBusy] = useState(false);
@@ -197,8 +204,11 @@ export default function Investment({
     const walletBal = Number(wallet_balance_usd ?? 0);
     const raceBal = Number(race_coin_balance ?? 0);
     const payWithRaceCoin = data.payment_method === 'race_coin';
-    const amountValid =
-        Number.isFinite(amountNum) && amountNum >= Number(builtForGrowth.min_amount_usd ?? 50);
+    const stakeWithWalletRace = onChain && stakeSource === 'wallet_race';
+    const raceAmountNum = Number(amountRace);
+    const amountValid = stakeWithWalletRace
+        ? Number.isFinite(raceAmountNum) && raceAmountNum > 0
+        : Number.isFinite(amountNum) && amountNum >= Number(builtForGrowth.min_amount_usd ?? 50);
     const hasFunds = payWithRaceCoin
         ? raceBal >= coinsRequired
         : wallet_balance_usd == null || walletBal >= amountNum;
@@ -206,6 +216,34 @@ export default function Investment({
         onChain
             ? amountValid && durationDays >= 0 && selectedDuration && !onChainBusy
             : amountValid && durationDays >= 0 && selectedDuration && hasFunds && !processing;
+
+    useEffect(() => {
+        let cancelled = false;
+        async function loadWalletRace() {
+            if (!onChain || !walletAddress || !raceToken) {
+                setWalletRaceBalance(0n);
+                return;
+            }
+            try {
+                const bal = await readErc20Balance({
+                    token: raceToken,
+                    wallet: walletAddress,
+                    rpcUrl: engineConfig.rpc_url || blockchain?.rpc_url || '',
+                });
+                if (!cancelled) {
+                    setWalletRaceBalance(bal ?? 0n);
+                }
+            } catch {
+                if (!cancelled) {
+                    setWalletRaceBalance(0n);
+                }
+            }
+        }
+        loadWalletRace();
+        return () => {
+            cancelled = true;
+        };
+    }, [onChain, walletAddress, raceToken, engineConfig.rpc_url, blockchain?.rpc_url, onChainStatus]);
 
     const submitOnChain = async (e) => {
         e.preventDefault();
@@ -225,7 +263,7 @@ export default function Investment({
             }
         }
 
-        const tier = durationTierForDays(data.duration_days, durationTiers);
+        const tier = durationTiersForDays(data.duration_days, durationTiers);
         if (!tier) {
             setOnChainError('Select a valid lock tier.');
             return;
@@ -233,15 +271,26 @@ export default function Investment({
 
         setOnChainBusy(true);
         try {
-            const txHash = await purchaseOnChainParticipation({
-                walletAddress,
-                engineContract,
-                usdtContract: engineConfig.usdt_contract,
-                amountUsd: data.amount_usd,
-                lockSeconds: tier.seconds ?? 0,
-                sponsorWallet: on_chain_sponsor_wallet,
-                rpcUrl: engineConfig.rpc_url || blockchain?.rpc_url || '',
-            });
+            const txHash =
+                stakeSource === 'wallet_race'
+                    ? await stakeRaceFromWallet({
+                          walletAddress,
+                          engineContract,
+                          raceToken,
+                          raceAmount: amountRace,
+                          lockSeconds: tier.seconds ?? 0,
+                          sponsorWallet: on_chain_sponsor_wallet,
+                          rpcUrl: engineConfig.rpc_url || blockchain?.rpc_url || '',
+                      })
+                    : await purchaseOnChainParticipation({
+                          walletAddress,
+                          engineContract,
+                          usdtContract: engineConfig.usdt_contract,
+                          amountUsd: data.amount_usd,
+                          lockSeconds: tier.seconds ?? 0,
+                          sponsorWallet: on_chain_sponsor_wallet,
+                          rpcUrl: engineConfig.rpc_url || blockchain?.rpc_url || '',
+                      });
             try {
                 await syncBlockchainTx({ txHash });
                 await syncParticipationTx({
@@ -251,10 +300,21 @@ export default function Investment({
             } catch (syncErr) {
                 console.warn('participate sync:', syncErr?.message || syncErr);
             }
-            setOnChainStatus('Stake opened. Claimed income stays in your income wallet — bring it to your wallet anytime.');
+            setOnChainStatus(
+                stakeSource === 'wallet_race'
+                    ? 'Wallet RACE staked. Claimed income stays in your income wallet — bring it to your wallet anytime.'
+                    : 'Stake opened. Claimed income stays in your income wallet — bring it to your wallet anytime.',
+            );
             router.reload({ only: ['investments', 'blockchainParticipations', 'communityEngineStakes', 'memberActivation', 'web3Engine'] });
         } catch (err) {
-            setOnChainError(err?.message || 'On-chain participation failed.');
+            const msg = err?.message || 'On-chain participation failed.';
+            if (/stakeRace|function selector|execution reverted/i.test(msg)) {
+                setOnChainError(
+                    `${msg} — If this Engine is an older deployment, stakeRace must be redeployed/upgraded first.`,
+                );
+            } else {
+                setOnChainError(msg);
+            }
         } finally {
             setOnChainBusy(false);
         }
@@ -442,7 +502,8 @@ export default function Investment({
                     <p className="mb-5 text-sm text-fintech-muted">
                         {onChain ? (
                             <>
-                                Pay <strong>USDT from any crypto wallet</strong>.{' '}
+                                Stake with <strong>wallet USDT</strong> (Engine swaps → RACE) or{' '}
+                                <strong>wallet BEP-20 RACE</strong> already bought on Pancake.{' '}
                                 <span className="font-mono text-sky-700">RaceCommunityEngine</span> stakes on-chain.
                                 Flexible is <strong>0.35% daily</strong>, available after on-chain{' '}
                                 <span className="font-mono">RaceICO.icoCompleted</span>.
@@ -478,6 +539,54 @@ export default function Investment({
                                 Contract: {onChainParticipation.participation_contract || onChainParticipation.engine_contract || '—'} · Min{' '}
                                 {formatUsd(onChainParticipation.min_usdt ?? '1')} USDT earns ROI · Qualify{' '}
                                 {formatUsd(onChainParticipation.qualifying_usdt ?? '50')}+ for referral and full staking.
+                            </div>
+                            <div>
+                                <p className="mb-3 text-[11px] font-bold uppercase tracking-wider text-fintech-muted">
+                                    Stake with
+                                </p>
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                    <label
+                                        className={`cursor-pointer rounded-xl border px-4 py-3 transition ${
+                                            stakeSource === 'usdt'
+                                                ? 'border-[#2563EB] bg-sky-50 ring-2 ring-[#2563EB]/20'
+                                                : 'border-slate-200 bg-white hover:border-slate-300'
+                                        }`}
+                                    >
+                                        <input
+                                            type="radio"
+                                            name="stake_source"
+                                            value="usdt"
+                                            className="sr-only"
+                                            checked={stakeSource === 'usdt'}
+                                            onChange={() => setStakeSource('usdt')}
+                                        />
+                                        <p className="text-sm font-bold text-fintech-ink">Wallet USDT</p>
+                                        <p className="mt-1 text-xs text-fintech-muted">
+                                            Swap USDT → RACE on Pancake inside Engine, then stake
+                                        </p>
+                                    </label>
+                                    <label
+                                        className={`cursor-pointer rounded-xl border px-4 py-3 transition ${
+                                            stakeSource === 'wallet_race'
+                                                ? 'border-violet-500 bg-violet-50 ring-2 ring-violet-300/40'
+                                                : 'border-slate-200 bg-white hover:border-slate-300'
+                                        }`}
+                                    >
+                                        <input
+                                            type="radio"
+                                            name="stake_source"
+                                            value="wallet_race"
+                                            className="sr-only"
+                                            checked={stakeSource === 'wallet_race'}
+                                            onChange={() => setStakeSource('wallet_race')}
+                                        />
+                                        <p className="text-sm font-bold text-fintech-ink">Wallet RACE</p>
+                                        <p className="mt-1 text-xs text-fintech-muted">
+                                            Use BEP-20 RACE already in your wallet (e.g. Pancake buy) ·{' '}
+                                            {formatTokenWei(walletRaceBalance, 18, 4)} RACE
+                                        </p>
+                                    </label>
+                                </div>
                             </div>
                         </div>
                     ) : null}
@@ -536,22 +645,48 @@ export default function Investment({
 
                         <div className="grid gap-4 sm:grid-cols-2">
                             <div>
-                                <label
-                                    htmlFor="amount_usd"
-                                    className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-fintech-muted"
-                                >
-                                    Amount (USD)
-                                </label>
-                                <input
-                                    id="amount_usd"
-                                    type="number"
-                                    min={builtForGrowth.min_amount_usd}
-                                    max={builtForGrowth.max_amount_usd}
-                                    step="0.01"
-                                    value={data.amount_usd}
-                                    onChange={(e) => setData('amount_usd', e.target.value)}
-                                    className={fieldClass}
-                                />
+                                {stakeWithWalletRace ? (
+                                    <>
+                                        <label
+                                            htmlFor="amount_race"
+                                            className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-fintech-muted"
+                                        >
+                                            Amount (RACE)
+                                        </label>
+                                        <input
+                                            id="amount_race"
+                                            type="number"
+                                            min="0"
+                                            step="0.0001"
+                                            value={amountRace}
+                                            onChange={(e) => setAmountRace(e.target.value)}
+                                            className={fieldClass}
+                                        />
+                                        <p className="mt-1 text-xs text-fintech-muted">
+                                            Principal USD = RACE × live Pancake price (must be ≥{' '}
+                                            {formatUsd(onChainParticipation.min_usdt ?? '1')}). Approve RACE then stake.
+                                        </p>
+                                    </>
+                                ) : (
+                                    <>
+                                        <label
+                                            htmlFor="amount_usd"
+                                            className="mb-2 block text-[11px] font-bold uppercase tracking-wider text-fintech-muted"
+                                        >
+                                            Amount (USD)
+                                        </label>
+                                        <input
+                                            id="amount_usd"
+                                            type="number"
+                                            min={builtForGrowth.min_amount_usd}
+                                            max={builtForGrowth.max_amount_usd}
+                                            step="0.01"
+                                            value={data.amount_usd}
+                                            onChange={(e) => setData('amount_usd', e.target.value)}
+                                            className={fieldClass}
+                                        />
+                                    </>
+                                )}
                             </div>
                             <div>
                                 <label
@@ -578,8 +713,12 @@ export default function Investment({
                         {amountValid && selectedDuration ? (
                             <div className="space-y-2">
                                 <p className="rounded-xl border-2 border-emerald-400 bg-emerald-100 px-4 py-3 text-sm font-medium text-emerald-950 shadow-sm">
-                                    <strong>{formatUsd(data.amount_usd)}</strong> ·{' '}
-                                    <strong>{Number(selectedDuration.daily_roi_percent).toFixed(2)}%</strong> daily
+                                    <strong>
+                                        {stakeWithWalletRace
+                                            ? `${amountRace} RACE`
+                                            : formatUsd(data.amount_usd)}
+                                    </strong>{' '}
+                                    · <strong>{Number(selectedDuration.daily_roi_percent).toFixed(2)}%</strong> daily
                                     {durationDays === 0 ? (
                                         <>
                                             {' '}
@@ -589,13 +728,18 @@ export default function Investment({
                                         <>
                                             {' '}
                                             · <strong>{durationDays}</strong> days lock
-                                            {estTotalRoi != null ? (
+                                            {!stakeWithWalletRace && estTotalRoi != null ? (
                                                 <> (~{formatUsd(estTotalRoi)} est. total ROI)</>
                                             ) : null}
                                         </>
                                     )}
                                 </p>
-                                {payWithRaceCoin ? (
+                                {stakeWithWalletRace ? (
+                                    <p className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
+                                        Payment: <strong>{amountRace} BEP-20 RACE</strong> from crypto wallet
+                                        (principal USD = RACE × Pancake)
+                                    </p>
+                                ) : payWithRaceCoin ? (
                                     <p className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
                                         Payment: <strong>{formatRaceCoins(coinsRequired)} Race Coin</strong>
                                     </p>
@@ -607,7 +751,9 @@ export default function Investment({
                             </div>
                         ) : (
                             <p className="text-sm text-amber-800">
-                                Minimum {formatUsd(builtForGrowth.min_amount_usd)}. Choose a valid lock tier.
+                                {stakeWithWalletRace
+                                    ? 'Enter a RACE amount greater than zero and choose a valid lock tier.'
+                                    : `Minimum ${formatUsd(builtForGrowth.min_amount_usd)}. Choose a valid lock tier.`}
                             </p>
                         )}
 
@@ -627,7 +773,9 @@ export default function Investment({
                             {onChain
                                 ? onChainBusy
                                     ? 'Confirm in wallet…'
-                                    : `Stake ${formatUsd(data.amount_usd)} USDT on-chain`
+                                    : stakeWithWalletRace
+                                      ? `Stake ${amountRace} RACE on-chain`
+                                      : `Stake ${formatUsd(data.amount_usd)} USDT on-chain`
                                 : processing
                                   ? 'Saving…'
                                   : payWithRaceCoin

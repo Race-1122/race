@@ -601,6 +601,84 @@ contract RaceCommunityEngine is Ownable, ReentrancyGuard, Pausable, IRaceIcoStak
         emit ParticipationPurchased(msg.sender, stakeIndex, usdtAmount, raceReceived, lockPeriod, dailyRateBps);
     }
 
+    /**
+     * @notice Stake BEP-20 RACE already in the user wallet (e.g. bought on PancakeSwap).
+     * @dev Pulls RACE via transferFrom (fee-on-transfer safe via balance delta). Principal USDT
+     *      notional = raceReceived × live Pancake price. Same activation / referral rules as participate.
+     */
+    function stakeRace(uint256 raceAmount, uint256 lockPeriod) external nonReentrant whenNotPaused {
+        MemberInfo storage m = _members[msg.sender];
+        if (!m.registered) {
+            _register(msg.sender, address(0), false);
+        }
+        require(raceAmount > 0, "engine: zero race");
+
+        uint256 configuredRateBps = _dailyRateBps(lockPeriod);
+        require(configuredRateBps > 0, "engine: invalid lock");
+        if (lockPeriod == LOCK_FLEXIBLE) {
+            require(_isIcoCompletedForFlexible(), "engine: flexible after ico only");
+        }
+
+        uint256 price = _livePancakeRacePriceUsdt();
+        require(price > 0, "engine: no pancake price");
+
+        uint256 balBefore = raceToken.balanceOf(address(this));
+        raceToken.safeTransferFrom(msg.sender, address(this), raceAmount);
+        uint256 raceReceived = raceToken.balanceOf(address(this)) - balBefore;
+        require(raceReceived > 0, "engine: zero received");
+
+        // USDT-notional principal at live price (18-decimal USDT per 1 RACE).
+        uint256 principalUsdt = (raceReceived * price) / 1 ether;
+        require(principalUsdt >= MIN_PARTICIPATION_USDT, "engine: below minimum");
+
+        bool qualifying = principalUsdt >= QUALIFYING_PARTICIPATION_USDT;
+        uint256 dailyRateBps = configuredRateBps;
+
+        if (qualifying) {
+            bool firstParticipation = !m.participationActive;
+            if (firstParticipation) {
+                m.participationActive = true;
+                m.participationAt = block.timestamp;
+                if (m.referrer != address(0)) {
+                    _members[m.referrer].participationDirectCount += 1;
+                }
+            }
+
+            m.selfParticipationUsdt += principalUsdt;
+            _updateRank(msg.sender);
+        }
+
+        uint256 stakeDailyRoiUsdt = (principalUsdt * dailyRateBps) / 10_000;
+        _addTeamVolume(m.referrer, principalUsdt);
+        _addTeamDailyRoi(m.referrer, stakeDailyRoiUsdt);
+
+        uint256 unlockAt = block.timestamp + lockPeriod;
+        uint256 stakeIndex = _stakes[msg.sender].length;
+
+        _stakes[msg.sender].push(
+            StakeInfo({
+                principalUsdt: principalUsdt,
+                stakedRace: raceReceived,
+                lockPeriod: lockPeriod,
+                startedAt: block.timestamp,
+                unlockAt: unlockAt,
+                lastRewardAt: block.timestamp,
+                dailyRateBps: dailyRateBps,
+                rewardPriceUsdt: price,
+                withdrawn: false
+            })
+        );
+
+        totalLockedRace += raceReceived;
+        totalStakesCreated += 1;
+
+        if (qualifying) {
+            _payCommunityReferrals(msg.sender, principalUsdt);
+        }
+
+        emit ParticipationPurchased(msg.sender, stakeIndex, principalUsdt, raceReceived, lockPeriod, dailyRateBps);
+    }
+
     function claimReward(uint256 stakeIndex) external nonReentrant whenNotPaused {
         _claimReward(msg.sender, stakeIndex);
     }
