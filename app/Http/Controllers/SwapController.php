@@ -47,8 +47,20 @@ class SwapController extends Controller
                     : 'USDT → Race Coin',
             ]);
 
+        $token = \App\Services\Blockchain\BlockchainContractPayload::tokenPagePayload();
+
         return Inertia::render('Swap', [
             'depositAddress' => SiteSetting::depositAddressPayload(),
+            'pancake' => [
+                'chain_id' => (int) ($token['chain_id'] ?? 56),
+                'rpc_url' => (string) ($token['rpc_url'] ?? config('blockchain.rpc_url', '')),
+                'race_token' => (string) ($token['race_token'] ?? ''),
+                'usdt_contract' => (string) ($token['usdt_contract'] ?? ''),
+                'pancake_router' => (string) ($token['pancake_router'] ?? config('blockchain.contracts.pancake_router', '')),
+                'block_explorer' => (string) ($token['block_explorer'] ?? 'https://bscscan.com'),
+                'slippage_bps' => (int) ($token['default_slippage_bps'] ?? 100),
+                'deadline_seconds' => (int) ($token['swap_deadline_seconds'] ?? 1200),
+            ],
             'raceCoin' => [
                 'price_usd' => $raceCoin->formattedPriceUsd(4),
                 'min_swap_usd' => number_format((float) config('race_coin.min_swap_usd', 1), 2, '.', ''),

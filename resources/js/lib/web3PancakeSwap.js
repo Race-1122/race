@@ -203,11 +203,13 @@ export async function swapExactTokens({
 
     const deadline = BigInt(Math.floor(Date.now() / 1000) + deadlineSeconds);
 
-    await sendContractTx({
+    const approveTxHash = await sendContractTx({
         from: walletAddress,
         to: tokenIn,
         data: encodeApprove(router, amountIn),
     });
+    // Wait — estimateGas on swap reverts while allowance is still 0.
+    await waitForConfirmations(approveTxHash, { minConfirmations: 1 });
 
     const swapData = encodeSwapSupportingFee(amountIn, minOut, path, walletAddress, deadline);
     const txHash = await sendContractTx({
