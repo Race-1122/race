@@ -17,6 +17,7 @@ import {
 import { notifyError, notifySuccess } from '@/lib/appNotify';
 import { syncBlockchainTx } from '@/lib/web3Deposit';
 import { syncParticipationTx } from '@/lib/web3Participation';
+import { durationTiersForDays } from '@/lib/durationTiers';
 import { readErc20Balance, formatTokenWei, readRaceUsdtPrice } from '@/lib/web3PancakeSwap';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import { useEffect, useMemo, useState } from 'react';
