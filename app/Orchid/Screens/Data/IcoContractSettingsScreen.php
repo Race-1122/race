@@ -36,6 +36,18 @@ class IcoContractSettingsScreen extends Screen
             $multisig = '0x81BffBF2C2a258E662e9df0a0f6e34150b33F3df';
         }
 
+        $engine = strtolower(trim((string) config('blockchain.contracts.community_engine', '')));
+        $claimEnabled = '—';
+        if ($engine !== '' && ($status['rpc_ok'] ?? false)) {
+            try {
+                $rpc = BscJsonRpcClient::fromConfig();
+                $claimHex = $rpc->call('eth_call', [['to' => $engine, 'data' => '0x2866ed21'], 'latest']);
+                $claimEnabled = (is_string($claimHex) && $this->hexToDec($claimHex) !== '0') ? 'yes' : 'no';
+            } catch (\Throwable) {
+                $claimEnabled = '—';
+            }
+        }
+
         return [
             'ico_contract' => $icoContract,
             'race_ico_contract' => $raceIco,
@@ -44,6 +56,8 @@ class IcoContractSettingsScreen extends Screen
             'race_token' => $raceToken,
             'chain_id' => $chainId,
             'multisig_contract' => $multisig,
+            'community_engine' => $engine,
+            'claim_enabled' => $claimEnabled,
             'multisig_signers' => [
                 '0xCc2B87f8E8AABc295e1119E186c3021bA6F32339',
                 '0x8B2Ac41931d4869E7a53144BaF5C1fa052E8Df24',

@@ -86,6 +86,39 @@
     </div>
 </div>
 
+<div class="bg-white rounded shadow-sm p-4 mb-3 border border-success">
+    <h5 class="mb-2">{{ __('Start daily claim — Multisig') }}</h5>
+    <p class="small mb-2">
+        {{ __('Turns on Engine claimEnabled so members can Claim daily ROI (RACE → Income Hold). Same 3-of-5 Multisig flow as ICO phases. Target is Community Engine, not RaceICO. Engine owner must be the Multisig — otherwise the call reverts.') }}
+    </p>
+    <p class="small mb-2">
+        <strong>{{ __('Community Engine') }}:</strong>
+        <code class="user-select-all">{{ $community_engine ?: '—' }}</code>
+    </p>
+    <p class="small mb-3">
+        <strong>{{ __('Claim enabled (live)') }}:</strong>
+        <span class="badge {{ ($claim_enabled ?? '') === 'yes' ? 'bg-success' : 'bg-secondary' }}">
+            {{ $claim_enabled ?? '—' }}
+        </span>
+    </p>
+    <ol class="small mb-3">
+        <li>{{ __('Use 3 of the 5 Multisig signer wallets in TokenPocket (not the admin USDT wallet).') }}</li>
+        <li>{{ __('First signer: tap “1. Submit Start Daily Claim”.') }}</li>
+        <li>{{ __('Second and third signers: tap “2. Confirm Start Daily Claim” on the SAME Multisig id.') }}</li>
+        <li>{{ __('Refresh this page — Claim enabled should show yes. Members can then Claim on Staking.') }}</li>
+    </ol>
+    <p class="small mb-2" id="ico-claim-status"></p>
+    <div class="d-flex flex-wrap gap-2">
+        <button type="button" class="btn btn-success" id="ico-submit-start-claim"
+            @if (($claim_enabled ?? '') === 'yes') disabled @endif>
+            {{ __('1. Submit Start Daily Claim') }}
+        </button>
+        <button type="button" class="btn btn-outline-success" id="ico-confirm-start-claim">
+            {{ __('2. Confirm Start Daily Claim') }}
+        </button>
+    </div>
+</div>
+
 <div class="bg-white rounded shadow-sm p-4 mb-3">
     <h5 class="mb-2">{{ __('Deposit 600,000 RACE into ICO Contract') }}</h5>
     <p class="small text-muted">{{ __('Connect the admin wallet in MetaMask on the same chain, then approve + deposit. ICO Contract must already list this wallet as admin.') }}</p>
@@ -113,6 +146,7 @@
     const raceIco = @json($race_ico_contract);
     const raceToken = @json($race_token);
     const adminWallet = @json($ico_admin_wallet);
+    const communityEngine = @json($community_engine ?? '');
     const chainId = Number(@json($chain_id));
     const amountWei = @json($deposit_amount_wei);
     const approveSel = '0x095ea7b3';
@@ -253,7 +287,8 @@
         return findPendingInner(completePhaseData().toLowerCase());
     }
 
-    async function findPendingInner(want) {
+    async function findPendingInner(want, targetAddress) {
+        const target = String(targetAddress || raceIco || '').toLowerCase();
         const count = BigInt(await ethCall(multiSig, txCountSel) || '0x0');
         let best = null;
         for (let i = 0; i < count; i++) {
@@ -267,7 +302,7 @@
             const dataLen = Number(BigInt('0x' + hex.slice(dataOffset, dataOffset + 64))) * 2;
             const data = '0x' + hex.slice(dataOffset + 64, dataOffset + 64 + dataLen);
             if (executed) continue;
-            if (to !== String(raceIco).toLowerCase()) continue;
+            if (!target || to !== target) continue;
             if (data.toLowerCase() !== want) continue;
             if (!best || confirmations > best.confirmations) {
                 best = { id: String(i), confirmations: confirmations };
@@ -280,8 +315,11 @@
         if (!window.ethereum) {
             throw new Error(@json(__('TokenPocket / MetaMask not found. Open this page inside TokenPocket DApp browser.')));
         }
-        if (!raceIco || !multiSig) {
-            throw new Error(@json(__('Save RaceICO and Multisig addresses first.')));
+        if (!multiSig) {
+            throw new Error(@json(__('Multisig address is missing. Save setup / check config.')));
+        }
+        if (!raceIco && !communityEngine) {
+            throw new Error(@json(__('Save RaceICO and/or Community Engine address first.')));
         }
         const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
         const from = (accounts[0] || '').toLowerCase();
@@ -469,6 +507,110 @@
                 );
             } catch (err) {
                 setStartStatus(err && err.message ? err.message : String(err));
+            }
+        });
+    }
+
+    const claimStatus = document.getElementById('ico-claim-status');
+    const submitClaimBtn = document.getElementById('ico-submit-start-claim');
+    const confirmClaimBtn = document.getElementById('ico-confirm-start-claim');
+    const claimStorageKey = 'race.multisig.startDailyClaim.txId';
+    // Engine.setClaimEnabled(true)
+    const setClaimEnabledData = '0x92929a09' + padUint(1);
+
+    function setClaimStatus(msg) {
+        if (claimStatus) claimStatus.textContent = msg;
+    }
+
+    async function findPendingStartClaim() {
+        if (!communityEngine) return null;
+        return findPendingInner(setClaimEnabledData.toLowerCase(), communityEngine);
+    }
+
+    if (submitClaimBtn) {
+        submitClaimBtn.addEventListener('click', async function () {
+            try {
+                if (!communityEngine) {
+                    throw new Error(@json(__('Community Engine address missing in config (RACE_COMMUNITY_ENGINE_CONTRACT).')));
+                }
+                const from = await connectSigner();
+                const pending = await findPendingStartClaim();
+                if (pending) {
+                    window.localStorage.setItem(claimStorageKey, pending.id);
+                    setClaimStatus(
+                        @json(__('Start Daily Claim already submitted. Do NOT submit again. Switch signer and tap Confirm. Multisig id:')) +
+                            ' ' + pending.id + ' · confirms ' + pending.confirmations + '/3',
+                    );
+                    return;
+                }
+                setClaimStatus(@json(__('Submitting setClaimEnabled(true) to Multisig… Confirm in TokenPocket. To = Multisig, inner call = Engine.')));
+                const hash = await window.ethereum.request({
+                    method: 'eth_sendTransaction',
+                    params: [{
+                        from: from,
+                        to: multiSig,
+                        data: encodeSubmit(communityEngine, setClaimEnabledData),
+                    }],
+                });
+                setClaimStatus(@json(__('Waiting for submit to mine…')) + ' ' + hash);
+                await waitReceipt(hash);
+                const created = await findPendingStartClaim();
+                const txId = created ? created.id : '';
+                if (txId !== '') {
+                    window.localStorage.setItem(claimStorageKey, txId);
+                }
+                setClaimStatus(@json(__('Submit OK. Switch to a SECOND Multisig signer and tap Confirm Start Daily Claim. id:')) + ' ' + txId);
+            } catch (err) {
+                setClaimStatus(err && err.message ? err.message : String(err));
+            }
+        });
+    }
+
+    if (confirmClaimBtn) {
+        confirmClaimBtn.addEventListener('click', async function () {
+            try {
+                if (!communityEngine) {
+                    throw new Error(@json(__('Community Engine address missing in config (RACE_COMMUNITY_ENGINE_CONTRACT).')));
+                }
+                const from = await connectSigner();
+                const pending = await findPendingStartClaim();
+                if (!pending) {
+                    throw new Error(@json(__('No pending Start Daily Claim Multisig tx. Tap Submit Start Daily Claim first.')));
+                }
+                const alreadyHex = await ethCall(
+                    multiSig,
+                    isConfirmedSel + padUint(pending.id) + padAddr(from),
+                );
+                if (BigInt(alreadyHex || '0x0') === 1n) {
+                    setClaimStatus(
+                        @json(__('This wallet already confirmed. Switch to another signer and tap Confirm again. id:')) +
+                            ' ' + pending.id + ' · ' + pending.confirmations + '/3',
+                    );
+                    return;
+                }
+                window.localStorage.setItem(claimStorageKey, pending.id);
+                setClaimStatus(@json(__('Confirming Start Daily Claim…')) + ' id ' + pending.id + ' · ' + pending.confirmations + '/3');
+                const hash = await window.ethereum.request({
+                    method: 'eth_sendTransaction',
+                    params: [{
+                        from: from,
+                        to: multiSig,
+                        data: '0x' + confirmSel + padUint(pending.id),
+                    }],
+                });
+                setClaimStatus(@json(__('Waiting for confirm to mine…')) + ' ' + hash);
+                await waitReceipt(hash);
+                const after = await findPendingStartClaim();
+                if (!after) {
+                    setClaimStatus(@json(__('Daily claim should now be ON. Refresh this page — Claim enabled = yes. Members can Claim on Staking.')));
+                    return;
+                }
+                setClaimStatus(
+                    @json(__('Confirm saved. Switch to the NEXT signer and tap Confirm Start Daily Claim again. Still need 3 wallets on the SAME id:')) +
+                        ' ' + after.id + ' · ' + after.confirmations + '/3',
+                );
+            } catch (err) {
+                setClaimStatus(err && err.message ? err.message : String(err));
             }
         });
     }
