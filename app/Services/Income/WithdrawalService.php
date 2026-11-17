@@ -7,6 +7,7 @@ use App\Models\LedgerEntry;
 use App\Models\SiteSetting;
 use App\Models\User;
 use App\Models\Withdrawal;
+use App\Services\Blockchain\RaceCoinDirectMintService;
 use App\Support\RewardPlan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -95,7 +96,10 @@ class WithdrawalService
      * Server-side dual fee (do not trust client):
      *   Team Reward = 10% of gross → L1–L10
      *   Admin Fee   = $1 if gross < 100; else 1% → Admin/Treasury ledger
-     * Net = gross − team − admin. Gross remains reserved until admin approval debit.
+     * Net = gross − team − admin.
+     *
+     * When race_income_mint.enabled: mint net as RACE via RaceCoin.mint to wallet (no admin approve).
+     * Otherwise: gross reserved until admin approval debit.
      *
      * Does NOT apply to fixed maturity / EMI / Engine Flexible stake exit.
      */
@@ -108,7 +112,12 @@ class WithdrawalService
             ]);
         }
 
-        \App\Support\BlockchainMode::assertReadOnlyRewards();
+        $mintService = app(RaceCoinDirectMintService::class);
+        $mintOnWithdraw = $mintService->enabled();
+
+        if (! $mintOnWithdraw) {
+            \App\Support\BlockchainMode::assertReadOnlyRewards();
+        }
 
         if (! $user->canRequestWithdrawal()) {
             throw ValidationException::withMessages([
@@ -159,6 +168,19 @@ class WithdrawalService
             throw ValidationException::withMessages([
                 'amount_usd' => __('Amount too small after Team Reward and Admin Fee. Increase the withdrawal amount.'),
             ]);
+        }
+
+        if ($mintOnWithdraw) {
+            return $this->requestWithRaceMint(
+                $user,
+                $gross,
+                $teamReward,
+                $adminFee,
+                $net,
+                $destination,
+                $storedAddress,
+                $mintService,
+            );
         }
 
         return DB::transaction(function () use ($user, $gross, $teamReward, $adminFee, $net, $destination, $storedAddress) {
@@ -230,6 +252,180 @@ class WithdrawalService
 
             return $withdrawal;
         });
+    }
+
+    /**
+     * Virtual USDT income → RaceCoin.mint(userWallet, raceAmount); no admin approve.
+     */
+    private function requestWithRaceMint(
+        User $user,
+        string $gross,
+        string $teamReward,
+        string $adminFee,
+        string $net,
+        string $destination,
+        string $storedAddress,
+        RaceCoinDirectMintService $mintService,
+    ): Withdrawal {
+        $destination = strtolower(trim($destination));
+        if (! preg_match('/^0x[a-f0-9]{40}$/', $destination)) {
+            throw ValidationException::withMessages([
+                'destination_address' => __('Enter a valid BEP20 wallet address.'),
+            ]);
+        }
+
+        if (! $user->canRequestWithdrawal()) {
+            throw ValidationException::withMessages([
+                'amount_usd' => __($user->withdrawalLockMessage()
+                    ?? 'Withdrawals are disabled for your account. Contact support.'),
+            ]);
+        }
+
+        $balancePre = $this->wallets->virtualIncomeBalance($user);
+        if (bccomp($balancePre, $gross, 2) < 0) {
+            throw ValidationException::withMessages([
+                'amount_usd' => __('Insufficient Virtual Income Wallet balance.'),
+            ]);
+        }
+
+        $raceCoin = app(RaceCoinService::class);
+        $price = $raceCoin->formattedPriceUsd(8);
+        $raceAmount = $raceCoin->coinsForUsdt((float) $net);
+        if (bccomp($raceAmount, '0', 8) <= 0) {
+            throw ValidationException::withMessages([
+                'amount_usd' => __('RACE quote is zero — check price / try again.'),
+            ]);
+        }
+
+        // Mint first (outside DB lock). Debit virtual only after on-chain success.
+        try {
+            $minted = $mintService->mintToWallet($destination, $raceAmount);
+        } catch (\Throwable $e) {
+            report($e);
+            throw ValidationException::withMessages([
+                'amount_usd' => __('RACE mint failed: :msg', [
+                    'msg' => \Illuminate\Support\Str::limit($e->getMessage(), 160),
+                ]),
+            ]);
+        }
+
+        try {
+            return DB::transaction(function () use (
+                $user,
+                $gross,
+                $teamReward,
+                $adminFee,
+                $net,
+                $destination,
+                $storedAddress,
+                $raceAmount,
+                $price,
+                $minted,
+            ) {
+                $locked = User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+
+                if (! $locked->canRequestWithdrawal()) {
+                    throw ValidationException::withMessages([
+                        'amount_usd' => __($locked->withdrawalLockMessage()
+                            ?? 'Withdrawals are disabled for your account. Contact support.'),
+                    ]);
+                }
+
+                $rate = $this->rateLimitStatus($locked);
+                if ($rate['enabled'] && ! $rate['can_request']) {
+                    throw ValidationException::withMessages([
+                        'amount_usd' => __(
+                            'Limit: :max withdrawals per :hours hours. Next available after :when.',
+                            [
+                                'max' => $rate['max_per_window'],
+                                'hours' => $rate['window_hours'],
+                                'when' => $rate['next_available_at']
+                                    ? \Illuminate\Support\Carbon::parse($rate['next_available_at'])->timezone(config('app.timezone'))->format('d M Y, h:i A')
+                                    : __('24 hours'),
+                            ],
+                        ),
+                    ]);
+                }
+
+                $balance = $this->wallets->virtualIncomeBalance($locked);
+                if (bccomp($balance, $gross, 2) < 0) {
+                    throw ValidationException::withMessages([
+                        'amount_usd' => __('Insufficient Virtual Income Wallet balance.'),
+                    ]);
+                }
+
+                if ($storedAddress === '') {
+                    $locked->forceFill(['wallet_address' => $destination])->save();
+                }
+
+                $withdrawal = Withdrawal::query()->create([
+                    'user_id' => $locked->id,
+                    'amount_usd' => $gross,
+                    'fee_usd' => $teamReward,
+                    'team_reward_usd' => $teamReward,
+                    'admin_fee_usd' => $adminFee,
+                    'net_usd' => $net,
+                    'race_amount' => $raceAmount,
+                    'race_price_usd' => $price,
+                    'race_tx_hash' => $minted['tx_hash'],
+                    'destination_address' => $destination,
+                    'status' => Withdrawal::STATUS_COMPLETED,
+                ]);
+
+                $this->creditCashOutAdminFee($withdrawal);
+                $this->teamRewards->onWithdrawal($locked, $withdrawal);
+
+                app(VirtualIncomeWalletService::class)->debit(
+                    $locked,
+                    IncomeWalletTransaction::TYPE_WITHDRAWAL,
+                    $gross,
+                    "withdrawal:{$withdrawal->id}",
+                    "withdrawal_race_mint:{$withdrawal->id}",
+                    [
+                        'withdrawal_id' => $withdrawal->id,
+                        'team_reward_usd' => $teamReward,
+                        'admin_fee_usd' => $adminFee,
+                        'net_usd' => $net,
+                        'race_amount' => $raceAmount,
+                        'race_price_usd' => $price,
+                        'race_tx_hash' => $minted['tx_hash'],
+                        'note' => 'Virtual income settled via RaceCoin.mint to wallet',
+                        'phase' => 'race_mint_completed',
+                    ],
+                );
+
+                $this->ledger->record(
+                    $locked,
+                    LedgerEntry::TYPE_WALLET_WITHDRAWAL,
+                    '-'.$gross,
+                    'withdrawal',
+                    $withdrawal->id,
+                    [
+                        'fee_usd' => $teamReward,
+                        'team_reward_usd' => $teamReward,
+                        'admin_fee_usd' => $adminFee,
+                        'net_usd' => $net,
+                        'race_amount' => $raceAmount,
+                        'race_tx_hash' => $minted['tx_hash'],
+                        'destination_address' => $destination,
+                        'fee_destination' => 'community_team_rewards',
+                        'admin_fee_destination' => 'admin_treasury',
+                        'settled_as' => 'race_coin_mint',
+                        'approved_by_admin' => false,
+                    ],
+                );
+
+                return $withdrawal;
+            });
+        } catch (\Throwable $e) {
+            report($e);
+            throw ValidationException::withMessages([
+                'amount_usd' => __(
+                    'RACE was minted (tx :tx) but wallet debit failed. Contact support — do not retry the same amount.',
+                    ['tx' => $minted['tx_hash']],
+                ),
+            ]);
+        }
     }
 
     /**

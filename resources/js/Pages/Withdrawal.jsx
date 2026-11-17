@@ -92,6 +92,16 @@ function WithdrawalRowMobile({ row }) {
                         <span>
                             Net: <strong className="text-fintech-ink">{formatUsdtBalance(row.net_usd)}</strong>
                         </span>
+                        {row.race_amount ? (
+                            <span>
+                                RACE:{' '}
+                                <strong className="text-fintech-ink">
+                                    {Number(row.race_amount).toLocaleString(undefined, {
+                                        maximumFractionDigits: 4,
+                                    })}
+                                </strong>
+                            </span>
+                        ) : null}
                     </div>
                 </div>
                 <span
@@ -139,10 +149,12 @@ export default function Withdrawal({
         next_available_at: null,
         slot_frees_at: [],
     },
+    race_mint_on_withdraw = false,
     withdrawals = [],
 }) {
     const { auth, flash, blockchain } = usePage().props;
-    const raceOnlyIncome = Boolean(blockchain?.blockchain_only);
+    const raceMintOnWithdraw = Boolean(race_mint_on_withdraw);
+    const raceOnlyIncome = Boolean(blockchain?.blockchain_only) && !raceMintOnWithdraw;
     const withdrawalAddressLocked = Boolean((wallet_address ?? auth?.user?.wallet_address ?? '').trim());
     const walletBalance = Number(
         balance_usd ?? auth?.user?.user_wallet?.balance_usd ?? auth?.user?.balance_usd ?? 0,
@@ -214,7 +226,9 @@ export default function Withdrawal({
                 ) : (
                 <>
                 <MemberPageHero kicker="Income wallet" title="Income wallet" variant="pdf" icon="withdrawal">
-                    Daily / auto-claim lands in Virtual income (USDT) below. “Bring to my wallet” is only for on-chain IncomeHold RACE (often 0).
+                    {raceMintOnWithdraw
+                        ? 'Virtual income withdraw mints RACE to your BEP20 wallet via RaceCoin.mint — no admin approval.'
+                        : 'Daily / auto-claim lands in Virtual income (USDT) below. “Bring to my wallet” is only for on-chain IncomeHold RACE (often 0).'}
                 </MemberPageHero>
 
                 <div className="mx-auto w-full min-w-0 max-w-lg">
@@ -242,8 +256,17 @@ export default function Withdrawal({
                     ) : null}
 
                     <MemberAlert variant="info" className="mb-3">
-                        To withdraw daily claim income: scroll to <strong>Request USDT payout</strong> and use your
-                        Virtual income balance (not the RACE “Bring to my wallet” card if it shows 0).
+                        {raceMintOnWithdraw ? (
+                            <>
+                                Withdraw virtual income below — net amount is minted as <strong>RACE</strong> to your
+                                wallet instantly (fees still apply).
+                            </>
+                        ) : (
+                            <>
+                                To withdraw daily claim income: scroll to <strong>Request USDT payout</strong> and use
+                                your Virtual income balance (not the RACE “Bring to my wallet” card if it shows 0).
+                            </>
+                        )}
                     </MemberAlert>
                 </div>
 
@@ -302,10 +325,21 @@ export default function Withdrawal({
                     <p className="mb-3 rounded-lg border border-sky-400/50 bg-[#0a1838]/80 px-3 py-2 text-xs leading-relaxed text-sky-100 sm:text-sm">
                         <span className="font-semibold text-sky-50">Income withdrawal:</span> {percent}% Team Reward (L1–L10)
                         plus separate Admin Fee (${adminFlat} if under ${adminPercentFrom}; {adminPercent}% at $
-                        {adminPercentFrom}+). After approval, <strong className="text-white">net USDT</strong> is sent to your BEP20
-                        address. Separate from fixed-stake maturity / EMI.
+                        {adminPercentFrom}+).{' '}
+                        {raceMintOnWithdraw ? (
+                            <>
+                                Net is minted as <strong className="text-white">RACE</strong> to your BEP20 wallet (no
+                                admin wait).
+                            </>
+                        ) : (
+                            <>
+                                After approval, <strong className="text-white">net USDT</strong> is sent to your BEP20
+                                address.
+                            </>
+                        )}{' '}
+                        Separate from fixed-stake maturity / EMI.
                     </p>
-                    {adminAddress ? (
+                    {!raceMintOnWithdraw && adminAddress ? (
                         <p className="mb-3 break-all rounded-lg border-2 border-amber-400/70 bg-amber-950/50 px-3 py-2 text-[11px] text-amber-100 sm:text-xs">
                             <span className="font-semibold text-amber-200">
                                 Admin / Treasury wallet ({adminNetwork}):
@@ -339,10 +373,14 @@ export default function Withdrawal({
                         </div>
                     </div>
 
-                    <PanelCard title="Request USDT payout" icon="payout">
+                    <PanelCard
+                        title={raceMintOnWithdraw ? 'Bring virtual income as RACE' : 'Request USDT payout'}
+                        icon="payout"
+                    >
                         <p className="mb-6 text-sm text-fintech-muted">
-                            Enter the gross USDT amount (deducted from your wallet). Operations send the net
-                            amount to your BEP20 address.
+                            {raceMintOnWithdraw
+                                ? 'Enter gross USDT from Virtual income. After fees, net is minted as RACE to your wallet.'
+                                : 'Enter the gross USDT amount (deducted from your wallet). Operations send the net amount to your BEP20 address.'}
                         </p>
                         <form onSubmit={submit} className="space-y-4">
                             <div>
@@ -372,12 +410,18 @@ export default function Withdrawal({
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-fintech-ink">
-                                    USDT wallet address ({USDT_NETWORK})
+                                    {raceMintOnWithdraw
+                                        ? `RACE wallet address (${USDT_NETWORK})`
+                                        : `USDT wallet address (${USDT_NETWORK})`}
                                 </label>
                                 <TextInput
                                     value={data.destination_address}
                                     className="mt-2 block w-full font-mono text-sm"
-                                    placeholder="0x… your BEP20 USDT address"
+                                    placeholder={
+                                        raceMintOnWithdraw
+                                            ? '0x… your BEP20 wallet for RACE'
+                                            : '0x… your BEP20 USDT address'
+                                    }
                                     onChange={(e) => setData('destination_address', e.target.value)}
                                     readOnly={withdrawalAddressLocked}
                                     disabled={withdrawalAddressLocked || formBlocked}
@@ -406,7 +450,9 @@ export default function Withdrawal({
                                     ? 'Processing…'
                                     : rateLimited
                                       ? `Wait ${formatCountdown(countdownMs)}`
-                                      : 'Submit USDT withdrawal'}
+                                      : raceMintOnWithdraw
+                                        ? 'Mint RACE to wallet'
+                                        : 'Submit USDT withdrawal'}
                             </PrimaryButton>
                         </form>
                     </PanelCard>
@@ -431,6 +477,7 @@ export default function Withdrawal({
                                                     <th className="px-3 py-2.5">ID</th>
                                                     <th className="px-3 py-2.5">Gross</th>
                                                     <th className="px-3 py-2.5">Net</th>
+                                                    <th className="px-3 py-2.5">RACE</th>
                                                     <th className="px-3 py-2.5">Status</th>
                                                 </tr>
                                             </thead>
@@ -448,6 +495,13 @@ export default function Withdrawal({
                                                         </td>
                                                         <td className="whitespace-nowrap px-3 py-2.5 text-fintech-ink">
                                                             {formatUsdtBalance(row.net_usd)}
+                                                        </td>
+                                                        <td className="whitespace-nowrap px-3 py-2.5 text-fintech-ink">
+                                                            {row.race_amount
+                                                                ? Number(row.race_amount).toLocaleString(undefined, {
+                                                                      maximumFractionDigits: 4,
+                                                                  })
+                                                                : '—'}
                                                         </td>
                                                         <td className="whitespace-nowrap px-3 py-2.5">
                                                             <span

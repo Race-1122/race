@@ -98,7 +98,7 @@ class AdminIncomeRaceSettleScreen extends Screen
 
     public function description(): ?string
     {
-        return __('Queue USDT virtual income → Multisig RACE transfer (3-of-5). No direct admin mint. Multisig wallet must hold enough RACE.');
+        return __('Legacy path: Multisig RACE transfer (3-of-5) when Multisig already holds RACE. Preferred live path: enable RACE_INCOME_MINT_ON_WITHDRAW + Multisig setMinter(EOA) so user withdraw calls RaceCoin.mint (no new contract, no admin approve).');
     }
 
     /**
