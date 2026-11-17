@@ -4,9 +4,8 @@ declare(strict_types=1);
 
 namespace App\Orchid\Screens\Data;
 
-use App\Models\User;
+use App\Models\SiteSetting;
 use App\Orchid\Concerns\RequiresPlatformDataPermission;
-use App\Support\MemberCode;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -25,51 +24,39 @@ class AdminMemberWithdrawalScreen extends Screen
 {
     use RequiresPlatformDataPermission;
 
-    public function query(Request $request): iterable
+    public function query(): iterable
     {
-        $userId = $request->integer('user_id');
-        $user = $userId > 0 ? User::query()->find($userId) : null;
+        $disabled = SiteSetting::withdrawalsGloballyDisabled();
+        $until = SiteSetting::withdrawalsGloballyLockedUntil();
+        $rawUntil = SiteSetting::get(SiteSetting::KEY_WITHDRAWALS_GLOBALLY_LOCKED_UNTIL);
 
-        $preview = __('Enter a user ID and click Load status.');
-        if ($user) {
-            $parts = [
-                MemberCode::format($user->member_number),
-                $user->email,
-            ];
-
-            if ((bool) $user->withdrawals_disabled) {
-                $parts[] = __('permanent OFF');
-            } elseif ($user->withdrawals_locked_until !== null && $user->withdrawals_locked_until->isFuture()) {
-                $parts[] = __('timed lock until :when', [
-                    'when' => $user->withdrawals_locked_until
-                        ->timezone(config('app.timezone'))
-                        ->format('d M Y, h:i A'),
-                ]);
-            } else {
-                $parts[] = __('withdrawals allowed (ON)');
-            }
-
-            $preview = implode(' · ', $parts);
+        if ($disabled) {
+            $status = __('GLOBAL Permanent OFF — no member can withdraw');
+        } elseif ($until !== null) {
+            $status = __('GLOBAL timed lock until :when', [
+                'when' => $until->timezone(config('app.timezone'))->format('d M Y, h:i A'),
+            ]);
+        } else {
+            $status = __('GLOBAL withdrawals ON — all members can withdraw (unless per-user stake lock)');
         }
 
         return [
-            'user_id' => $user?->id,
-            'withdrawals_disabled' => $user ? (bool) $user->withdrawals_disabled : false,
+            'status_preview' => $status,
+            'withdrawals_disabled' => $disabled,
             'lock_hours' => null,
-            'withdrawals_locked_until' => $user?->withdrawals_locked_until,
+            'withdrawals_locked_until' => $rawUntil ? Carbon::parse($rawUntil) : null,
             'clear_timed_lock' => false,
-            'member_preview' => $preview,
         ];
     }
 
     public function name(): ?string
     {
-        return __('Member withdrawals');
+        return __('Global withdrawals');
     }
 
     public function description(): ?string
     {
-        return __('Turn withdrawals ON/OFF for a member. Optional timed lock (hours or exact end time). Load status first, then save.');
+        return __('Turn withdrawals ON/OFF for ALL members at once. Timed lock or permanent OFF applies platform-wide.');
     }
 
     /**
@@ -78,13 +65,10 @@ class AdminMemberWithdrawalScreen extends Screen
     public function commandBar(): iterable
     {
         return [
-            Button::make(__('Load status'))
-                ->icon('bs.search')
-                ->method('load'),
-            Button::make(__('Start withdrawals now'))
+            Button::make(__('Start withdrawals now (all)'))
                 ->icon('bs.unlock')
                 ->type(Color::SUCCESS)
-                ->confirm(__('Clear permanent OFF and any timed lock so this member can withdraw immediately?'))
+                ->confirm(__('Clear global Permanent OFF and any global timed lock so every member can withdraw (per-user stake locks may still apply)?'))
                 ->method('startNow'),
             Button::make(__('Save'))
                 ->icon('bs.check-circle')
@@ -96,127 +80,90 @@ class AdminMemberWithdrawalScreen extends Screen
     {
         return [
             Layout::rows([
-                Input::make('user_id')
-                    ->title(__('Member user ID'))
-                    ->type('number')
-                    ->required()
-                    ->help(__('Find the numeric ID in Users, Team structure, or User Full Data.')),
-                Label::make('member_preview')
-                    ->title(__('Current status')),
+                Label::make('status_preview')
+                    ->title(__('Current global status')),
                 CheckBox::make('withdrawals_disabled')
-                    ->title(__('Permanent OFF'))
-                    ->placeholder(__('When checked, member cannot withdraw until you uncheck or tap Start withdrawals now'))
+                    ->title(__('Permanent OFF (all users)'))
+                    ->placeholder(__('When checked, NO member can withdraw until you uncheck or tap Start withdrawals now'))
                     ->sendTrueOrFalse(),
                 Input::make('lock_hours')
-                    ->title(__('Timed lock — hours from now'))
+                    ->title(__('Timed lock — hours from now (all users)'))
                     ->type('number')
                     ->min(1)
-                    ->help(__('Example: 24 = lock for 24 hours from save time. Leave empty to keep existing timed lock (unless you set end time or clear below).')),
+                    ->help(__('Example: 24 = lock everyone for 24 hours from save. Leave empty to keep existing timed lock unless you set end time or clear below.')),
                 DateTimer::make('withdrawals_locked_until')
-                    ->title(__('Timed lock — exact end time'))
+                    ->title(__('Timed lock — exact end time (all users)'))
                     ->enableTime()
                     ->allowEmpty()
-                    ->help(__('Optional. If set, this end time is used (hours field ignored). Past/empty + Clear = no timed lock.')),
+                    ->help(__('Optional. If set, this end time is used (hours field ignored).')),
                 CheckBox::make('clear_timed_lock')
                     ->title(__('Clear timed lock on save'))
-                    ->placeholder(__('Remove withdrawals_locked_until only (does not change Permanent OFF)'))
+                    ->placeholder(__('Remove global timed lock only (does not change Permanent OFF)'))
                     ->sendTrueOrFalse(),
                 Label::make('hint')
                     ->title(__('Note'))
-                    ->value(__('User sees the same 24h-style popup while a future timed lock is active. Permanent OFF shows a support message. Pending withdrawal approvals are not changed.')),
+                    ->value(__('This applies to ALL members. User sees a global lock popup. Individual 24h stake locks still work after global unlock. Pending withdrawal approvals are not changed.')),
             ]),
         ];
     }
 
-    public function load(Request $request): RedirectResponse
+    public function startNow(): RedirectResponse
     {
-        $validated = $request->validate([
-            'user_id' => ['required', 'integer', 'exists:users,id'],
-        ]);
+        SiteSetting::set(SiteSetting::KEY_WITHDRAWALS_GLOBALLY_DISABLED, '0');
+        SiteSetting::set(SiteSetting::KEY_WITHDRAWALS_GLOBALLY_LOCKED_UNTIL, null);
 
-        return redirect()->route('platform.data.member-withdrawals', [
-            'user_id' => (int) $validated['user_id'],
-        ]);
-    }
+        Toast::success(__('Global withdrawals started (ON) for all members.'));
 
-    public function startNow(Request $request): RedirectResponse
-    {
-        $validated = $request->validate([
-            'user_id' => ['required', 'integer', 'exists:users,id'],
-        ]);
-
-        $user = User::query()->findOrFail((int) $validated['user_id']);
-        $user->forceFill([
-            'withdrawals_disabled' => false,
-            'withdrawals_locked_until' => null,
-        ])->save();
-
-        Toast::success(__('Withdrawals started (ON) for :member (:email).', [
-            'member' => MemberCode::format($user->member_number),
-            'email' => $user->email,
-        ]));
-
-        return redirect()->route('platform.data.member-withdrawals', [
-            'user_id' => $user->id,
-        ]);
+        return redirect()->route('platform.data.member-withdrawals');
     }
 
     public function save(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'user_id' => ['required', 'integer', 'exists:users,id'],
             'withdrawals_disabled' => ['nullable', 'boolean'],
             'lock_hours' => ['nullable', 'integer', 'min:1', 'max:8760'],
             'withdrawals_locked_until' => ['nullable', 'date'],
             'clear_timed_lock' => ['nullable', 'boolean'],
         ]);
 
-        $user = User::query()->findOrFail((int) $validated['user_id']);
         $disabled = (bool) ($validated['withdrawals_disabled'] ?? false);
         $clearTimed = (bool) ($validated['clear_timed_lock'] ?? false);
-        $lockHours = isset($validated['lock_hours']) && $validated['lock_hours'] !== ''
+        $lockHours = isset($validated['lock_hours']) && $validated['lock_hours'] !== '' && $validated['lock_hours'] !== null
             ? (int) $validated['lock_hours']
             : null;
         $untilRaw = $validated['withdrawals_locked_until'] ?? null;
 
-        $patch = [
-            'withdrawals_disabled' => $disabled,
-        ];
+        SiteSetting::set(
+            SiteSetting::KEY_WITHDRAWALS_GLOBALLY_DISABLED,
+            $disabled ? '1' : '0',
+        );
 
         if ($clearTimed) {
-            $patch['withdrawals_locked_until'] = null;
+            SiteSetting::set(SiteSetting::KEY_WITHDRAWALS_GLOBALLY_LOCKED_UNTIL, null);
         } elseif (is_string($untilRaw) && trim($untilRaw) !== '') {
             $until = Carbon::parse($untilRaw, config('app.timezone'));
-            $patch['withdrawals_locked_until'] = $until->isFuture() ? $until : null;
+            SiteSetting::set(
+                SiteSetting::KEY_WITHDRAWALS_GLOBALLY_LOCKED_UNTIL,
+                $until->isFuture() ? $until->toIso8601String() : null,
+            );
         } elseif ($lockHours !== null && $lockHours > 0) {
-            $patch['withdrawals_locked_until'] = now()->addHours($lockHours);
+            SiteSetting::set(
+                SiteSetting::KEY_WITHDRAWALS_GLOBALLY_LOCKED_UNTIL,
+                now()->addHours($lockHours)->toIso8601String(),
+            );
         }
-
-        $user->forceFill($patch)->save();
-        $user->refresh();
 
         if ($disabled) {
-            Toast::warning(__('Permanent OFF saved for :member (:email).', [
-                'member' => MemberCode::format($user->member_number),
-                'email' => $user->email,
-            ]));
-        } elseif ($user->withdrawals_locked_until !== null && $user->withdrawals_locked_until->isFuture()) {
-            Toast::info(__('Timed lock until :when for :member (:email).', [
-                'when' => $user->withdrawals_locked_until
-                    ->timezone(config('app.timezone'))
-                    ->format('d M Y, h:i A'),
-                'member' => MemberCode::format($user->member_number),
-                'email' => $user->email,
-            ]));
+            Toast::warning(__('Global Permanent OFF saved — all members blocked.'));
+        } elseif (SiteSetting::withdrawalsGloballyLockedUntil() !== null) {
+            $when = SiteSetting::withdrawalsGloballyLockedUntil()
+                ->timezone(config('app.timezone'))
+                ->format('d M Y, h:i A');
+            Toast::info(__('Global timed lock until :when for all members.', ['when' => $when]));
         } else {
-            Toast::info(__('Withdrawals ON for :member (:email).', [
-                'member' => MemberCode::format($user->member_number),
-                'email' => $user->email,
-            ]));
+            Toast::info(__('Global withdrawals ON for all members.'));
         }
 
-        return redirect()->route('platform.data.member-withdrawals', [
-            'user_id' => $user->id,
-        ]);
+        return redirect()->route('platform.data.member-withdrawals');
     }
 }

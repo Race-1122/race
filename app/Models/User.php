@@ -200,6 +200,10 @@ class User extends OrchidUser
 
     public function canRequestWithdrawal(): bool
     {
+        if (SiteSetting::withdrawalsGloballyBlocked()) {
+            return false;
+        }
+
         if ((bool) $this->withdrawals_disabled) {
             return false;
         }
@@ -212,10 +216,23 @@ class User extends OrchidUser
     }
 
     /**
-     * Human-readable reason when withdrawals are blocked (admin flag or 24h stake lock).
+     * Human-readable reason when withdrawals are blocked (global admin lock, per-user flag, or 24h stake lock).
      */
     public function withdrawalLockMessage(): ?string
     {
+        if (SiteSetting::withdrawalsGloballyDisabled()) {
+            return 'Withdrawals are temporarily disabled for all members. Please try again later.';
+        }
+
+        $globalUntil = SiteSetting::withdrawalsGloballyLockedUntil();
+        if ($globalUntil !== null) {
+            $when = $globalUntil
+                ->timezone(config('app.timezone'))
+                ->format('d M Y, h:i A');
+
+            return 'Withdrawals are locked for all members until '.$when.'.';
+        }
+
         if ((bool) $this->withdrawals_disabled) {
             return 'Withdrawals are temporarily disabled for your account. Please contact support.';
         }

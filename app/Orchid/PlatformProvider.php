@@ -88,7 +88,7 @@ class PlatformProvider extends OrchidServiceProvider
                 ->route('platform.data.admin-deposit')
                 ->permission('platform.data'),
 
-            Menu::make(__('Member withdrawals'))
+            Menu::make(__('Global withdrawals'))
                 ->icon('bs.slash-circle')
                 ->route('platform.data.member-withdrawals')
                 ->permission('platform.data'),

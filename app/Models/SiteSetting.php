@@ -29,6 +29,12 @@ class SiteSetting extends Model
 
     public const KEY_INCOME_HOLD = 'income_hold';
 
+    /** Global: when "1", no member can request withdrawals. */
+    public const KEY_WITHDRAWALS_GLOBALLY_DISABLED = 'withdrawals_globally_disabled';
+
+    /** Global: ISO datetime — withdrawals locked for everyone until this time. */
+    public const KEY_WITHDRAWALS_GLOBALLY_LOCKED_UNTIL = 'withdrawals_globally_locked_until';
+
     protected $table = 'site_settings';
 
     protected $fillable = [
@@ -177,6 +183,38 @@ class SiteSetting extends Model
         }
 
         return (bool) config('reward_plan.bonza_buster.enabled', true);
+    }
+
+    public static function withdrawalsGloballyDisabled(): bool
+    {
+        $fromDb = static::get(static::KEY_WITHDRAWALS_GLOBALLY_DISABLED, '0');
+
+        return in_array(strtolower((string) $fromDb), ['1', 'true', 'yes', 'on'], true);
+    }
+
+    /**
+     * Future lock end for all members, or null if unlocked / past.
+     */
+    public static function withdrawalsGloballyLockedUntil(): ?\Carbon\Carbon
+    {
+        $raw = static::get(static::KEY_WITHDRAWALS_GLOBALLY_LOCKED_UNTIL);
+        if ($raw === null || trim($raw) === '') {
+            return null;
+        }
+
+        try {
+            $until = \Carbon\Carbon::parse($raw);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $until->isFuture() ? $until : null;
+    }
+
+    public static function withdrawalsGloballyBlocked(): bool
+    {
+        return static::withdrawalsGloballyDisabled()
+            || static::withdrawalsGloballyLockedUntil() !== null;
     }
 
     public static function bonzaBusterDirectPercent(): float
