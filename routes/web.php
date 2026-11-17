@@ -11,6 +11,7 @@ use App\Http\Controllers\InvestmentController;
 use App\Http\Controllers\IsuController;
 use App\Http\Controllers\LedgerController;
 use App\Http\Controllers\LeadershipController;
+use App\Http\Controllers\SelfHoldController;
 use App\Http\Controllers\RaceTokenController;
 use App\Http\Controllers\RewardsController;
 use App\Http\Controllers\SupportController;
@@ -120,6 +121,7 @@ Route::middleware(['auth'])->group(function () {
 
     Route::get('/leadership', [LeadershipController::class, 'index'])->name('leadership');
     Route::get('/leadership/live-data', [LeadershipController::class, 'liveData'])->name('leadership.live-data');
+    Route::get('/self-hold', [SelfHoldController::class, 'index'])->name('self-hold');
 
     Route::redirect('/bonza', '/dashboard', 301)->name('bonza');
     Route::redirect('/bonza-buster', '/dashboard', 301)->name('bonza-buster');
