@@ -93,6 +93,11 @@ class PlatformProvider extends OrchidServiceProvider
                 ->route('platform.data.member-withdrawals')
                 ->permission('platform.data'),
 
+            Menu::make(__('Settle income as RACE'))
+                ->icon('bs.currency-exchange')
+                ->route('platform.data.income-race-settle')
+                ->permission('platform.data'),
+
             Menu::make(__('Withdrawals'))
                 ->icon('bs.cash-coin')
                 ->route('platform.data.withdrawals')
