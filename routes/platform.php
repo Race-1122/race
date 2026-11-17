@@ -29,6 +29,7 @@ use App\Orchid\Screens\Data\WithdrawalListScreen;
 use App\Orchid\Screens\Data\AdminDepositScreen;
 use App\Orchid\Screens\Data\AdminChangeSponsorScreen;
 use App\Orchid\Screens\Data\AdminIncomeRaceSettleScreen;
+use App\Orchid\Screens\Data\AdminRaceIncomeMinterScreen;
 use App\Orchid\Screens\Data\AdminMemberWithdrawalScreen;
 use App\Orchid\Screens\Data\RaceCoinSwapListScreen;
 use App\Orchid\Screens\Data\UserWalletEditScreen;
@@ -126,6 +127,7 @@ Route::screen('data/admin-deposit', AdminDepositScreen::class)->name('platform.d
 Route::screen('data/member-withdrawals', AdminMemberWithdrawalScreen::class)->name('platform.data.member-withdrawals');
 
 Route::screen('data/income-race-settle', AdminIncomeRaceSettleScreen::class)->name('platform.data.income-race-settle');
+Route::screen('data/income-minter-multisig', AdminRaceIncomeMinterScreen::class)->name('platform.data.income-minter-multisig');
 
 Route::screen('data/change-sponsor', AdminChangeSponsorScreen::class)->name('platform.data.change-sponsor');
 

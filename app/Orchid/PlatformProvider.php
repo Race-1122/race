@@ -98,6 +98,11 @@ class PlatformProvider extends OrchidServiceProvider
                 ->route('platform.data.income-race-settle')
                 ->permission('platform.data'),
 
+            Menu::make(__('Income minter (Multisig)'))
+                ->icon('bs.shield-lock')
+                ->route('platform.data.income-minter-multisig')
+                ->permission('platform.data'),
+
             Menu::make(__('Withdrawals'))
                 ->icon('bs.cash-coin')
                 ->route('platform.data.withdrawals')

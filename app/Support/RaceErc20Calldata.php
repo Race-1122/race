@@ -3,10 +3,25 @@
 namespace App\Support;
 
 /**
- * Build ERC-20 transfer(address,uint256) calldata for Multisig submitTransaction.
+ * Build RaceCoin / ERC-20 calldata for Multisig submitTransaction.
  */
 class RaceErc20Calldata
 {
+    /** RaceCoin.setMinter(address,bool) */
+    public static function setMinter(string $account, bool $allowed = true): string
+    {
+        $account = strtolower(trim($account));
+        if (! preg_match('/^0x[a-f0-9]{40}$/', $account)) {
+            throw new \InvalidArgumentException('Invalid minter address.');
+        }
+
+        $selector = 'cf456ae7'; // setMinter(address,bool)
+        $addr = str_pad(substr($account, 2), 64, '0', STR_PAD_LEFT);
+        $flag = str_pad($allowed ? '1' : '0', 64, '0', STR_PAD_LEFT);
+
+        return '0x'.$selector.$addr.$flag;
+    }
+
     public static function transfer(string $to, string $amountWei): string
     {
         $to = strtolower(trim($to));
