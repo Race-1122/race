@@ -68,6 +68,11 @@ class PlatformProvider extends OrchidServiceProvider
                 ->permission('platform.data')
                 ->title(__('Members')),
 
+            Menu::make(__('Change team structure'))
+                ->icon('bs.arrow-left-right')
+                ->route('platform.data.change-sponsor')
+                ->permission('platform.data'),
+
             Menu::make(__('User Full Data'))
                 ->icon('bs.person-lines-fill')
                 ->route('platform.data.user-full-data')

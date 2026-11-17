@@ -49,6 +49,7 @@ class TeamStructureListLayout extends AdminVipTable
             TD::make(__('Edit'))->align(TD::ALIGN_CENTER)
                 ->render(fn (User $u) => DropDown::make()->icon('bs.three-dots-vertical')->list([
                     Link::make(__('Open full data'))->icon('bs.person-lines-fill')->route('platform.data.user-full-data.show', $u->id),
+                    Link::make(__('Change sponsor'))->icon('bs.arrow-left-right')->route('platform.data.change-sponsor', ['user_id' => $u->id]),
                     Link::make(__('Open user'))->icon('bs.pencil')->route('platform.systems.users.edit', $u->id),
                     Button::make(__('Disable withdrawals'))
                         ->icon('bs.slash-circle')
