@@ -24,7 +24,12 @@ function decimalsFromOneUsdt(oneUsdt) {
     return decimals;
 }
 
-export default function IncomeHoldWithdrawCard({ raceLevelIncome = null, compact = false }) {
+export default function IncomeHoldWithdrawCard({
+    raceLevelIncome = null,
+    compact = false,
+    withdrawalsDisabled = false,
+    withdrawalLockMessage = null,
+}) {
     const { auth, blockchain } = usePage().props;
     const incomeHold = (
         blockchain?.web3?.income_hold ||
@@ -108,12 +113,20 @@ export default function IncomeHoldWithdrawCard({ raceLevelIncome = null, compact
     const submitWithdraw = async () => {
         setError('');
         setStatus('');
+        if (withdrawalsDisabled) {
+            setError(withdrawalLockMessage || 'Withdrawals are temporarily disabled. Please try again later.');
+            return;
+        }
         if (!walletAddress) {
             setError('Connect your wallet first.');
             return;
         }
         if (!canWithdraw) {
-            setError(quote.raceAmount === 0n ? 'No income on hold yet.' : 'Value must be at least $1.');
+            setError(
+                quote.raceAmount === 0n
+                    ? 'No on-chain IncomeHold RACE yet. Daily claim USDT is withdrawn from the USDT payout form below (when available).'
+                    : 'Value must be at least $1.',
+            );
             return;
         }
         setBusy(true);
@@ -154,7 +167,11 @@ export default function IncomeHoldWithdrawCard({ raceLevelIncome = null, compact
     }
 
     const onAction = !walletAddress ? connectWallet : !chainOk ? switchNetwork : submitWithdraw;
-    const actionDisabled = busy || networkSwitching || (walletAddress && chainOk && !canWithdraw);
+    const actionDisabled =
+        busy ||
+        networkSwitching ||
+        withdrawalsDisabled ||
+        (walletAddress && chainOk && !canWithdraw);
 
     return (
         <div className="space-y-3">

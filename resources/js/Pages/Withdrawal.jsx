@@ -193,21 +193,29 @@ export default function Withdrawal({
                 {raceOnlyIncome ? (
                     <>
                         <MemberPageHero kicker="Income wallet" title="Bring income to your wallet" variant="pdf" icon="withdrawal">
-                            Held income shows here. One tap sends it to your wallet.
+                            On-chain held RACE only. Daily claim USDT uses the payout form when rewards engine is hybrid.
                         </MemberPageHero>
+                        {withdrawals_disabled || withdrawal_lock_message ? (
+                            <div className="mx-auto w-full min-w-0 max-w-lg">
+                                <MemberAlert variant="warning" className="mb-3">
+                                    {withdrawal_lock_message
+                                        || 'Withdrawals are temporarily disabled for your account. Please contact support.'}
+                                </MemberAlert>
+                            </div>
+                        ) : null}
                         <div className="mx-auto w-full min-w-0 max-w-lg">
-                            <IncomeHoldWithdrawCard raceLevelIncome={race_level_income} />
+                            <IncomeHoldWithdrawCard
+                                raceLevelIncome={race_level_income}
+                                withdrawalsDisabled={withdrawals_disabled}
+                                withdrawalLockMessage={withdrawal_lock_message}
+                            />
                         </div>
                     </>
                 ) : (
                 <>
-                <MemberPageHero kicker="Income wallet" title="Bring income to your wallet" variant="pdf" icon="withdrawal">
-                    Bring held RACE here. The USDT form below is separate.
+                <MemberPageHero kicker="Income wallet" title="Income wallet" variant="pdf" icon="withdrawal">
+                    Daily / auto-claim lands in Virtual income (USDT) below. “Bring to my wallet” is only for on-chain IncomeHold RACE (often 0).
                 </MemberPageHero>
-
-                <div className="mx-auto w-full min-w-0 max-w-lg">
-                    <IncomeHoldWithdrawCard raceLevelIncome={race_level_income} />
-                </div>
 
                 <div className="mx-auto w-full min-w-0 max-w-lg">
                     {flash?.status ? (
@@ -232,6 +240,22 @@ export default function Withdrawal({
                             ) : null}
                         </MemberAlert>
                     ) : null}
+
+                    <MemberAlert variant="info" className="mb-3">
+                        To withdraw daily claim income: scroll to <strong>Request USDT payout</strong> and use your
+                        Virtual income balance (not the RACE “Bring to my wallet” card if it shows 0).
+                    </MemberAlert>
+                </div>
+
+                <div className="mx-auto w-full min-w-0 max-w-lg">
+                    <IncomeHoldWithdrawCard
+                        raceLevelIncome={race_level_income}
+                        withdrawalsDisabled={withdrawals_disabled}
+                        withdrawalLockMessage={withdrawal_lock_message}
+                    />
+                </div>
+
+                <div className="mx-auto w-full min-w-0 max-w-lg">
 
                     {rate_limit?.enabled ? (
                         <div
