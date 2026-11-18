@@ -2,17 +2,7 @@
     $minter = $minter_address ?? '';
     $readyAddress = is_string($minter) && preg_match('/^0x[a-f0-9]{40}$/i', $minter);
     $calldata = $set_minter_calldata ?? '';
-    $nextNumberUrl = route('platform.data.income-minter-multisig.next-number');
 @endphp
-
-<div class="bg-white rounded shadow-sm p-4 mb-3">
-    <h5 class="mb-2">{{ __('How this works') }}</h5>
-    <ol class="mb-2 small">
-        <li>{{ __('Submit → NUMBER auto box mein → Confirm (3 wallets).') }}</li>
-        <li>{{ __('To hamesha Multisig 0x81Bf…F3df hona chahiye — galat contract mat bhejo.') }}</li>
-        <li>{{ __('isMinter=true ke baad withdraw RaceCoin.mint karta hai.') }}</li>
-    </ol>
-</div>
 
 <div class="bg-white rounded shadow-sm p-4 mb-3">
     <h5 class="mb-2">{{ __('Live status') }}</h5>
@@ -43,35 +33,38 @@
 
 @if ($readyAddress && $calldata)
 <div class="bg-white rounded shadow-sm p-4 mb-3">
-    <h5 class="mb-2">{{ __('Multisig setMinter') }}</h5>
-    <p class="small mb-2"><code>setMinter({{ $minter }}, true)</code></p>
+    <h5 class="mb-2">{{ __('Income minter — Multisig setMinter (same as ICO / claim on-off)') }}</h5>
+    <p class="small mb-2">
+        {{ __('Inner call') }}: <code>setMinter({{ $minter }}, true)</code>
+    </p>
     <p class="small mb-3" style="word-break:break-all"><code class="user-select-all">{{ $calldata }}</code></p>
-
-    <div class="alert alert-info mb-3">
-        <strong>{{ __('Next NUMBER') }}:</strong>
-        <span class="fs-3 fw-bold user-select-all" id="race-minter-next-id">{{ $next_tx_id !== null ? $next_tx_id : '…' }}</span>
-        <button type="button" class="btn btn-sm btn-outline-primary ms-2" id="race-minter-refresh-count">{{ __('Refresh') }}</button>
-    </div>
-
-    <div class="alert alert-success mb-3">
-        <div class="fw-bold">{{ __('Submit ke baad Confirm NUMBER') }}</div>
-        <div class="display-3 user-select-all fw-bold" id="race-minter-id-big">—</div>
-        <div class="small text-muted" id="race-minter-bsc-hash">{{ __('BSC hash: —') }}</div>
-    </div>
-
-    <div class="form-group mb-3" style="max-width:320px">
-        <label class="form-label small" for="race-minter-txid">{{ __('Confirm NUMBER') }}</label>
-        <input type="text" inputmode="numeric" class="form-control form-control-lg" id="race-minter-txid" autocomplete="off">
-    </div>
+    <ol class="small mb-3">
+        <li>{{ __('TokenPocket mein Multisig signer wallet (5 mein se). Admin USDT wallet mat use karo.') }}</li>
+        <li>{{ __('1. Submit — To address Multisig hona chahiye. NUMBER auto nikalega (events nahi).') }}</li>
+        <li>{{ __('2nd / 3rd signer: 2. Confirm — same Multisig id. 3/3 pe execute.') }}</li>
+        <li>{{ __('Refresh status → isMinter = true.') }}</li>
+    </ol>
+    <p class="small mb-2"><strong>{{ __('Signers') }}:</strong></p>
+    <ul class="small mb-3">
+        @foreach ($multisig_signers ?? [] as $signer)
+            <li><code class="user-select-all">{{ $signer }}</code></li>
+        @endforeach
+    </ul>
 
     <p class="small mb-2" id="race-minter-status"></p>
+    <p class="small mb-3">
+        <strong>{{ __('Multisig id') }}:</strong>
+        <span class="fs-4 fw-bold user-select-all" id="race-minter-id-big">—</span>
+    </p>
     <div class="d-flex flex-wrap gap-2">
         <button type="button" class="btn btn-success" id="race-minter-submit"
             data-multisig="{{ $multisig_contract }}"
             data-token="{{ $race_token }}"
-            data-calldata="{{ $calldata }}">{{ __('1. Submit') }}</button>
+            data-calldata="{{ $calldata }}">{{ __('1. Submit setMinter') }}</button>
         <button type="button" class="btn btn-outline-success" id="race-minter-confirm"
-            data-multisig="{{ $multisig_contract }}">{{ __('2. Confirm') }}</button>
+            data-multisig="{{ $multisig_contract }}"
+            data-token="{{ $race_token }}"
+            data-calldata="{{ $calldata }}">{{ __('2. Confirm setMinter') }}</button>
         <a class="btn btn-outline-primary" href="{{ url()->current() }}">{{ __('Refresh status') }}</a>
     </div>
 </div>
@@ -83,226 +76,220 @@
 
 <script>
 (function () {
-    const EXPECTED_MULTISIG = String(@json($multisig_contract ?? '')).toLowerCase();
-    const SERVER_NEXT_ID = @json($next_tx_id);
-    const NEXT_URL = @json($nextNumberUrl);
-    const SUBMISSION_TOPIC = '0xc0ba8fe4b176c1714197d43b9cc6bcf797a4a7461c5fe8d0ef6e184ae7601e51';
+    // Same Multisig helpers as ico-contract-setup (claim on/off) — getTransaction scan, no events.
+    const FALLBACK_MULTISIG = '0x81BffBF2C2a258E662e9df0a0f6e34150b33F3df';
+    let multiSig = String(@json($multisig_contract ?? '') || '').trim();
+    if (!/^0x[a-fA-F0-9]{40}$/.test(multiSig)) multiSig = FALLBACK_MULTISIG;
+    multiSig = multiSig.toLowerCase();
+
+    const raceToken = String(@json($race_token ?? '') || '').toLowerCase();
+    const setMinterData = String(@json($calldata ?? '') || '').toLowerCase();
+    const signers = (@json($multisig_signers ?? [])).map((s) => String(s).toLowerCase());
+    const chainId = 56;
     const storageKey = 'race.multisig.setIncomeMinter.txId';
+
+    const submitSel = 'c6427474';
+    const confirmSel = 'c01a8c84';
+    const txCountSel = '0xb77bf600';
+    const isSignerSel = '0x7df73e27';
+    const getTxSel = '0x33ea3dc8';
+    const isConfirmedSel = '0x80f59a65';
 
     const statusEl = document.getElementById('race-minter-status');
     const bigId = document.getElementById('race-minter-id-big');
-    const hashEl = document.getElementById('race-minter-bsc-hash');
-    const nextIdEl = document.getElementById('race-minter-next-id');
-    const txInput = document.getElementById('race-minter-txid');
     const submitBtn = document.getElementById('race-minter-submit');
     const confirmBtn = document.getElementById('race-minter-confirm');
-    const refreshBtn = document.getElementById('race-minter-refresh-count');
 
-    function setStatus(msg, ok) {
-        if (!statusEl) return;
-        statusEl.innerHTML = msg || '';
-        statusEl.className = 'small mb-2 ' + (ok ? 'text-success' : 'text-danger');
+    function setStatus(msg) {
+        if (statusEl) statusEl.textContent = msg || '';
     }
 
-    function showNumber(id) {
-        const n = String(id == null ? '' : id).trim();
-        if (!n) return '';
-        if (txInput) txInput.value = n;
+    function showId(id) {
+        if (id === null || id === undefined || id === '') return;
+        const n = String(id);
         if (bigId) bigId.textContent = n;
-        if (nextIdEl) nextIdEl.textContent = n;
         try { localStorage.setItem(storageKey, n); } catch (e) {}
-        return n;
-    }
-
-    function showHash(h) {
-        if (hashEl) hashEl.textContent = 'BSC hash: ' + (h || '—');
     }
 
     try {
         const saved = localStorage.getItem(storageKey);
-        if (saved && txInput) showNumber(saved);
+        if (saved) showId(saved);
     } catch (e) {}
 
-    function normalizeAddr(a) {
-        return String(a || '').trim().toLowerCase();
+    function padAddr(addr) {
+        return String(addr).toLowerCase().replace(/^0x/, '').padStart(64, '0');
+    }
+    function padUint(dec) {
+        return BigInt(dec).toString(16).padStart(64, '0');
+    }
+    function toHexChain(id) {
+        return '0x' + Number(id).toString(16);
     }
 
-    async function eth() {
-        if (!window.ethereum) throw new Error('Wallet connect karo.');
-        return window.ethereum;
+    function encodeSubmit(to, innerData) {
+        const raw = String(innerData || '').replace(/^0x/, '');
+        const padBytes = (32 - ((raw.length / 2) % 32)) % 32;
+        return '0x' + submitSel + padAddr(to) + padUint(0) + padUint(96) + padUint(raw.length / 2) + raw + '00'.repeat(padBytes);
     }
 
-    async function ensureChain(p) {
-        const chainId = await p.request({ method: 'eth_chainId' });
-        if (String(chainId).toLowerCase() !== '0x38') {
-            await p.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x38' }] });
+    async function ethCall(to, data) {
+        return window.ethereum.request({
+            method: 'eth_call',
+            params: [{ to: to, data: data }, 'latest'],
+        });
+    }
+
+    async function waitReceipt(hash) {
+        for (let i = 0; i < 40; i++) {
+            const receipt = await window.ethereum.request({
+                method: 'eth_getTransactionReceipt',
+                params: [hash],
+            });
+            if (receipt && receipt.blockNumber) {
+                if (receipt.status === '0x0') {
+                    throw new Error('Transaction reverted: ' + hash);
+                }
+                return receipt;
+            }
+            await new Promise((r) => setTimeout(r, 3000));
         }
+        throw new Error('Transaction not mined yet. Wait and tap Confirm. Hash: ' + hash);
     }
 
-    async function accounts(p) {
-        const acc = await p.request({ method: 'eth_requestAccounts' });
-        if (!acc || !acc[0]) throw new Error('Signer connect karo.');
-        return acc[0];
-    }
-
-    function encodeSubmit(token, calldataHex) {
-        const to = token.replace(/^0x/i, '').toLowerCase().padStart(64, '0');
-        const value = ''.padStart(64, '0');
-        const data = (calldataHex || '').replace(/^0x/i, '').toLowerCase();
-        const offset = (96).toString(16).padStart(64, '0');
-        const len = (data.length / 2).toString(16).padStart(64, '0');
-        const padded = data + (data.length % 64 === 0 ? '' : '0'.repeat(64 - (data.length % 64)));
-        return '0xc6427474' + to + value + offset + len + padded;
-    }
-
-    function encodeConfirm(txId) {
-        const id = parseInt(String(txId).trim(), 10);
-        if (!Number.isFinite(id) || id < 0) throw new Error('NUMBER box khali.');
-        return '0xc01a8c84' + id.toString(16).padStart(64, '0');
-    }
-
-    function hexToUint(hex) {
-        if (!hex || hex === '0x') return null;
-        try { return Number(BigInt(hex)); } catch (e) { return null; }
-    }
-
-    // Server pe count — browser public RPC use mat karo
-    async function fetchNextFromServer() {
-        const res = await fetch(NEXT_URL, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
-        const json = await res.json();
-        if (!json || !json.ok) throw new Error((json && json.error) || 'server count fail');
-        return json.next;
-    }
-
-    async function waitReceipt(provider, hash) {
-        for (let i = 0; i < 45; i++) {
-            try {
-                const r = await provider.request({ method: 'eth_getTransactionReceipt', params: [hash] });
-                if (r) return r;
-            } catch (e) {}
-            await new Promise((x) => setTimeout(x, 1000));
-        }
-        throw new Error('Receipt timeout.');
-    }
-
-    function numberFromReceipt(receipt, multisig) {
-        const m = normalizeAddr(multisig);
-        for (const log of (receipt.logs || [])) {
-            if (normalizeAddr(log.address) !== m) continue;
-            const t0 = String(log.topics && log.topics[0] ? log.topics[0] : '').toLowerCase();
-            if (t0 === SUBMISSION_TOPIC && log.topics[1]) {
-                const id = hexToUint(log.topics[1]);
-                if (id !== null) return id;
+    // Find pending Multisig tx by matching inner calldata + target (no events)
+    async function findPendingSetMinter() {
+        if (!raceToken || !setMinterData) return null;
+        const want = setMinterData.toLowerCase();
+        const target = raceToken.toLowerCase();
+        const count = BigInt(await ethCall(multiSig, txCountSel) || '0x0');
+        let best = null;
+        for (let i = 0; i < count; i++) {
+            const raw = await ethCall(multiSig, getTxSel + padUint(i));
+            if (!raw || raw === '0x') continue;
+            const hex = raw.replace(/^0x/, '').padStart(320, '0');
+            const to = ('0x' + hex.slice(24, 64)).toLowerCase();
+            const executed = BigInt('0x' + hex.slice(192, 256)) === 1n;
+            const confirmations = Number(BigInt('0x' + hex.slice(256, 320)));
+            const dataOffset = Number(BigInt('0x' + hex.slice(128, 192))) * 2;
+            const dataLen = Number(BigInt('0x' + hex.slice(dataOffset, dataOffset + 64))) * 2;
+            const data = '0x' + hex.slice(dataOffset + 64, dataOffset + 64 + dataLen);
+            if (executed) continue;
+            if (to !== target) continue;
+            if (data.toLowerCase() !== want) continue;
+            if (!best || confirmations > best.confirmations) {
+                best = { id: String(i), confirmations: confirmations };
             }
         }
-        for (const log of (receipt.logs || [])) {
-            if (normalizeAddr(log.address) !== m) continue;
-            if (log.topics && log.topics[1]) {
-                const id = hexToUint(log.topics[1]);
-                if (id !== null && id < 1000000) return id;
-            }
-        }
-        return null;
+        return best;
     }
 
-    async function refreshNext() {
-        try {
-            const n = await fetchNextFromServer();
-            if (nextIdEl) nextIdEl.textContent = String(n);
-            setStatus('Next NUMBER = <strong>' + n + '</strong>', true);
-            return n;
-        } catch (e) {
-            if (SERVER_NEXT_ID !== null && SERVER_NEXT_ID !== undefined) {
-                if (nextIdEl) nextIdEl.textContent = String(SERVER_NEXT_ID);
-                setStatus('Next NUMBER = <strong>' + SERVER_NEXT_ID + '</strong> (page load)', true);
-                return SERVER_NEXT_ID;
-            }
-            setStatus(e && e.message ? e.message : String(e), false);
-            return null;
+    async function connectSigner() {
+        if (!window.ethereum) {
+            throw new Error('TokenPocket / MetaMask not found. Open this page inside TokenPocket DApp browser.');
         }
-    }
+        if (!multiSig) throw new Error('Multisig address missing.');
+        if (!raceToken || !setMinterData) throw new Error('RaceCoin / setMinter calldata missing.');
 
-    if (refreshBtn) refreshBtn.addEventListener('click', () => { refreshNext(); });
-    setTimeout(() => { refreshNext(); }, 150);
+        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+        const from = (accounts[0] || '').toLowerCase();
+        const liveChain = await window.ethereum.request({ method: 'eth_chainId' });
+        if (Number(liveChain) !== chainId) {
+            await window.ethereum.request({
+                method: 'wallet_switchEthereumChain',
+                params: [{ chainId: toHexChain(chainId) }],
+            });
+        }
+        if (!signers.includes(from)) {
+            throw new Error('Wrong wallet. Switch to one of the 5 Multisig signer accounts. Not admin USDT wallet.');
+        }
+        const signerHex = await window.ethereum.request({
+            method: 'eth_call',
+            params: [{ to: multiSig, data: isSignerSel + padAddr(from) }, 'latest'],
+        });
+        if (BigInt(signerHex || '0x0') !== 1n) {
+            throw new Error('This account is not a Multisig signer on-chain. Multisig=' + multiSig);
+        }
+        return from;
+    }
 
     if (submitBtn) {
-        submitBtn.addEventListener('click', async () => {
+        submitBtn.addEventListener('click', async function () {
             try {
-                setStatus('Submit…', true);
-                const provider = await eth();
-                await ensureChain(provider);
-                const from = await accounts(provider);
-                const multisig = normalizeAddr(submitBtn.getAttribute('data-multisig') || EXPECTED_MULTISIG);
-                if (!multisig || multisig !== EXPECTED_MULTISIG) {
-                    throw new Error('Multisig mismatch. Expected ' + EXPECTED_MULTISIG);
+                const from = await connectSigner();
+                const pending = await findPendingSetMinter();
+                if (pending) {
+                    showId(pending.id);
+                    setStatus(
+                        'setMinter already submitted. Do NOT submit again. Switch signer and tap Confirm. Multisig id: ' +
+                        pending.id + ' · confirms ' + pending.confirmations + '/3'
+                    );
+                    return;
                 }
-                const token = submitBtn.getAttribute('data-token');
-                const calldata = submitBtn.getAttribute('data-calldata');
-                if (!token || !calldata) throw new Error('Token/calldata missing.');
-
-                // Predicted number — server se; fail ho to page value; Submit mat roko
-                let predicted = SERVER_NEXT_ID;
-                try { predicted = await fetchNextFromServer(); } catch (e) {}
-                if (predicted !== null && predicted !== undefined) showNumber(predicted);
-
-                const data = encodeSubmit(token, calldata);
-                const txHash = await provider.request({
+                setStatus('Submitting setMinter to Multisig… To must be ' + multiSig);
+                const hash = await window.ethereum.request({
                     method: 'eth_sendTransaction',
-                    params: [{ from, to: multisig, data, value: '0x0' }],
+                    params: [{
+                        from: from,
+                        to: multiSig,
+                        data: encodeSubmit(raceToken, setMinterData),
+                    }],
                 });
-                showHash(txHash);
-                setStatus('Submit bhej diya… NUMBER nikaal rahe hain…', true);
-
-                const receipt = await waitReceipt(provider, txHash);
-                const to = normalizeAddr(receipt.to || '');
-                if (to && to !== multisig) {
-                    throw new Error('Galat contract: ' + to + ' — Multisig ' + multisig + ' pe Submit karo.');
-                }
-                if (String(receipt.status) !== '0x1' && Number(receipt.status) !== 1) {
-                    throw new Error('Submit FAIL on-chain.');
-                }
-
-                let actual = numberFromReceipt(receipt, multisig);
-                if (actual === null && predicted !== null && predicted !== undefined) actual = predicted;
-                if (actual === null) {
-                    try { actual = await fetchNextFromServer(); if (actual > 0) actual = actual - 1; } catch (e) {}
-                }
-                if (actual === null) throw new Error('NUMBER nahi mila. Refresh dabao.');
-
-                showNumber(actual);
-                setStatus('<strong>NUMBER = ' + actual + '</strong> box mein ready. Ab Confirm dabao.', true);
-            } catch (e) {
-                setStatus(e && e.message ? e.message : String(e), false);
+                setStatus('Waiting for submit to mine… ' + hash);
+                await waitReceipt(hash);
+                const created = await findPendingSetMinter();
+                const txId = created ? created.id : '';
+                if (txId !== '') showId(txId);
+                setStatus('Submit OK. Switch to a SECOND Multisig signer and tap Confirm setMinter. id: ' + txId);
+            } catch (err) {
+                setStatus(err && err.message ? err.message : String(err));
             }
         });
     }
 
     if (confirmBtn) {
-        confirmBtn.addEventListener('click', async () => {
+        confirmBtn.addEventListener('click', async function () {
             try {
-                const n = txInput ? String(txInput.value || '').trim() : '';
-                if (!n) throw new Error('Pehle Submit — NUMBER box mein aayega.');
-                showNumber(n);
-
-                const provider = await eth();
-                await ensureChain(provider);
-                const from = await accounts(provider);
-                const multisig = normalizeAddr(confirmBtn.getAttribute('data-multisig') || EXPECTED_MULTISIG);
-                if (multisig !== EXPECTED_MULTISIG) throw new Error('Multisig mismatch.');
-
-                setStatus('Confirm… NUMBER ' + n + ' → ' + multisig, true);
-                const data = encodeConfirm(n);
-                const txHash = await provider.request({
+                const from = await connectSigner();
+                const pending = await findPendingSetMinter();
+                if (!pending) {
+                    throw new Error('No pending setMinter Multisig tx. Tap Submit setMinter first.');
+                }
+                const alreadyHex = await ethCall(
+                    multiSig,
+                    isConfirmedSel + padUint(pending.id) + padAddr(from),
+                );
+                if (BigInt(alreadyHex || '0x0') === 1n) {
+                    showId(pending.id);
+                    setStatus(
+                        'This wallet already confirmed. Switch to another signer and Confirm again. id: ' +
+                        pending.id + ' · ' + pending.confirmations + '/3'
+                    );
+                    return;
+                }
+                showId(pending.id);
+                setStatus('Confirming setMinter… id ' + pending.id + ' · ' + pending.confirmations + '/3');
+                const hash = await window.ethereum.request({
                     method: 'eth_sendTransaction',
-                    params: [{ from, to: multisig, data, value: '0x0' }],
+                    params: [{
+                        from: from,
+                        to: multiSig,
+                        data: '0x' + confirmSel + padUint(pending.id),
+                    }],
                 });
-                showHash(txHash);
-                const receipt = await waitReceipt(provider, txHash);
-                const to = normalizeAddr(receipt.to || '');
-                if (to && to !== multisig) throw new Error('Confirm galat contract pe: ' + to);
-                setStatus('Confirm OK — NUMBER <strong>' + n + '</strong>. 3 signers ke baad Refresh status.', true);
-            } catch (e) {
-                setStatus(e && e.message ? e.message : String(e), false);
+                setStatus('Waiting for confirm to mine… ' + hash);
+                await waitReceipt(hash);
+                const after = await findPendingSetMinter();
+                if (!after) {
+                    setStatus('setMinter should be executed. Refresh status — isMinter must be true.');
+                    return;
+                }
+                showId(after.id);
+                setStatus(
+                    'Confirm saved. Switch to NEXT signer and Confirm again. Same id: ' +
+                    after.id + ' · ' + after.confirmations + '/3'
+                );
+            } catch (err) {
+                setStatus(err && err.message ? err.message : String(err));
             }
         });
     }
