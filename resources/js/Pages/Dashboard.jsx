@@ -822,27 +822,29 @@ export default function Dashboard({
                         </div>
                     ) : null}
 
-                    <div className="mx-auto w-full min-w-0 max-w-lg rounded-2xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 shadow-sm">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">
-                            Daily claim hold
-                        </p>
-                        <p className="mt-1 text-2xl font-bold text-fintech-ink">
-                            {formatUsdt(buckets.daily_claim_usd)}
-                        </p>
-                        <p className="mt-1 text-[11px] text-emerald-900/80">
-                            From daily claims to date, {formatUsdt(buckets.daily_claim_usd)} is on hold
-                            {Number(buckets.daily_claim_earned_usd) > 0
-                                ? ` (lifetime credited ${formatUsdt(buckets.daily_claim_earned_usd)})`
-                                : ''}
-                            . Team Reward + Admin Fee apply on withdraw. Other income:{' '}
-                            {formatUsdt(buckets.other_usd)} — withdraw anytime.
-                        </p>
-                        <Link
-                            href={route('withdrawal')}
-                            className="mt-2 inline-flex text-xs font-semibold text-emerald-800 underline"
-                        >
-                            Open Income wallet
-                        </Link>
+                    <div className="mx-auto w-full min-w-0 max-w-lg">
+                        <DpCard className="bg-gradient-to-br from-sky-50/80 to-white p-4 ring-1 ring-[#2563EB]/30 sm:p-5" hover={false}>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-fintech-primary">
+                                Daily claim hold
+                            </p>
+                            <p className="mt-1 text-2xl font-bold text-fintech-ink">
+                                {formatUsdt(buckets.daily_claim_usd)}
+                            </p>
+                            <p className="mt-1 text-[11px] text-fintech-muted">
+                                From daily claims to date, {formatUsdt(buckets.daily_claim_usd)} is on hold
+                                {Number(buckets.daily_claim_earned_usd) > 0
+                                    ? ` (lifetime credited ${formatUsdt(buckets.daily_claim_earned_usd)})`
+                                    : ''}
+                                . Team Reward + Admin Fee apply on withdraw. Other income:{' '}
+                                {formatUsdt(buckets.other_usd)} — withdraw anytime.
+                            </p>
+                            <Link
+                                href={route('withdrawal')}
+                                className="mt-2 inline-flex text-xs font-semibold text-[#2563EB] underline"
+                            >
+                                Open Income wallet
+                            </Link>
+                        </DpCard>
                     </div>
 
                     <DailyEarningCard

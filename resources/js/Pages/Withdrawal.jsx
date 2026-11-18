@@ -333,14 +333,14 @@ export default function Withdrawal({
                                 Daily claim + other income (withdrawable).
                             </p>
                         </div>
-                        <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-3 py-2.5 shadow-sm sm:px-4 sm:py-3">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">
+                        <div className="rounded-xl border border-fintech-line bg-gradient-to-br from-sky-50/80 to-white px-3 py-2.5 shadow-sm ring-1 ring-[#2563EB]/25 sm:px-4 sm:py-3">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-fintech-primary">
                                 Daily claim hold
                             </p>
                             <p className="mt-1 break-words text-xl font-bold text-fintech-ink">
                                 {formatUsdtBalance(dailyClaimBal)}
                             </p>
-                            <p className="mt-1 text-[11px] text-emerald-900/80">
+                            <p className="mt-1 text-[11px] text-fintech-muted">
                                 From daily claims to date, {formatUsdtBalance(dailyClaimBal)} is on hold
                                 {dailyClaimEarned > 0
                                     ? ` · Lifetime credited ${formatUsdtBalance(dailyClaimEarned)}`
@@ -381,7 +381,7 @@ export default function Withdrawal({
                                         onClick={() => setData('income_bucket', 'daily_claim')}
                                         className={`rounded-xl border px-3 py-2.5 text-left text-sm transition ${
                                             data.income_bucket === 'daily_claim'
-                                                ? 'border-emerald-500 bg-emerald-50 text-fintech-ink'
+                                                ? 'border-[#2563EB] bg-sky-50 text-fintech-ink'
                                                 : 'border-fintech-line bg-white text-fintech-muted'
                                         }`}
                                     >
