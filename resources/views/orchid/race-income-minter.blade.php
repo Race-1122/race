@@ -79,16 +79,17 @@
         @endforeach
     </ul>
 
-    <div id="race-minter-id-banner" class="alert alert-warning mb-3 d-none" role="status">
-        <div class="fw-bold">{{ __('Multisig tx id (auto)') }}</div>
-        <div class="display-6 user-select-all" id="race-minter-id-big">—</div>
-        <div class="small mb-0">{{ __('This number is filled automatically after Submit. Confirm buttons use it.') }}</div>
+    <div id="race-minter-id-banner" class="alert alert-success mb-3" role="status">
+        <div class="fw-bold text-uppercase">{{ __('Multisig NUMBER (not hash)') }}</div>
+        <div class="display-3 user-select-all fw-bold" id="race-minter-id-big" style="letter-spacing:2px;">—</div>
+        <div class="small mb-1">{{ __('Submit ke baad yahan sirf chhota number aayega (jaise 7). Lamba 0x… hash yahan NAHI aana chahiye.') }}</div>
+        <div class="small text-muted mb-0" id="race-minter-bsc-hash">{{ __('BSC hash: —') }}</div>
     </div>
 
-    <div class="form-group mb-3" style="max-width: 280px;">
-        <label class="form-label small" for="race-minter-txid">{{ __('Multisig tx id') }}</label>
-        <input type="number" class="form-control form-control-lg" id="race-minter-txid" min="0" step="1" placeholder="{{ __('Auto after Submit') }}" readonly>
-        <button type="button" class="btn btn-link btn-sm px-0" id="race-minter-txid-unlock">{{ __('Edit manually') }}</button>
+    <div class="form-group mb-3" style="max-width: 320px;">
+        <label class="form-label small" for="race-minter-txid">{{ __('Box mein ye NUMBER enter / auto') }}</label>
+        <input type="text" inputmode="numeric" pattern="[0-9]*" class="form-control form-control-lg" id="race-minter-txid" placeholder="{{ __('Submit ke baad auto number') }}" readonly autocomplete="off">
+        <button type="button" class="btn btn-link btn-sm px-0" id="race-minter-txid-unlock">{{ __('Edit manually (sirf number)') }}</button>
     </div>
 
     <p class="small mb-2" id="race-minter-status"></p>
@@ -119,11 +120,11 @@
     const EXPECTED_MULTISIG = String(@json($multisig_contract ?? '')).toLowerCase();
     const SUBMISSION_TOPIC = '0xc0ba8fe4b176c1714197d43b9cc6bcf797a4a7461c5fe8d0ef6e184ae7601e51';
     const statusEl = document.getElementById('race-minter-status');
-    const banner = document.getElementById('race-minter-id-banner');
     const bigId = document.getElementById('race-minter-id-big');
+    const hashEl = document.getElementById('race-minter-bsc-hash');
     const setStatus = (msg, ok) => {
         if (!statusEl) return;
-        statusEl.textContent = msg || '';
+        statusEl.innerHTML = msg || '';
         statusEl.className = 'small mb-2 ' + (ok ? 'text-success' : 'text-danger');
     };
 
@@ -131,19 +132,45 @@
     const txInput = document.getElementById('race-minter-txid');
     const unlockBtn = document.getElementById('race-minter-txid-unlock');
 
+    function isPureNumber(v) {
+        return /^\d+$/.test(String(v || '').trim());
+    }
+
+    function showBscHash(hash) {
+        if (hashEl) hashEl.textContent = 'BSC hash (sirf reference, box mein mat daalo): ' + (hash || '—');
+    }
+
     function showTxId(id) {
-        const n = String(id);
+        const raw = String(id == null ? '' : id).trim();
+        if (!isPureNumber(raw)) {
+            throw new Error('Invalid Multisig id (number chahiye, hash nahi): ' + raw);
+        }
+        const n = String(parseInt(raw, 10));
         if (txInput) txInput.value = n;
         window.localStorage.setItem(storageKey, n);
         if (bigId) bigId.textContent = n;
-        if (banner) banner.classList.remove('d-none');
+        return n;
     }
 
+    // Clear bad localStorage (old hash mistakes)
     if (txInput) {
         const saved = window.localStorage.getItem(storageKey);
-        if (saved !== null && saved !== '') showTxId(saved);
+        if (saved && isPureNumber(saved)) {
+            try { showTxId(saved); } catch (e) {}
+        } else if (saved) {
+            window.localStorage.removeItem(storageKey);
+            txInput.value = '';
+            if (bigId) bigId.textContent = '—';
+        }
         txInput.addEventListener('change', () => {
-            if (txInput.value !== '') showTxId(txInput.value);
+            const v = String(txInput.value || '').trim();
+            if (!v) return;
+            if (v.startsWith('0x') || v.length > 12 || !isPureNumber(v)) {
+                setStatus('Box mein sirf NUMBER likho (jaise 7). Hash mat daalo.', false);
+                txInput.value = '';
+                return;
+            }
+            try { showTxId(v); } catch (e) { setStatus(e.message, false); }
         });
     }
     if (unlockBtn && txInput) {
@@ -160,7 +187,7 @@
     function assertMultisig(addr) {
         const a = normalizeAddr(addr);
         if (!/^0x[a-f0-9]{40}$/.test(a)) {
-            throw new Error('Multisig address missing/invalid on page. Check RACE_MULTISIG_CONTRACT.');
+            throw new Error('Multisig address missing/invalid. Check RACE_MULTISIG_CONTRACT on server.');
         }
         if (EXPECTED_MULTISIG && a !== EXPECTED_MULTISIG) {
             throw new Error('Multisig mismatch. Expected ' + EXPECTED_MULTISIG + ' got ' + a);
@@ -202,9 +229,18 @@
     }
 
     function encodeConfirm(txId) {
-        const id = Number(txId);
-        if (!Number.isFinite(id) || id < 0) throw new Error('Multisig tx id missing — Submit first so number auto-fills.');
+        if (!isPureNumber(txId)) throw new Error('Multisig NUMBER missing. Submit first — number auto box mein aayega.');
+        const id = parseInt(String(txId), 10);
         return '0xc01a8c84' + id.toString(16).padStart(64, '0');
+    }
+
+    function hexToUint(hex) {
+        if (!hex || hex === '0x') return null;
+        try {
+            return Number(BigInt(hex));
+        } catch (e) {
+            return null;
+        }
     }
 
     async function ethCallUint(provider, to, data) {
@@ -212,17 +248,16 @@
             method: 'eth_call',
             params: [{ to, data }, 'latest'],
         });
-        if (!hex || hex === '0x') return null;
-        return parseInt(hex, 16);
+        return hexToUint(hex);
     }
 
     async function waitReceipt(provider, hash) {
-        for (let i = 0; i < 45; i++) {
+        for (let i = 0; i < 60; i++) {
             const r = await provider.request({ method: 'eth_getTransactionReceipt', params: [hash] });
             if (r) return r;
             await new Promise((res) => setTimeout(res, 2000));
         }
-        throw new Error('Timeout waiting for tx receipt. Check BscScan, then use Edit manually.');
+        throw new Error('Receipt timeout. BscScan pe Submission event se NUMBER nikaalo, Edit manually.');
     }
 
     function txIdFromReceipt(receipt, multisig) {
@@ -230,9 +265,40 @@
         const logs = receipt.logs || [];
         for (const log of logs) {
             if (normalizeAddr(log.address) !== m) continue;
-            if (!log.topics || log.topics[0] !== SUBMISSION_TOPIC) continue;
-            if (log.topics[1]) return parseInt(log.topics[1], 16);
+            const t0 = String(log.topics && log.topics[0] ? log.topics[0] : '').toLowerCase();
+            if (t0 !== SUBMISSION_TOPIC) continue;
+            if (log.topics[1]) {
+                const id = hexToUint(log.topics[1]);
+                if (id !== null && id >= 0 && id < 1e9) return id;
+            }
         }
+        // fallback: any log topic1 that looks like small id from this multisig
+        for (const log of logs) {
+            if (normalizeAddr(log.address) !== m) continue;
+            if (log.topics && log.topics[1]) {
+                const id = hexToUint(log.topics[1]);
+                if (id !== null && id >= 0 && id < 100000) return id;
+            }
+        }
+        return null;
+    }
+
+    async function resolveTxId(provider, multisig, receipt, countBefore) {
+        let txId = txIdFromReceipt(receipt, multisig);
+        if (txId !== null) return txId;
+
+        // poll count until it increases
+        for (let i = 0; i < 15; i++) {
+            const countAfter = await ethCallUint(provider, multisig, '0xb77bf600');
+            if (countBefore !== null && countAfter !== null && countAfter > countBefore) {
+                return countBefore; // new proposal id = old count
+            }
+            if (countAfter !== null && countBefore === null && countAfter > 0) {
+                return countAfter - 1;
+            }
+            await new Promise((res) => setTimeout(res, 1500));
+        }
+        if (countBefore !== null) return countBefore;
         return null;
     }
 
@@ -240,7 +306,7 @@
     if (submitBtn) {
         submitBtn.addEventListener('click', async () => {
             try {
-                setStatus('Submitting… reading Multisig tx count…', true);
+                setStatus('Submit… Multisig count padh rahe hain…', true);
                 const provider = await eth();
                 await ensureChain(provider);
                 const from = await accounts(provider);
@@ -251,34 +317,34 @@
 
                 const countBefore = await ethCallUint(provider, multisig, '0xb77bf600');
                 const data = encodeSubmit(token, calldata);
-                setStatus('Approve Submit in wallet… (to must be ' + multisig + ')', true);
+                setStatus('Wallet mein Approve karo. To address hona chahiye:<br><code>' + multisig + '</code>', true);
                 const txHash = await provider.request({
                     method: 'eth_sendTransaction',
                     params: [{ from, to: multisig, data, value: '0x0' }],
                 });
-                setStatus('Submitted ' + txHash + ' — waiting receipt to auto-fill tx id…', true);
+                showBscHash(txHash);
+                setStatus('Submit hash mil gaya (ye NUMBER nahi hai). Receipt wait… number auto nikalenge.', true);
+
                 const receipt = await waitReceipt(provider, txHash);
-                if (normalizeAddr(receipt.to) !== multisig) {
-                    throw new Error('Tx went to wrong contract ' + receipt.to + ' (expected Multisig ' + multisig + '). Reject and retry.');
+                const receiptTo = normalizeAddr(receipt.to || receipt.contractAddress || '');
+                if (receiptTo && receiptTo !== multisig) {
+                    throw new Error('Galat contract pe gaya: ' + receiptTo + ' — expected Multisig ' + multisig);
                 }
                 if (String(receipt.status) !== '0x1' && Number(receipt.status) !== 1) {
-                    throw new Error('Submit tx failed on-chain.');
+                    throw new Error('Submit on-chain FAIL.');
                 }
 
-                let txId = txIdFromReceipt(receipt, multisig);
-                if (txId === null && countBefore !== null) {
-                    txId = countBefore; // new id == previous count
-                }
+                const txId = await resolveTxId(provider, multisig, receipt, countBefore);
                 if (txId === null) {
-                    const countAfter = await ethCallUint(provider, multisig, '0xb77bf600');
-                    if (countAfter !== null && countAfter > 0) txId = countAfter - 1;
-                }
-                if (txId === null) {
-                    throw new Error('Could not auto-read tx id. Open BscScan Submission event and use Edit manually.');
+                    throw new Error('NUMBER auto nahi mila. BscScan Submission → transactionId number box mein likho.');
                 }
 
-                showTxId(txId);
-                setStatus('OK — Multisig tx id ' + txId + ' auto-filled. Now connect signer #2 and #3 → Confirm.', true);
+                const n = showTxId(txId);
+                setStatus(
+                    '<strong>NUMBER ready: ' + n + '</strong> (box mein auto fill).<br>' +
+                    'Ab Signer #2 aur #3 se <strong>Confirm</strong> dabao. Hash mat use karo.',
+                    true
+                );
             } catch (e) {
                 setStatus(e && e.message ? e.message : String(e), false);
             }
@@ -289,27 +355,29 @@
     if (confirmBtn) {
         confirmBtn.addEventListener('click', async () => {
             try {
-                setStatus('Confirming…', true);
+                setStatus('Confirm…', true);
                 const provider = await eth();
                 await ensureChain(provider);
                 const from = await accounts(provider);
                 const multisig = assertMultisig(confirmBtn.getAttribute('data-multisig'));
-                const txId = txInput ? txInput.value : '';
-                if (txId === '' || txId === null) {
-                    throw new Error('No Multisig tx id yet. Run Submit first (number auto-fills).');
+                const txId = txInput ? String(txInput.value || '').trim() : '';
+                if (!isPureNumber(txId)) {
+                    throw new Error('Pehle Submit karo taaki NUMBER box mein aaye. Hash mat daalo.');
                 }
-                showTxId(txId);
-                const data = encodeConfirm(txId);
-                setStatus('Approve Confirm in wallet… (to must be ' + multisig + ', id ' + txId + ')', true);
+                const n = showTxId(txId);
+                const data = encodeConfirm(n);
+                setStatus('Confirm Approve karo.<br>To: <code>' + multisig + '</code><br>NUMBER: <strong>' + n + '</strong>', true);
                 const txHash = await provider.request({
                     method: 'eth_sendTransaction',
                     params: [{ from, to: multisig, data, value: '0x0' }],
                 });
+                showBscHash(txHash);
                 const receipt = await waitReceipt(provider, txHash);
-                if (normalizeAddr(receipt.to) !== multisig) {
-                    throw new Error('Confirm went to wrong contract ' + receipt.to + ' — expected ' + multisig);
+                const receiptTo = normalizeAddr(receipt.to || '');
+                if (receiptTo && receiptTo !== multisig) {
+                    throw new Error('Confirm galat contract pe: ' + receiptTo);
                 }
-                setStatus('Confirm OK. Tx ' + txHash + ' — after 3rd signer Confirm, tap Refresh status (isMinter=true).', true);
+                setStatus('Confirm OK (NUMBER ' + n + '). 3 signers ke baad Refresh — isMinter true.', true);
             } catch (e) {
                 setStatus(e && e.message ? e.message : String(e), false);
             }
