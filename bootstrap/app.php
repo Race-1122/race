@@ -94,6 +94,14 @@ return Application::configure(basePath: dirname(__DIR__))
         // Recoup stake ROI paid by RACE mint when the Engine later pays the same days (no-op without advances).
         $schedule->command('stake-mint:reconcile')->hourly()->withoutOverlapping(30);
 
+        // 04:00 IST — auto credit Engine stake daily ROI → Virtual Income.
+        // On-chain claimReward still needs the member wallet; command no-ops if Go-live is OFF.
+        $autoAt = (string) config('race_income_mint.stake_claim_auto_at', '04:00');
+        $schedule->command('stake-mint:auto-claim')
+            ->dailyAt($autoAt)
+            ->timezone($incomeTz)
+            ->withoutOverlapping(120);
+
         if (config('blockchain.indexer.enabled')) {
             $schedule->command('blockchain:index-events')->everyMinute()->withoutOverlapping(4);
             $schedule->command('blockchain:backfill-ico-purchases --blocks=4000')->everyMinute()->withoutOverlapping(3);

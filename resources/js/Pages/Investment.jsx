@@ -2,7 +2,6 @@ import MemberPageHero, { MemberHeroLink } from '@/Components/Member/MemberPageHe
 import MemberPageShell from '@/Components/Member/MemberPageShell';
 import MemberTableScroll from '@/Components/Member/MemberTableScroll';
 import PanelCard from '@/Components/PanelCard';
-import PrimaryButton from '@/Components/PrimaryButton';
 import Web3NetworkBanner from '@/Components/Web3NetworkBanner';
 import RacePdfPanel from '@/Components/Member/RacePdfPanel';
 import RacePdfSectionHeader from '@/Components/Member/RacePdfSectionHeader';
@@ -145,7 +144,6 @@ export default function Investment({
     );
     const [unlockBusyId, setUnlockBusyId] = useState(null);
     const [compoundBusyId, setCompoundBusyId] = useState(null);
-    const [claimBusy, setClaimBusy] = useState(false);
     const idActive = Boolean(auth?.user?.id_activated_at);
     const stakeUnlock = builtForGrowth?.stake_unlock ?? {
         admin_fee_percent: '10.00',
@@ -181,20 +179,6 @@ export default function Investment({
         );
     };
 
-    const requestIncomeClaim = () => {
-        if (claimBusy || onChain || !income_policy?.can_claim) {
-            return;
-        }
-        setClaimBusy(true);
-        router.post(
-            route('income.claim'),
-            {},
-            {
-                preserveScroll: true,
-                onFinish: () => setClaimBusy(false),
-            },
-        );
-    };
     const durationTiers = useMemo(() => {
         if (onChain && engineConfig?.lock_tiers?.length) {
             return engineConfig.lock_tiers;
@@ -486,34 +470,6 @@ export default function Investment({
                         <p className="mt-1 text-[11px] text-fintech-muted">
                             Claimed income lands here · no auto-claim
                         </p>
-                    </PanelCard>
-                    <PanelCard title="Claim income" icon="payout" className="border-fintech-line !p-4">
-                        <p className="mt-1 text-xs text-fintech-muted">
-                            Manual claim only — open {income_policy?.claim_window?.label ?? '07:00 AM – 12:00 PM (Asia/Kolkata)'}, once per day.
-                            Community income is released at {income_policy?.claim_window?.community_release_at ?? '12:00'}.
-                        </p>
-                        {income_policy?.claim_window?.enabled && !income_policy?.claim_window?.open_now ? (
-                            <p className="mt-2 text-[11px] font-semibold text-red-700">Claim window is closed right now.</p>
-                        ) : null}
-                        {income_policy?.next_claim_at ? (
-                            <p className="mt-2 text-[11px] text-amber-800">
-                                Next claim after{' '}
-                                {new Date(income_policy.next_claim_at).toLocaleString(undefined, {
-                                    month: 'short',
-                                    day: 'numeric',
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                })}
-                            </p>
-                        ) : null}
-                        <PrimaryButton
-                            type="button"
-                            className="mt-3 w-full justify-center"
-                            disabled={!income_policy?.can_claim || claimBusy}
-                            onClick={requestIncomeClaim}
-                        >
-                            {claimBusy ? 'Claiming…' : 'Claim to virtual income'}
-                        </PrimaryButton>
                     </PanelCard>
                 </div>
 

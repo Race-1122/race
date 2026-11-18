@@ -190,12 +190,6 @@ export default function IncomePayout({
                         </div>
                     </div>
 
-                    <p className="rounded-lg border border-sky-400/50 bg-[#0a1838]/80 px-3 py-2 text-xs leading-relaxed text-sky-100 sm:text-sm">
-                        <span className="font-semibold text-sky-50">Fees:</span> {teamPercent}% Team Reward (L1–L10) +
-                        Admin Fee (${adminFlat} if under ${adminFrom}, else {adminPercent}%). Minimum ${minAmount}. The net
-                        is converted to RACE at the live price and minted to your wallet.
-                    </p>
-
                     <PanelCard title="Pay out as RACE" icon="payout">
                         <form onSubmit={submit} className="space-y-4">
                             <div>

@@ -1,7 +1,5 @@
 import PrimaryButton from '@/Components/PrimaryButton';
-import Web3NetworkBanner from '@/Components/Web3NetworkBanner';
 import PanelCard from '@/Components/PanelCard';
-import MemberPageHero from '@/Components/Member/MemberPageHero';
 import MemberPageShell from '@/Components/Member/MemberPageShell';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { useWalletNetwork } from '@/hooks/useWalletNetwork';
@@ -82,8 +80,6 @@ export default function Swap({
         networkError: networkSwitchError,
         switchNetwork,
         connectWallet: connectWalletOnNetwork,
-        connectedLabel,
-        switchButtonLabel,
     } = useWalletNetwork({ expectedChainId });
 
     const [connecting, setConnecting] = useState(false);
@@ -171,13 +167,14 @@ export default function Swap({
 
     const minOut = useMemo(() => applySlippage(quoteOut, slippageBps), [quoteOut, slippageBps]);
 
-    const canSwap =
-        Boolean(wallet) &&
-        configured &&
-        chainOk &&
-        Number(amountIn) > 0 &&
-        quoteOut > 0n &&
-        !swapStep;
+    const canSwap = !wallet
+        ? !connecting && !networkSwitching
+        : configured &&
+          Number(amountIn) > 0 &&
+          quoteOut > 0n &&
+          !swapStep &&
+          !connecting &&
+          !networkSwitching;
 
     const connectWallet = async () => {
         setWalletError(null);
@@ -207,7 +204,7 @@ export default function Swap({
         setLastTx('');
 
         if (!wallet) {
-            setSwapError('Connect your crypto wallet first.');
+            await connectWallet();
             return;
         }
         if (!configured) {
@@ -277,16 +274,6 @@ export default function Swap({
             <Head title="Swap" />
 
             <MemberPageShell contentClassName="space-y-5 sm:space-y-6">
-                <MemberPageHero
-                    kicker="Swap"
-                    title="Swap USDT ↔ RACE"
-                    variant="pdf"
-                    icon="wallet"
-                >
-                    Trade RACE / USDT on-chain inside this app. Liquidity stays in the pool —
-                    no internal swap or stake contract.
-                </MemberPageHero>
-
                 <div className="grid gap-4 sm:grid-cols-2">
                     <div className="rounded-2xl border border-violet-200/80 bg-gradient-to-br from-white to-violet-50/80 px-4 py-4 shadow-sm">
                         <p className="text-xs font-bold uppercase tracking-wide text-fintech-muted">
@@ -310,39 +297,8 @@ export default function Swap({
                     </div>
                 </div>
 
-                <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
-                    <PanelCard title="1 · Connect wallet" icon="wallet">
-                        <p className="mb-4 text-sm text-fintech-muted">
-                            Connect on BNB Smart Chain. Swaps run on-chain via the DEX router.
-                        </p>
-                        {wallet ? (
-                            <div className="space-y-3">
-                                <Web3NetworkBanner
-                                    chainOk={chainOk}
-                                    connectedLabel={connectedLabel}
-                                    switchButtonLabel={switchButtonLabel}
-                                    switching={networkSwitching}
-                                    networkError={networkSwitchError}
-                                    onSwitch={switchNetwork}
-                                />
-                                <p className="break-all font-mono text-sm font-medium text-fintech-ink">
-                                    {wallet}
-                                </p>
-                            </div>
-                        ) : (
-                            <PrimaryButton
-                                type="button"
-                                className="w-full justify-center py-3 normal-case"
-                                disabled={connecting || networkSwitching}
-                                onClick={connectWallet}
-                            >
-                                {connecting || networkSwitching ? 'Opening wallet…' : 'Connect wallet'}
-                            </PrimaryButton>
-                        )}
-                        {walletError && <p className="mt-3 text-sm text-red-400">{walletError}</p>}
-                    </PanelCard>
-
-                    <PanelCard title="2 · Swap" icon="wallet">
+                <div>
+                    <PanelCard title="Swap" icon="wallet">
                         {!configured ? (
                             <p className="text-sm text-amber-600">
                                 Router / RACE / USDT addresses missing. Set PANCAKE_ROUTER, RACE_TOKEN_CONTRACT,
@@ -462,11 +418,13 @@ export default function Swap({
                                     className="mt-2 w-full justify-center rounded-2xl border-violet-500 bg-violet-600 py-3.5 text-base font-bold text-white hover:bg-violet-500 focus:ring-violet-400"
                                     disabled={!canSwap}
                                 >
-                                    {swapStep
-                                        ? swapStepLabel
-                                        : !wallet
-                                          ? 'Connect wallet to swap'
-                                          : `Swap`}
+                                    {connecting || networkSwitching
+                                        ? 'Opening wallet…'
+                                        : swapStep
+                                          ? swapStepLabel
+                                          : !wallet
+                                            ? 'Connect wallet to swap'
+                                            : 'Swap'}
                                 </PrimaryButton>
 
                                 <p className="pt-1 text-center text-[11px] text-slate-400">
@@ -475,6 +433,9 @@ export default function Swap({
                             </form>
                         )}
 
+                        {(walletError || networkSwitchError) && (
+                            <p className="mt-3 text-sm text-red-400">{walletError || networkSwitchError}</p>
+                        )}
                         {swapError && <p className="mt-3 text-sm text-red-500">{swapError}</p>}
                         {swapSuccess && <p className="mt-3 text-sm text-emerald-600">{swapSuccess}</p>}
                         {lastTx && (

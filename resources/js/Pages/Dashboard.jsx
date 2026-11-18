@@ -1,5 +1,4 @@
 import PlanIncomeSection from '@/Components/PlanIncomeSection';
-import IncomeHoldWithdrawCard from '@/Components/IncomeHoldWithdrawCard';
 import OnChainClaimCard from '@/Components/OnChainClaimCard';
 import MemberPageHero from '@/Components/Member/MemberPageHero';
 import MemberPageShell from '@/Components/Member/MemberPageShell';
@@ -801,7 +800,6 @@ export default function Dashboard({ summary: summaryProp = {}, memberActivation:
 
                     <div className="mx-auto w-full min-w-0 max-w-lg space-y-3">
                         <OnChainClaimCard />
-                        <IncomeHoldWithdrawCard compact />
                     </div>
 
                     <DailyEarningCard

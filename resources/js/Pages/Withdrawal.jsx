@@ -5,7 +5,6 @@ import MemberAlert from '@/Components/Member/MemberAlert';
 import MemberPageHero from '@/Components/Member/MemberPageHero';
 import MemberPageShell from '@/Components/Member/MemberPageShell';
 import MemberTableScroll from '@/Components/Member/MemberTableScroll';
-import IncomeHoldWithdrawCard from '@/Components/IncomeHoldWithdrawCard';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, useForm, usePage } from '@inertiajs/react';
 import { useEffect, useState } from 'react';
@@ -115,7 +114,6 @@ function WithdrawalRowMobile({ row }) {
 }
 
 export default function Withdrawal({
-    race_level_income = null,
     balance_usd = '0.00',
     income_policy = {
         accrued_reward_usd: '0.0000',
@@ -215,13 +213,6 @@ export default function Withdrawal({
                                 </MemberAlert>
                             </div>
                         ) : null}
-                        <div className="mx-auto w-full min-w-0 max-w-lg">
-                            <IncomeHoldWithdrawCard
-                                raceLevelIncome={race_level_income}
-                                withdrawalsDisabled={withdrawals_disabled}
-                                withdrawalLockMessage={withdrawal_lock_message}
-                            />
-                        </div>
                     </>
                 ) : (
                 <>
@@ -271,14 +262,6 @@ export default function Withdrawal({
                 </div>
 
                 <div className="mx-auto w-full min-w-0 max-w-lg">
-                    <IncomeHoldWithdrawCard
-                        raceLevelIncome={race_level_income}
-                        withdrawalsDisabled={withdrawals_disabled}
-                        withdrawalLockMessage={withdrawal_lock_message}
-                    />
-                </div>
-
-                <div className="mx-auto w-full min-w-0 max-w-lg">
 
                     {rate_limit?.enabled ? (
                         <div
@@ -322,23 +305,6 @@ export default function Withdrawal({
                         </div>
                     ) : null}
 
-                    <p className="mb-3 rounded-lg border border-sky-400/50 bg-[#0a1838]/80 px-3 py-2 text-xs leading-relaxed text-sky-100 sm:text-sm">
-                        <span className="font-semibold text-sky-50">Income withdrawal:</span> {percent}% Team Reward (L1–L10)
-                        plus separate Admin Fee (${adminFlat} if under ${adminPercentFrom}; {adminPercent}% at $
-                        {adminPercentFrom}+).{' '}
-                        {raceMintOnWithdraw ? (
-                            <>
-                                Net is minted as <strong className="text-white">RACE</strong> to your BEP20 wallet (no
-                                admin wait).
-                            </>
-                        ) : (
-                            <>
-                                After approval, <strong className="text-white">net USDT</strong> is sent to your BEP20
-                                address.
-                            </>
-                        )}{' '}
-                        Separate from fixed-stake maturity / EMI.
-                    </p>
                     {!raceMintOnWithdraw && adminAddress ? (
                         <p className="mb-3 break-all rounded-lg border-2 border-amber-400/70 bg-amber-950/50 px-3 py-2 text-[11px] text-amber-100 sm:text-xs">
                             <span className="font-semibold text-amber-200">
@@ -377,11 +343,6 @@ export default function Withdrawal({
                         title={raceMintOnWithdraw ? 'Bring virtual income as RACE' : 'Request USDT payout'}
                         icon="payout"
                     >
-                        <p className="mb-6 text-sm text-fintech-muted">
-                            {raceMintOnWithdraw
-                                ? 'Enter gross USDT from Virtual income. After fees, net is minted as RACE to your wallet.'
-                                : 'Enter the gross USDT amount (deducted from your wallet). Operations send the net amount to your BEP20 address.'}
-                        </p>
                         <form onSubmit={submit} className="space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-fintech-ink">

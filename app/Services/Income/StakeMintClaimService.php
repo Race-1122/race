@@ -236,18 +236,24 @@ class StakeMintClaimService
 
     // ── Claim ───────────────────────────────────────────────────────────────
 
-    public function claim(User $user, int $stakeIndex): StakeMintClaim
+    /**
+     * @param  array{from_cron?: bool, skip_onchain_gate?: bool}  $options
+     */
+    public function claim(User $user, int $stakeIndex, array $options = []): StakeMintClaim
     {
         if (! $this->enabled()) {
             throw ValidationException::withMessages(['claim' => __('Claim for remaining stakes is not enabled yet.')]);
         }
+
+        $fromCron = (bool) ($options['from_cron'] ?? false);
+        $skipOnchainGate = (bool) ($options['skip_onchain_gate'] ?? false) || $fromCron;
 
         $wallet = $this->walletOf($user);
         if ($wallet === null) {
             throw ValidationException::withMessages(['claim' => __('Bind a valid BEP20 wallet first.')]);
         }
 
-        if (! $this->window->isWindowOpen()) {
+        if (! $fromCron && ! $this->window->isWindowOpen()) {
             throw ValidationException::withMessages([
                 'claim' => __('Claim is open only :window.', ['window' => $this->window->windowLabel()]),
             ]);
@@ -266,7 +272,8 @@ class StakeMintClaimService
                 throw ValidationException::withMessages(['claim' => __('Could not read the Engine right now. Try again shortly.')]);
             }
             $now = $this->now();
-            if ($next <= $now) {
+            // Manual UI: only after the one on-chain claim (wallet cooldown). Cron credits all stakes (recoup if Engine pays later).
+            if (! $skipOnchainGate && $next <= $now) {
                 throw ValidationException::withMessages([
                     'claim' => __('Claim one stake on-chain first. This option is only for your other stakes after that claim.'),
                 ]);
@@ -282,6 +289,10 @@ class StakeMintClaimService
                 ->where('stake_index', $stakeIndex)
                 ->first();
             $days = $this->eligibleDays($stake, $adv, $now);
+            if ($fromCron) {
+                // Daily job: at most 1 day per stake per run (missed days catch up on later mornings).
+                $days = min($days, max(1, (int) config('race_income_mint.stake_claim_auto_max_days', 1)));
+            }
             if ($days <= 0) {
                 throw ValidationException::withMessages(['claim' => __('Nothing to claim for this stake yet.')]);
             }
@@ -292,7 +303,7 @@ class StakeMintClaimService
                 throw ValidationException::withMessages(['claim' => __('Reward is too small to claim yet.')]);
             }
 
-            return DB::transaction(function () use ($user, $wallet, $stakeIndex, $days, $reward, $usdt4, $stake) {
+            return DB::transaction(function () use ($user, $wallet, $stakeIndex, $days, $reward, $usdt4, $stake, $fromCron) {
                 $claim = StakeMintClaim::query()->create([
                     'user_id' => $user->id,
                     'stake_index' => $stakeIndex,
@@ -305,7 +316,10 @@ class StakeMintClaimService
                     'meta' => [
                         'engine_last_reward_at' => (int) $stake['last_reward_at'],
                         'settlement' => 'virtual_income',
-                        'note' => 'Credited to Virtual Income; RACE mint + fees on withdraw',
+                        'from_cron' => $fromCron,
+                        'note' => $fromCron
+                            ? 'Daily auto-claim → Virtual Income (04:00 IST)'
+                            : 'Credited to Virtual Income; RACE mint + fees on withdraw',
                     ],
                 ]);
 
@@ -323,7 +337,10 @@ class StakeMintClaimService
                         'race_price_usdt' => $stake['reward_price_usdt'],
                         'usdt_amount' => $reward['usdt'],
                         'claim_id' => $claim->id,
-                        'note' => 'Remaining-stake ROI credited to Virtual Income (fees + RACE mint on withdraw)',
+                        'from_cron' => $fromCron,
+                        'note' => $fromCron
+                            ? 'Daily auto staking ROI → Virtual Income'
+                            : 'Remaining-stake ROI credited to Virtual Income (fees + RACE mint on withdraw)',
                     ],
                 );
 
@@ -359,6 +376,55 @@ class StakeMintClaimService
         } finally {
             $lock->release();
         }
+    }
+
+    /**
+     * Morning auto-claim: credit every Engine stake that has ≥1 day owed into Virtual Income.
+     * Does not send on-chain claimReward (that always needs the member's wallet signature).
+     *
+     * @return array{claims: int, usdt: string, skipped: int, errors: list<string>}
+     */
+    public function autoClaimUser(User $user): array
+    {
+        $out = ['claims' => 0, 'usdt' => '0.0000', 'skipped' => 0, 'errors' => []];
+        if (! $this->enabled()) {
+            $out['errors'][] = 'disabled';
+
+            return $out;
+        }
+
+        $wallet = $this->walletOf($user);
+        if ($wallet === null) {
+            $out['skipped']++;
+
+            return $out;
+        }
+
+        $count = $this->readStakeCount($wallet);
+        if ($count === null || $count <= 0) {
+            $out['skipped']++;
+
+            return $out;
+        }
+
+        for ($i = 0; $i < $count; $i++) {
+            try {
+                $claim = $this->claim($user, $i, ['from_cron' => true, 'skip_onchain_gate' => true]);
+                $out['claims']++;
+                $out['usdt'] = bcadd($out['usdt'], number_format((float) $claim->usdt_amount, 4, '.', ''), 4);
+            } catch (ValidationException $e) {
+                $msg = (string) collect($e->errors())->flatten()->first();
+                if (str_contains(strtolower($msg), 'nothing to claim')) {
+                    $out['skipped']++;
+                } else {
+                    $out['errors'][] = "stake {$i}: {$msg}";
+                }
+            } catch (\Throwable $e) {
+                $out['errors'][] = "stake {$i}: ".$e->getMessage();
+            }
+        }
+
+        return $out;
     }
 
     // ── Recoup (advance absorbed by Engine payments) ────────────────────────
