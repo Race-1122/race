@@ -194,11 +194,11 @@ export default function OnChainClaimCard() {
                     {claimable.map((stake) => (
                         <div
                             key={stake.index}
-                            className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2"
+                            className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-900/60 px-3 py-2"
                         >
                             <div className="min-w-0 text-sm">
-                                <p className="font-semibold text-fintech-ink">Stake #{stake.index}</p>
-                                <p className="text-xs text-fintech-muted">
+                                <p className="font-semibold text-white">Stake #{stake.index}</p>
+                                <p className="text-xs text-white">
                                     {formatTokenWei(stake.pendingRewardRace || 0n, 18, 6)} RACE
                                 </p>
                             </div>
