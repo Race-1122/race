@@ -448,19 +448,19 @@ export default function Investment({
                 >
                     <>
                         Stake from <strong className="text-white">$1</strong> — jitna marzi (temporary).
-                        {onChain ? ' Live PancakeSwap price.' : ''}
+                        {onChain ? ' Live market price.' : ''}
                     </>
                 </MemberPageHero>
 
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {onChain ? (
-                        <PanelCard title="Live Pancake price" icon="swap" className="border-fintech-line !p-4">
+                        <PanelCard title="Live market price" icon="swap" className="border-fintech-line !p-4">
                             <p className="mt-1 text-2xl font-bold text-fintech-ink">
                                 {pancakePrice > 0 ? formatRacePriceUsd(pancakePrice) : '—'}{' '}
                                 <span className="text-sm font-semibold text-fintech-muted">USDT / RACE</span>
                             </p>
                             <p className="mt-1 text-[11px] text-fintech-muted">
-                                PancakeSwap RACE→USDT · Min stake ≈{' '}
+                                Live RACE→USDT · Min stake ≈{' '}
                                 {minRaceForOneUsd != null ? `${minRaceForOneUsd} RACE` : '—'} (after 4% fee ≥ $1)
                             </p>
                         </PanelCard>
@@ -559,7 +559,7 @@ export default function Investment({
                                 showWhenConnected={Boolean(walletAddress)}
                             />
                             <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs text-sky-950">
-                                Min {formatUsd(onChainParticipation.min_usdt ?? '1')} USDT · Live Pancake{' '}
+                                Min {formatUsd(onChainParticipation.min_usdt ?? '1')} USDT · Live price{' '}
                                 {pancakePrice > 0 ? formatRacePriceUsd(pancakePrice) : '—'} / RACE · Choose USDT or
                                 wallet RACE below, then lock period.
                             </div>
@@ -585,7 +585,7 @@ export default function Investment({
                                         />
                                         <p className="text-sm font-bold text-fintech-ink">Wallet USDT</p>
                                         <p className="mt-1 text-xs text-fintech-muted">
-                                            Swap USDT → RACE on Pancake inside Engine, then stake
+                                            Swap USDT → RACE inside Engine, then stake
                                         </p>
                                     </label>
                                     <label
@@ -777,7 +777,7 @@ export default function Investment({
                                 </p>
                                 {stakeWithWalletRace ? (
                                     <p className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
-                                        Payment: <strong>{amountRace} RACE</strong> · Pancake{' '}
+                                        Payment: <strong>{amountRace} RACE</strong> · Price{' '}
                                         <strong>{pancakePrice > 0 ? formatRacePriceUsd(pancakePrice) : '—'}</strong> ·
                                         Est. after fee ≈ <strong>{formatUsd(racePrincipalUsdEst)}</strong>
                                         {racePrincipalUsdEst > 0 && racePrincipalUsdEst < 1 ? (

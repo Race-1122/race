@@ -811,7 +811,7 @@ export default function Isu({
                           rpcUrl,
                       });
 
-            const liveLabel = liveStakePrice > 0n ? `$${formatUsdPriceFromWei(liveStakePrice)}` : 'live Pancake price';
+            const liveLabel = liveStakePrice > 0n ? `$${formatUsdPriceFromWei(liveStakePrice)}` : 'live market price';
             showIcoSuccess(
                 `Stake created at ${liveLabel}. Level income and ROI on this stake use that locked price. Claim from next day. Tx ${txHash.slice(0, 10)}…`,
             );
@@ -1132,7 +1132,7 @@ export default function Isu({
                                         </p>
                                         <p className="mt-1 text-sm text-slate-300">
                                             {icoCompleted
-                                                ? `ICO is complete. Create Your Stake uses the live PancakeSwap price${
+                                                ? `ICO is complete. Create Your Stake uses the live market price${
                                                       liveStakePrice > 0n
                                                           ? ` (now $${formatUsdPriceFromWei(liveStakePrice)})`
                                                           : ''

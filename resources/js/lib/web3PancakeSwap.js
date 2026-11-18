@@ -227,7 +227,7 @@ export async function swapExactTokens({
     }
 
     if (minOut <= 0n) {
-        throw new Error('Swap quote is zero — check Pancake liquidity / amount.');
+        throw new Error('Swap quote is zero — check liquidity / amount.');
     }
 
     const deadline = BigInt(Math.floor(Date.now() / 1000) + deadlineSeconds);

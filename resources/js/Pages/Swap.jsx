@@ -211,7 +211,7 @@ export default function Swap({
             return;
         }
         if (!configured) {
-            setSwapError('PancakeSwap router / RACE / USDT is not configured.');
+            setSwapError('Swap router / RACE / USDT is not configured.');
             return;
         }
         if (Number(amountIn) <= 0) {
@@ -241,8 +241,8 @@ export default function Swap({
             setLastTx(txHash);
             setSwapSuccess(
                 direction === 'buy'
-                    ? 'Swap complete — RACE is in your wallet (PancakeSwap pool).'
-                    : 'Swap complete — USDT is in your wallet (PancakeSwap pool).',
+                    ? 'Swap complete — RACE is in your wallet.'
+                    : 'Swap complete — USDT is in your wallet.',
             );
             setAmountIn('');
             setQuoteOut(0n);
@@ -262,7 +262,7 @@ export default function Swap({
         swapStep === 'network'
             ? 'Switching to BNB Smart Chain…'
             : swapStep === 'approve'
-              ? 'Confirm approve + swap in your wallet (PancakeSwap)…'
+              ? 'Confirm approve + swap in your wallet…'
               : null;
 
     const payBalance = direction === 'buy' ? usdtBal : raceBal;
@@ -278,12 +278,12 @@ export default function Swap({
 
             <MemberPageShell contentClassName="space-y-5 sm:space-y-6">
                 <MemberPageHero
-                    kicker="PancakeSwap"
+                    kicker="Swap"
                     title="Swap USDT ↔ RACE"
                     variant="pdf"
                     icon="wallet"
                 >
-                    Trade on PancakeSwap Router inside this app. Liquidity stays in the Pancake pair —
+                    Trade RACE / USDT on-chain inside this app. Liquidity stays in the pool —
                     no internal swap or stake contract.
                 </MemberPageHero>
 
@@ -306,14 +306,14 @@ export default function Swap({
                         <p className="mt-1 font-mono text-2xl font-bold text-sky-700">
                             {formatTokenWei(usdtBal, 18, 2)} USDT
                         </p>
-                        <p className="mt-1 text-xs text-fintech-muted">BEP-20 · PancakeSwap route</p>
+                        <p className="mt-1 text-xs text-fintech-muted">BEP-20 · on-chain route</p>
                     </div>
                 </div>
 
                 <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
                     <PanelCard title="1 · Connect wallet" icon="wallet">
                         <p className="mb-4 text-sm text-fintech-muted">
-                            Connect on BNB Smart Chain. Swaps call the official PancakeSwap Router.
+                            Connect on BNB Smart Chain. Swaps run on-chain via the DEX router.
                         </p>
                         {wallet ? (
                             <div className="space-y-3">
@@ -342,7 +342,7 @@ export default function Swap({
                         {walletError && <p className="mt-3 text-sm text-red-400">{walletError}</p>}
                     </PanelCard>
 
-                    <PanelCard title="2 · PancakeSwap" icon="wallet">
+                    <PanelCard title="2 · Swap" icon="wallet">
                         {!configured ? (
                             <p className="text-sm text-amber-600">
                                 Router / RACE / USDT addresses missing. Set PANCAKE_ROUTER, RACE_TOKEN_CONTRACT,
@@ -423,7 +423,7 @@ export default function Swap({
 
                                 <div className="rounded-2xl border border-violet-400/30 bg-violet-500/10 p-4">
                                     <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                                        You receive (Pancake quote)
+                                        You receive (quote)
                                     </span>
                                     <div className="mt-2 flex items-center gap-3">
                                         <span className="w-full truncate text-3xl font-bold text-violet-200">
@@ -466,11 +466,11 @@ export default function Swap({
                                         ? swapStepLabel
                                         : !wallet
                                           ? 'Connect wallet to swap'
-                                          : `Swap on PancakeSwap`}
+                                          : `Swap`}
                                 </PrimaryButton>
 
                                 <p className="pt-1 text-center text-[11px] text-slate-400">
-                                    On-chain via PancakeSwap · LP stays on Pancake · RACE 4% transfer tax may apply
+                                    On-chain swap · LP stays in the pool · RACE 4% transfer tax may apply
                                 </p>
                             </form>
                         )}
@@ -497,7 +497,7 @@ export default function Swap({
                         <p className="mb-4 text-sm text-fintech-muted">
                             Optional: activate member ID using the older virtual Race Coin ledger (
                             {formatCoins(raceCoin.id_activation_coins)} RC / {formatUsd(raceCoin.id_activation_usd)}).
-                            Pancake swaps credit your wallet BEP-20 RACE, not this virtual balance.
+                            Swaps credit your wallet BEP-20 RACE, not this virtual balance.
                         </p>
                         <form onSubmit={activateId}>
                             <PrimaryButton
