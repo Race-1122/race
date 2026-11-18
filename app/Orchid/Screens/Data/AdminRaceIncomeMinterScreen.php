@@ -109,47 +109,65 @@ class AdminRaceIncomeMinterScreen extends Screen
     public function commandBar(): iterable
     {
         return [
-            Button::make(__('Go live: stake claim-by-mint'))
+            Button::make(__('Go live: daily stake auto-claim'))
                 ->icon('bs.play-circle')
                 ->class('btn btn-success')
-                ->confirm(__('Multisig setMinter must already be executed (isMinter = true). Turn claim-by-mint ON for members now?'))
+                ->confirm(__('Turn ON daily 04:00 IST auto-claim for ALL on-chain Engine stakes → Virtual Income? (Withdraw later still needs Multisig setMinter for RACE mint.)'))
                 ->canSee(! \App\Models\SiteSetting::stakeMintClaimEnabled())
                 ->method('goLive'),
-            Button::make(__('Pause stake claim-by-mint'))
+            Button::make(__('Pause stake auto-claim'))
                 ->icon('bs.pause-circle')
                 ->class('btn btn-danger')
-                ->confirm(__('Members will no longer be able to claim remaining stakes by mint. On-chain claim is unaffected.'))
+                ->confirm(__('Pause daily auto-claim and manual remaining-stake virtual claim?'))
                 ->canSee(\App\Models\SiteSetting::stakeMintClaimEnabled())
                 ->method('pause'),
+            Button::make(__('Run auto-claim now'))
+                ->icon('bs.lightning')
+                ->class('btn btn-warning')
+                ->confirm(__('Credit today’s Engine stake ROI into Virtual Income for all members now?'))
+                ->canSee(\App\Models\SiteSetting::stakeMintClaimEnabled())
+                ->method('runAutoClaimNow'),
         ];
     }
 
-    /** Switch ON only after Multisig made the income EOA a RaceCoin minter (checked on-chain). */
+    /** Enable daily auto-claim of all Engine stakes → Virtual Income (04:00 IST). */
     public function goLive(RaceCoinDirectMintService $mintService): void
     {
-        if (! $mintService->configured()) {
-            Toast::error(__('Set RACE_INCOME_MINTER_PRIVATE_KEY and RACE_TOKEN_CONTRACT on the server first.'));
-
-            return;
-        }
+        \App\Models\SiteSetting::set(\App\Models\SiteSetting::KEY_STAKE_MINT_CLAIM_ENABLED, '1');
 
         $isMinter = $this->readIsMinter($mintService);
-        if ($isMinter !== true) {
-            Toast::error($isMinter === false
-                ? __('Multisig has not approved yet: isMinter is false. Finish the setMinter Multisig tx (3 confirmations) and try again.')
-                : __('Could not read isMinter from the chain right now. Try again in a minute.'));
-
-            return;
+        if ($isMinter === true) {
+            Toast::success(__('LIVE: every Engine stake auto-claims daily at 04:00 IST into Virtual Income. Withdraw → fees + RACE mint ready (isMinter=true).'));
+        } else {
+            Toast::warning(__('LIVE: daily auto-claim → Virtual Income is ON. Finish Multisig setMinter before members can withdraw Virtual→wallet as RACE.'));
         }
-
-        \App\Models\SiteSetting::set(\App\Models\SiteSetting::KEY_STAKE_MINT_CLAIM_ENABLED, '1');
-        Toast::success(__('Remaining-stake claim is LIVE. Credits go to Virtual Income; withdraw to wallet applies fees then mints RACE.'));
     }
 
     public function pause(): void
     {
         \App\Models\SiteSetting::set(\App\Models\SiteSetting::KEY_STAKE_MINT_CLAIM_ENABLED, '0');
-        Toast::warning(__('Stake claim-by-mint is paused.'));
+        Toast::warning(__('Stake daily auto-claim is paused.'));
+    }
+
+    public function runAutoClaimNow(): void
+    {
+        if (! \App\Models\SiteSetting::stakeMintClaimEnabled()) {
+            Toast::error(__('Go live first.'));
+
+            return;
+        }
+
+        try {
+            $code = \Illuminate\Support\Facades\Artisan::call('stake-mint:auto-claim');
+            $out = trim(\Illuminate\Support\Facades\Artisan::output());
+            if ($code === 0) {
+                Toast::success(__('Auto-claim finished. :out', ['out' => \Illuminate\Support\Str::limit($out, 400)]));
+            } else {
+                Toast::error(__('Auto-claim exited :code. :out', ['code' => $code, 'out' => \Illuminate\Support\Str::limit($out, 400)]));
+            }
+        } catch (\Throwable $e) {
+            Toast::error(__('Auto-claim failed: :msg', ['msg' => $e->getMessage()]));
+        }
     }
 
     /** @return bool|null null = RPC/config problem */

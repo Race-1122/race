@@ -190,16 +190,10 @@ export default function OnChainClaimCard() {
             </div>
 
             <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">{message}</p>
-            <p className="text-[11px] text-fintech-muted">
-                Claimed income stays in hold — open Income wallet to bring it to your wallet. One stake can be claimed
-                per wallet every 24 hours; unclaimed days keep accumulating on every stake.
-            </p>
 
             {cooldownLeft && claimable.length > 0 ? (
                 <MemberAlert variant="warning">
-                    Wallet cooldown active: you already claimed a stake. The other {claimable.length} stake
-                    {claimable.length === 1 ? '' : 's'} unlock{claimable.length === 1 ? 's' : ''} in {cooldownLeft}. Their
-                    rewards are safe and keep accumulating — nothing is lost.
+                    Cooldown: {claimable.length} more stake{claimable.length === 1 ? '' : 's'} unlock in {cooldownLeft}.
                 </MemberAlert>
             ) : null}
             {globalAllowed && claimable.length > 1 ? (

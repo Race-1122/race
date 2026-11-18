@@ -600,61 +600,59 @@ function MemberActivationStatusCard({ activation, memberNumber, isTestnet = fals
             : 'border-amber-400/70 bg-amber-950/50 text-amber-100';
     };
 
+    const chip = (ok, label, value) => (
+        <span
+            className={`inline-flex min-w-0 items-center gap-1.5 rounded-lg border px-2 py-1 ${statusClass(ok)}`}
+            title={`${label}: ${value}`}
+        >
+            <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide opacity-80">{label}</span>
+            <span className="truncate text-xs font-bold">{value}</span>
+        </span>
+    );
+
     return (
-        <DpCard className="!p-4 sm:!p-5 ring-2 ring-[#2563EB]/40 ring-offset-2 !bg-gradient-to-br !from-sky-50 !to-white shadow-[0_8px_24px_-10px_rgba(37,99,235,0.28)]" hover={false}>
-            <span className="inline-flex items-center rounded-full bg-[#2563EB] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white shadow-sm">
-                Account activation
-            </span>
-            <p className="mt-2 text-xs font-medium text-slate-700 sm:text-sm">
-                Register to access the dashboard. Staking ($50+) unlocks the full rewards program.
-            </p>
+        <DpCard
+            className="!p-2.5 sm:!p-3 ring-1 ring-[#2563EB]/30 !bg-gradient-to-br !from-sky-50/80 !to-white shadow-sm"
+            hover={false}
+        >
+            <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center rounded-full bg-[#2563EB] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
+                    Activation
+                </span>
+                {chip(a.member_status === 'active', 'Member', a.member_status_label ?? '—')}
+                {chip(a.participation_status === 'active', 'Staking', a.participation_status_label ?? '—')}
+                {chip(
+                    idActive,
+                    'ID',
+                    `${memberLabel} · ${a.id_status_label ?? (idActive ? 'Activated' : 'Pending')}`,
+                )}
+                <span className="text-[11px] text-slate-500">
+                    {loading
+                        ? 'Confirming…'
+                        : idActive
+                          ? a.income_eligibility_label
+                          : 'Stake $50+ to activate ID'}
+                </span>
+                {a.next_step === 'participation' && !loading ? (
+                    <Link
+                        href={route('investment')}
+                        className="ml-auto inline-flex items-center rounded-lg bg-emerald-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700"
+                    >
+                        Stake $50+
+                    </Link>
+                ) : null}
+            </div>
 
             {a.banner === 'connect' ? (
-                <p className="mt-3 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900">
-                    Connect any crypto wallet to confirm on-chain status.
-                </p>
+                <p className="mt-1.5 text-[11px] font-semibold text-sky-800">Connect wallet to confirm on-chain status.</p>
             ) : null}
             {a.banner === 'network' ? (
-                <p className="mt-3 rounded-xl border border-amber-400/60 bg-amber-950/50 px-3 py-2 text-xs font-semibold text-amber-100">
-                    {isTestnet ? 'Switch to BSC Testnet (Chain ID 97)' : 'Switch to BNB Smart Chain'}
+                <p className="mt-1.5 text-[11px] font-semibold text-amber-800">
+                    {isTestnet ? 'Switch to BSC Testnet (97)' : 'Switch to BNB Smart Chain'}
                 </p>
             ) : null}
             {a.banner === 'rpc' || a.banner === 'rpc-soft' ? (
-                <p className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
-                    Network is slow. Status will refresh automatically.
-                </p>
-            ) : null}
-
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                <div className={`rounded-xl border px-4 py-3 ${statusClass(a.member_status === 'active')}`}>
-                    <p className="text-[10px] font-bold uppercase tracking-wide opacity-90">Member status</p>
-                    <p className="mt-1 text-sm font-bold">{a.member_status_label ?? '—'}</p>
-                </div>
-                <div className={`rounded-xl border px-4 py-3 ${statusClass(a.participation_status === 'active')}`}>
-                    <p className="text-[10px] font-bold uppercase tracking-wide opacity-90">Staking</p>
-                    <p className="mt-1 text-sm font-bold">{a.participation_status_label ?? '—'}</p>
-                </div>
-                <div className={`rounded-xl border px-4 py-3 ${statusClass(idActive)}`}>
-                    <p className="text-[10px] font-bold uppercase tracking-wide opacity-90">Member ID</p>
-                    <p className="mt-1 truncate text-sm font-bold">
-                        {memberLabel} · {a.id_status_label ?? (idActive ? 'Activated' : 'Pending')}
-                    </p>
-                </div>
-            </div>
-            <p className="mt-3 text-xs text-slate-600">
-                {loading
-                    ? 'Confirming on-chain status…'
-                    : idActive
-                      ? a.income_eligibility_label
-                      : 'Start Staking ($50+) to activate your member ID.'}
-            </p>
-            {a.next_step === 'participation' && !loading ? (
-                <Link
-                    href={route('investment')}
-                    className="mt-4 inline-flex items-center justify-center rounded-xl border border-emerald-300 bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
-                >
-                    Start Staking ($50+)
-                </Link>
+                <p className="mt-1.5 text-[11px] font-semibold text-slate-600">Network slow — status will refresh.</p>
             ) : null}
         </DpCard>
     );
@@ -788,9 +786,7 @@ export default function Dashboard({ summary: summaryProp = {}, memberActivation:
             <Head title="Dashboard" />
 
             <MemberPageShell particles={false}>
-                    <MemberPageHero kicker="Member dashboard" title={`Welcome back, ${displayName}`} variant="pdf" icon="dashboard">
-                        Track balances, daily earnings, team growth, and all income programs in one place.
-                    </MemberPageHero>
+                    <MemberPageHero kicker="Member dashboard" title={`Welcome back, ${displayName}`} variant="pdf" icon="dashboard" />
 
                     <MemberActivationStatusCard
                         activation={memberActivation}

@@ -158,9 +158,7 @@ export default function Team({ stats: statsProp = {}, levels: levelsProp = [] })
                     variant="pdf"
                     icon="team"
                     actions={<MemberHeroLink href={route('direct-team')}>Direct Team only →</MemberHeroLink>}
-                >
-                    Your full referral tree — all network levels (unlimited depth). Tap a level to see every member at that depth.
-                </MemberPageHero>
+                />
 
                 <div className="rounded-xl border border-white/90 bg-white/75 px-3 py-2.5 text-sm text-fintech-muted shadow-[0_8px_32px_-12px_rgba(37,99,235,0.12)] backdrop-blur-sm sm:px-4 sm:py-3">
                     <span className="text-fintech-muted">Your invite code · </span>
