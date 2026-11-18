@@ -16,7 +16,8 @@ return [
         | MANUAL claim window (user presses Claim). Auto-claim cron is NOT scheduled.
         | Claim is open only between window_start and window_end (timezone below), once per calendar day.
         */
-        'window_enabled' => filter_var(env('INCOME_CLAIM_WINDOW_ENABLED', true), FILTER_VALIDATE_BOOL),
+        // Temporarily OFF so members can claim anytime; set INCOME_CLAIM_WINDOW_ENABLED=true to restore 07:00–12:00 IST.
+        'window_enabled' => filter_var(env('INCOME_CLAIM_WINDOW_ENABLED', false), FILTER_VALIDATE_BOOL),
         'window_start' => env('INCOME_CLAIM_WINDOW_START', '07:00'),
         'window_end' => env('INCOME_CLAIM_WINDOW_END', '12:00'),
         'timezone' => env('INCOME_CLAIM_TIMEZONE', 'Asia/Kolkata'),
