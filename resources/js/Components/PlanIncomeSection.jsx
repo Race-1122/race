@@ -31,7 +31,66 @@ function LeadershipSnapshot({ snapshot }) {
     return null;
 }
 
-function IncomeTypeSection({ row, payouts, index, hubRow, totalSections, animate = true }) {
+function formatNum(value, digits = 4) {
+    const n = Number(value ?? 0);
+    if (!Number.isFinite(n)) return '0';
+    return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: digits });
+}
+
+/** Daily on-chain claims: coins received + value at today's RACE rate + date (shown inside Staking Reward Rates). */
+function DailyClaimsList({ claims }) {
+    const items = claims?.items ?? [];
+    if (items.length === 0) return null;
+
+    return (
+        <motion.div className="relative mt-4 border-t border-white/80 pt-4">
+            <div className="flex flex-wrap items-end justify-between gap-2">
+                <p className="text-[0.65rem] font-bold uppercase tracking-wider text-slate-500">Daily claims</p>
+                <p className="text-[0.65rem] text-slate-500">
+                    Today&apos;s rate: 1 RACE = ${formatNum(claims.rate_usd, 4)}
+                </p>
+            </div>
+            <ul className="mt-2 space-y-2">
+                {items.map((c) => {
+                    const dateStr = c.claimed_at
+                        ? new Date(c.claimed_at).toLocaleString(undefined, {
+                              day: 'numeric',
+                              month: 'short',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                          })
+                        : '—';
+                    return (
+                        <li
+                            key={c.id}
+                            className="flex items-center justify-between gap-2 rounded-lg border border-sky-100/60 bg-white/70 px-3 py-2"
+                        >
+                            <span className="min-w-0 text-xs text-slate-500">
+                                {dateStr}
+                                <span className="ml-1 text-slate-400">· Stake #{c.stake_index}</span>
+                            </span>
+                            <span className="shrink-0 text-right">
+                                <span className="block font-mono text-sm font-bold text-emerald-600">
+                                    +{formatNum(c.race, 6)} RACE
+                                </span>
+                                <span className="block font-mono text-[11px] text-slate-500">
+                                    ≈ ${formatNum(c.value_now_usd, 4)} today
+                                </span>
+                            </span>
+                        </li>
+                    );
+                })}
+            </ul>
+            <p className="mt-2 text-center text-[0.65rem] text-slate-500">
+                Total claimed: {formatNum(claims.total_race, 6)} RACE ≈ ${formatNum(claims.total_value_now_usd, 2)} at
+                today&apos;s rate
+            </p>
+        </motion.div>
+    );
+}
+
+function IncomeTypeSection({ row, payouts, index, hubRow, totalSections, animate = true, dailyClaims = null }) {
     const accent = SECTION_ACCENTS[index % SECTION_ACCENTS.length];
     const recent = payouts.slice(0, 5);
     const motionProps = animate
@@ -82,6 +141,8 @@ function IncomeTypeSection({ row, payouts, index, hubRow, totalSections, animate
                 </motion.div>
             </motion.div>
 
+            {row.key === 'participation_rewards' ? <DailyClaimsList claims={dailyClaims} /> : null}
+
             {recent.length > 0 ? (
                 <motion.div className="relative mt-4 border-t border-white/80 pt-4">
                     <p className="text-[0.65rem] font-bold uppercase tracking-wider text-slate-500">Recent credits</p>
@@ -130,7 +191,7 @@ function IncomeTypeSection({ row, payouts, index, hubRow, totalSections, animate
     );
 }
 
-export default function PlanIncomeSection({ planIncome = [], totalIncomeUsd = '0.00', incomeEntries = [], children = null, animate = true }) {
+export default function PlanIncomeSection({ planIncome = [], totalIncomeUsd = '0.00', incomeEntries = [], dailyClaims = null, children = null, animate = true }) {
     const { incomeHub } = usePage().props;
     const rows = planIncome?.length ? planIncome : incomeHub?.programs ?? [];
     const total = totalIncomeUsd || incomeHub?.total_income_usd || '0.00';
@@ -179,6 +240,7 @@ export default function PlanIncomeSection({ planIncome = [], totalIncomeUsd = '0
                             payouts={payoutsByLabel[row.label] ?? []}
                             index={i}
                             totalSections={rows.length}
+                            dailyClaims={dailyClaims}
                             animate={animate}
                         />
                     );

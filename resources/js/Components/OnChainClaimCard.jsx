@@ -6,6 +6,7 @@ import { configureWeb3Network, syncBlockchainTx } from '@/lib/web3Deposit';
 import {
     claimOnChainReward,
     claimPolicyMessage,
+    formatClaimCountdown,
     friendlyEngineError,
     readAllOnChainStakes,
     readClaimPolicyState,
@@ -17,6 +18,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 /**
  * Dashboard "Claim rewards" card — on-chain Engine claim (moved from the ICO page).
  * Contract rule: one claim per user per 24h, claim settles ONE stake at a time.
+ * While the wallet cooldown runs, remaining stakes show an "unlocks in" countdown; rewards keep accumulating.
  */
 export default function OnChainClaimCard() {
     const { auth, blockchain } = usePage().props;
@@ -101,10 +103,23 @@ export default function OnChainClaimCard() {
         [icoCompleted, policy, tick],
     );
 
-    const claimable = stakes.filter((s) => !s.withdrawn && (s.pendingRewardRace || 0n) > 0n);
+    // Biggest pending reward first — the contract lets only ONE stake be claimed per wallet per 24h.
+    const claimable = stakes
+        .filter((s) => !s.withdrawn && (s.pendingRewardRace || 0n) > 0n)
+        .sort((a, b) => {
+            const x = a.pendingRewardRace || 0n;
+            const y = b.pendingRewardRace || 0n;
+            if (x === y) return 0;
+            return x > y ? -1 : 1;
+        });
     const totalPending = claimable.reduce((sum, s) => sum + (s.pendingRewardRace || 0n), 0n);
     const globalAllowed =
         icoCompleted && (policy.supported ? policy.claimEnabled && policy.canClaim : true);
+    // Wallet-level 24h cooldown running (recomputed every second via `tick`).
+    const cooldownLeft =
+        icoCompleted && policy.supported && policy.claimEnabled && tick >= 0
+            ? formatClaimCountdown(policy.nextAllowedAt)
+            : null;
 
     const connectWallet = async () => {
         setError('');
@@ -130,7 +145,12 @@ export default function OnChainClaimCard() {
             } catch (syncErr) {
                 console.warn('claim sync-tx:', syncErr?.message || syncErr);
             }
-            notifySuccess('Claim sent. Reward added to your income hold.', 'Claim');
+            notifySuccess(
+                claimable.length > 1
+                    ? 'Claim sent. Reward added to your income hold. Your other stakes can be claimed after the 24h wallet cooldown — their rewards keep accumulating, nothing is lost.'
+                    : 'Claim sent. Reward added to your income hold.',
+                'Claim',
+            );
             await refresh();
         } catch (err) {
             const msg = friendlyEngineError(err);
@@ -152,7 +172,8 @@ export default function OnChainClaimCard() {
                     <p className="text-xs font-semibold uppercase tracking-wide text-fintech-primary">Claim rewards</p>
                     <p className="mt-1 text-3xl font-bold text-fintech-ink">{formatTokenWei(totalPending, 18, 6)} RACE</p>
                     <p className="mt-1 text-sm text-fintech-muted">
-                        Claimable now across {claimable.length} stake{claimable.length === 1 ? '' : 's'}
+                        {cooldownLeft ? 'Pending' : 'Claimable now'} across {claimable.length} stake
+                        {claimable.length === 1 ? '' : 's'}
                     </p>
                 </div>
                 <button
@@ -167,9 +188,23 @@ export default function OnChainClaimCard() {
 
             <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">{message}</p>
             <p className="text-[11px] text-fintech-muted">
-                Claimed income stays in hold — open Income wallet to bring it to your wallet. Only one claim is allowed
-                every 24 hours.
+                Claimed income stays in hold — open Income wallet to bring it to your wallet. One stake can be claimed
+                per wallet every 24 hours; unclaimed days keep accumulating on every stake.
             </p>
+
+            {cooldownLeft && claimable.length > 0 ? (
+                <MemberAlert variant="warning">
+                    Wallet cooldown active: you already claimed a stake. The other {claimable.length} stake
+                    {claimable.length === 1 ? '' : 's'} unlock{claimable.length === 1 ? 's' : ''} in {cooldownLeft}. Their
+                    rewards are safe and keep accumulating — nothing is lost.
+                </MemberAlert>
+            ) : null}
+            {globalAllowed && claimable.length > 1 ? (
+                <p className="text-[11px] text-fintech-muted">
+                    Tip: only one stake can be claimed now. Claim the highest reward first, the rest follow on the next
+                    days.
+                </p>
+            ) : null}
 
             {error ? <MemberAlert variant="error">{error}</MemberAlert> : null}
             {networkError ? <MemberAlert variant="warning">{networkError}</MemberAlert> : null}
@@ -191,16 +226,26 @@ export default function OnChainClaimCard() {
                 <p className="text-sm text-fintech-muted">{loading ? 'Reading stakes…' : 'No reward to claim right now.'}</p>
             ) : (
                 <div className="space-y-2">
-                    {claimable.map((stake) => (
+                    {claimable.map((stake, i) => (
                         <div
                             key={stake.index}
                             className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-slate-900/60 px-3 py-2"
                         >
                             <div className="min-w-0 text-sm">
-                                <p className="font-semibold text-white">Stake #{stake.index}</p>
+                                <p className="font-semibold text-white">
+                                    Stake #{stake.index}
+                                    {i === 0 && claimable.length > 1 ? (
+                                        <span className="ml-2 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300">
+                                            Highest
+                                        </span>
+                                    ) : null}
+                                </p>
                                 <p className="text-xs text-white">
                                     {formatTokenWei(stake.pendingRewardRace || 0n, 18, 6)} RACE
                                 </p>
+                                {cooldownLeft ? (
+                                    <p className="text-[10px] text-amber-300">Unlocks in {cooldownLeft}</p>
+                                ) : null}
                             </div>
                             <PrimaryButton
                                 type="button"
