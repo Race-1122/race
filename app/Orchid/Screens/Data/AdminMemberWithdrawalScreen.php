@@ -50,7 +50,9 @@ class AdminMemberWithdrawalScreen extends Screen
             $status = __('GLOBAL withdrawals ON');
         }
 
-        if ($personalLocked > 0) {
+        if ((bool) config('income.withdrawal_ignore_personal_locks', false)) {
+            $status .= ' · '.__('TEST MODE: personal OFF / 24h stake locks are ignored (WITHDRAWAL_IGNORE_PERSONAL_LOCKS=true)');
+        } elseif ($personalLocked > 0) {
             $status .= ' · '.__(':count members still have personal OFF/timed stake lock', [
                 'count' => $personalLocked,
             ]);

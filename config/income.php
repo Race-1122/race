@@ -15,6 +15,17 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Withdrawal test override (personal locks only)
+    |--------------------------------------------------------------------------
+    | When true, per-user withdrawals_disabled and the 24h stake lock are ignored.
+    | Admin GLOBAL OFF / GLOBAL timed lock (Global withdrawals screen) still blocks everyone,
+    | so turning withdrawals off from the admin panel works as usual.
+    | Default false — set WITHDRAWAL_IGNORE_PERSONAL_LOCKS=true only while testing.
+    */
+    'withdrawal_ignore_personal_locks' => filter_var(env('WITHDRAWAL_IGNORE_PERSONAL_LOCKS', false), FILTER_VALIDATE_BOOL),
+
+    /*
+    |--------------------------------------------------------------------------
     | Auto-claim cron (virtual income wallet)
     |--------------------------------------------------------------------------
     | Midnight batch credits everyone with accrued ROI into Virtual Income Wallet.

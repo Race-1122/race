@@ -204,6 +204,11 @@ class User extends OrchidUser
             return false;
         }
 
+        // Testing override: ignore personal OFF + 24h stake lock (global admin OFF still wins above).
+        if ((bool) config('income.withdrawal_ignore_personal_locks', false)) {
+            return true;
+        }
+
         if ((bool) $this->withdrawals_disabled) {
             return false;
         }
@@ -231,6 +236,10 @@ class User extends OrchidUser
                 ->format('d M Y, h:i A');
 
             return 'Withdrawals are locked for all members until '.$when.'.';
+        }
+
+        if ((bool) config('income.withdrawal_ignore_personal_locks', false)) {
+            return null;
         }
 
         if ((bool) $this->withdrawals_disabled) {
