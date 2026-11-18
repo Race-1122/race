@@ -67,11 +67,17 @@
     <p class="small mb-2"><strong>{{ __('Inner call') }}:</strong> <code>setMinter({{ $minter }}, true)</code></p>
     <p class="small mb-3"><strong>{{ __('Calldata') }}:</strong> <code class="user-select-all" style="word-break:break-all">{{ $calldata }}</code></p>
     <ol class="small mb-3">
-        <li>{{ __('Open this admin page in TokenPocket / MetaMask on BNB Smart Chain (56).') }}</li>
-        <li>{{ __('Connect Multisig signer #1 → tap 1. Submit. Number auto-fills below.') }}</li>
-        <li>{{ __('Connect signer #2 and #3 → tap 2. Confirm (same number).') }}</li>
-        <li>{{ __('Refresh status — isMinter must become true.') }}</li>
+        <li>{{ __('BNB Smart Chain (56) + Multisig signer wallet connect karo.') }}</li>
+        <li>{{ __('Neeche “Next NUMBER” pehle se dikhega. Submit ke baad wahi number box mein aa jayega.') }}</li>
+        <li>{{ __('Signer #1: Submit, phir Confirm (1/3).') }}</li>
+        <li>{{ __('Signer #2 aur #3: Confirm (same NUMBER) → 3/3 pe auto execute.') }}</li>
+        <li>{{ __('Refresh status → isMinter = true.') }}</li>
     </ol>
+    <div class="alert alert-info mb-3">
+        <strong>{{ __('Next Multisig NUMBER (predicted)') }}:</strong>
+        <span class="fs-3 fw-bold user-select-all" id="race-minter-next-id">…</span>
+        <button type="button" class="btn btn-sm btn-outline-primary ms-2" id="race-minter-refresh-count">{{ __('Refresh number') }}</button>
+    </div>
     <p class="small mb-2"><strong>{{ __('Signers (3-of-5)') }}:</strong></p>
     <ul class="small mb-3">
         @foreach ($multisig_signers ?? [] as $signer)
@@ -302,11 +308,44 @@
         return null;
     }
 
+    const nextIdEl = document.getElementById('race-minter-next-id');
+    const refreshCountBtn = document.getElementById('race-minter-refresh-count');
+
+    async function readNextId(provider, multisig) {
+        const count = await ethCallUint(provider, multisig, '0xb77bf600');
+        if (count === null) throw new Error('transactionCount() read fail — Multisig RPC error.');
+        return count; // next submit id == current length
+    }
+
+    async function refreshPredictedNumber() {
+        try {
+            const provider = await eth();
+            await ensureChain(provider);
+            const multisig = assertMultisig(
+                (submitBtn && submitBtn.getAttribute('data-multisig')) || EXPECTED_MULTISIG
+            );
+            const nextId = await readNextId(provider, multisig);
+            if (nextIdEl) nextIdEl.textContent = String(nextId);
+            setStatus('Next NUMBER = <strong>' + nextId + '</strong> (Submit ke baad yahi box mein aayega).', true);
+            return nextId;
+        } catch (e) {
+            if (nextIdEl) nextIdEl.textContent = '?';
+            setStatus(e && e.message ? e.message : String(e), false);
+            return null;
+        }
+    }
+
+    if (refreshCountBtn) {
+        refreshCountBtn.addEventListener('click', () => { refreshPredictedNumber(); });
+    }
+    // load predicted number on page open
+    setTimeout(() => { refreshPredictedNumber(); }, 300);
+
     const submitBtn = document.getElementById('race-minter-submit');
     if (submitBtn) {
         submitBtn.addEventListener('click', async () => {
             try {
-                setStatus('Submit… Multisig count padh rahe hain…', true);
+                setStatus('Submit… pehle Next NUMBER padh rahe hain…', true);
                 const provider = await eth();
                 await ensureChain(provider);
                 const from = await accounts(provider);
@@ -315,34 +354,51 @@
                 const calldata = submitBtn.getAttribute('data-calldata');
                 if (!token || !calldata) throw new Error('Race token / calldata missing on page.');
 
-                const countBefore = await ethCallUint(provider, multisig, '0xb77bf600');
+                const predictedId = await readNextId(provider, multisig);
+                if (nextIdEl) nextIdEl.textContent = String(predictedId);
+                // Fill NUMBER immediately so admin always sees it (even if receipt parse fails)
+                showTxId(predictedId);
+                setStatus(
+                    'NUMBER <strong>' + predictedId + '</strong> box mein set.<br>' +
+                    'Ab wallet Approve karo. To = <code>' + multisig + '</code>',
+                    true
+                );
+
                 const data = encodeSubmit(token, calldata);
-                setStatus('Wallet mein Approve karo. To address hona chahiye:<br><code>' + multisig + '</code>', true);
                 const txHash = await provider.request({
                     method: 'eth_sendTransaction',
                     params: [{ from, to: multisig, data, value: '0x0' }],
                 });
                 showBscHash(txHash);
-                setStatus('Submit hash mil gaya (ye NUMBER nahi hai). Receipt wait… number auto nikalenge.', true);
+                setStatus(
+                    'NUMBER <strong>' + predictedId + '</strong> (box mein hai).<br>' +
+                    'Submit hash wait… (hash NUMBER nahi hai)',
+                    true
+                );
 
                 const receipt = await waitReceipt(provider, txHash);
                 const receiptTo = normalizeAddr(receipt.to || receipt.contractAddress || '');
                 if (receiptTo && receiptTo !== multisig) {
-                    throw new Error('Galat contract pe gaya: ' + receiptTo + ' — expected Multisig ' + multisig);
+                    throw new Error(
+                        'Galat contract: ' + receiptTo + ' — expected ' + multisig +
+                        '. NUMBER ' + predictedId + ' use mat karo; Refresh number dabao aur dubara Submit.'
+                    );
                 }
                 if (String(receipt.status) !== '0x1' && Number(receipt.status) !== 1) {
-                    throw new Error('Submit on-chain FAIL.');
+                    throw new Error('Submit FAIL. NUMBER ' + predictedId + ' invalid ho sakta hai — Refresh number.');
                 }
 
-                const txId = await resolveTxId(provider, multisig, receipt, countBefore);
-                if (txId === null) {
-                    throw new Error('NUMBER auto nahi mila. BscScan Submission → transactionId number box mein likho.');
-                }
+                // Prefer event/count confirmation; keep predictedId as fallback
+                const verified = await resolveTxId(provider, multisig, receipt, predictedId);
+                const finalId = verified !== null ? verified : predictedId;
+                showTxId(finalId);
+                if (nextIdEl) nextIdEl.textContent = String(finalId + 1);
 
-                const n = showTxId(txId);
                 setStatus(
-                    '<strong>NUMBER ready: ' + n + '</strong> (box mein auto fill).<br>' +
-                    'Ab Signer #2 aur #3 se <strong>Confirm</strong> dabao. Hash mat use karo.',
+                    '<strong>NUMBER = ' + finalId + '</strong> box mein ready.<br>' +
+                    '1) Isi wallet se Confirm (1/3)<br>' +
+                    '2) Do aur Multisig wallets se Confirm (2/3, 3/3)<br>' +
+                    'Hash mat daalo — sirf ye number.',
                     true
                 );
             } catch (e) {
