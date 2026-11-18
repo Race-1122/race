@@ -21,6 +21,13 @@ class ClaimVirtualIncomeWithdrawalPolicyTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // These tests cover fees, not the 07:00–12:00 IST claim window (covered separately).
+        config(['income.claim.window_enabled' => false]);
+    }
+
     private function seedMemberWithBalance(string $deposit = '1000.00'): User
     {
         $member = User::factory()->create(['participation_activated_at' => now()]);

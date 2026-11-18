@@ -1,5 +1,6 @@
 import MemberAlert from '@/Components/Member/MemberAlert';
 import PrimaryButton from '@/Components/PrimaryButton';
+import StakeMintClaimPanel from '@/Components/StakeMintClaimPanel';
 import { useWalletNetwork } from '@/hooks/useWalletNetwork';
 import { notifyError, notifySuccess } from '@/lib/appNotify';
 import { configureWeb3Network, syncBlockchainTx } from '@/lib/web3Deposit';
@@ -51,6 +52,7 @@ export default function OnChainClaimCard() {
     const [busyIndex, setBusyIndex] = useState(null);
     const [error, setError] = useState('');
     const [tick, setTick] = useState(0);
+    const [panelRefresh, setPanelRefresh] = useState(0);
 
     useEffect(() => {
         configureWeb3Network({ chainId: expectedChainId, usdtContract, rpcUrl });
@@ -152,6 +154,7 @@ export default function OnChainClaimCard() {
                 'Claim',
             );
             await refresh();
+            setPanelRefresh((n) => n + 1);
         } catch (err) {
             const msg = friendlyEngineError(err);
             setError(msg);
@@ -258,6 +261,8 @@ export default function OnChainClaimCard() {
                     ))}
                 </div>
             )}
+
+            {walletAddress ? <StakeMintClaimPanel refreshKey={panelRefresh} onClaimed={refresh} /> : null}
 
             <Link href={route('withdrawal')} className="inline-block text-xs font-semibold text-fintech-primary underline">
                 Income wallet →

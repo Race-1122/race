@@ -1,0 +1,490 @@
+<?php
+
+namespace App\Services\Income;
+
+use App\Models\IncomeWalletTransaction;
+use App\Models\StakeMintAdvance;
+use App\Models\StakeMintClaim;
+use App\Models\User;
+use App\Services\Blockchain\CommunityEngineRpcReader;
+use App\Services\Blockchain\RaceCoinDirectMintService;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+
+/**
+ * Claim-by-mint for Engine stakes that the 24h wallet cooldown blocks.
+ *
+ * The Engine allows ONE claimReward per wallet per 24h. After that on-chain claim, the member may claim the
+ * daily ROI of the OTHER stakes here (07:00–12:00 IST window): same ROI formula as the Engine
+ * (principalUsdt × dailyRateBps × days / 10_000, paid in RACE at the stake's locked reward price), minted with
+ * the existing RaceCoin.mint minter (Multisig setMinter) straight to the member wallet.
+ *
+ * The Engine still counts those days as owed (its lastRewardAt cannot be advanced from here), so every mint is
+ * tracked as an "advance" per stake. When the Engine later pays the same days (claim / compound / maturity),
+ * the advance is recouped from the member's virtual income — total paid never exceeds total earned.
+ */
+class StakeMintClaimService
+{
+    private const SECONDS_PER_DAY = 86400;
+
+    public function __construct(
+        protected RaceCoinDirectMintService $mint,
+        protected IncomeClaimService $window,
+        protected WalletBalanceService $wallets,
+        protected VirtualIncomeWalletService $virtualWallet,
+    ) {}
+
+    public function enabled(): bool
+    {
+        // Admin "Go live" switch (Income minter screen) + minter key configured. Independent of mint-on-withdraw.
+        return \App\Models\SiteSetting::stakeMintClaimEnabled() && $this->mint->configured();
+    }
+
+    // ── Chain reads (overridable in tests) ──────────────────────────────────
+
+    protected function reader(): ?CommunityEngineRpcReader
+    {
+        return CommunityEngineRpcReader::fromConfig();
+    }
+
+    /** @return array<string, mixed>|null */
+    protected function readStake(string $wallet, int $index): ?array
+    {
+        return $this->reader()?->readStakeAt($wallet, $index);
+    }
+
+    protected function readStakeCount(string $wallet): ?int
+    {
+        return $this->reader()?->readStakeCount($wallet);
+    }
+
+    protected function readNextAllowedClaimAt(string $wallet): ?int
+    {
+        return $this->reader()?->readNextAllowedClaimAt($wallet);
+    }
+
+    protected function now(): int
+    {
+        return now()->getTimestamp();
+    }
+
+    // ── Pure calculations ───────────────────────────────────────────────────
+
+    /**
+     * Whole days the Engine still owes for this stake (before subtracting mint advances).
+     *
+     * @param  array<string, mixed>  $stake
+     */
+    public function engineOwedDays(array $stake, int $now): int
+    {
+        if (! empty($stake['withdrawn'])) {
+            return 0;
+        }
+        if ((int) ($stake['daily_rate_bps'] ?? 0) <= 0) {
+            return 0; // matured (rate zeroed) or no reward rate
+        }
+        if (bccomp((string) ($stake['principal_usdt'] ?? '0'), '0', 18) <= 0) {
+            return 0;
+        }
+
+        $lastRewardAt = (int) ($stake['last_reward_at'] ?? 0);
+        $lockSeconds = (int) ($stake['lock_seconds'] ?? 0);
+        $unlockAt = (int) ($stake['unlock_at'] ?? 0);
+        $end = $lockSeconds === 0 ? $now : min($now, $unlockAt);
+        if ($lastRewardAt <= 0 || $end <= $lastRewardAt) {
+            return 0;
+        }
+
+        return intdiv($end - $lastRewardAt, self::SECONDS_PER_DAY);
+    }
+
+    /**
+     * Advance days still outstanding after the Engine settled days since our last snapshot (pure).
+     *
+     * @param  array<string, mixed>  $stake
+     * @return array{days: int, absorbed: int}
+     */
+    public function projectAdvance(?StakeMintAdvance $adv, array $stake): array
+    {
+        $outstanding = (int) ($adv?->days_outstanding ?? 0);
+        if ($adv === null || $outstanding <= 0) {
+            return ['days' => 0, 'absorbed' => 0];
+        }
+
+        $snapshot = (int) ($adv->last_onchain_reward_at ?? 0);
+        $current = (int) ($stake['last_reward_at'] ?? 0);
+        $settled = $snapshot > 0 && $current > $snapshot
+            ? intdiv($current - $snapshot, self::SECONDS_PER_DAY)
+            : 0;
+        $absorbed = min($outstanding, $settled);
+
+        return ['days' => $outstanding - $absorbed, 'absorbed' => $absorbed];
+    }
+
+    /**
+     * Days claimable by mint = Engine owed days − advance days not yet absorbed (capped per claim).
+     *
+     * @param  array<string, mixed>  $stake
+     */
+    public function eligibleDays(array $stake, ?StakeMintAdvance $adv, int $now): int
+    {
+        $owed = $this->engineOwedDays($stake, $now);
+        $advance = $this->projectAdvance($adv, $stake)['days'];
+        $max = max(1, (int) config('race_income_mint.stake_claim_max_days', 30));
+
+        return max(0, min($owed - $advance, $max));
+    }
+
+    /**
+     * Same formula as the Engine, truncated.
+     *
+     * @param  array<string, mixed>  $stake
+     * @return array{usdt: string, race: string}
+     */
+    public function rewardFor(array $stake, int $days): array
+    {
+        $price = (string) ($stake['reward_price_usdt'] ?? '0');
+        if ($days <= 0 || bccomp($price, '0', 18) <= 0) {
+            return ['usdt' => '0.00000000', 'race' => '0.00000000'];
+        }
+
+        $usdt = bcdiv(
+            bcmul(bcmul((string) $stake['principal_usdt'], (string) ((int) $stake['daily_rate_bps']), 18), (string) $days, 18),
+            '10000',
+            8,
+        );
+        $race = bcdiv($usdt, $price, 8);
+
+        return ['usdt' => $usdt, 'race' => $race];
+    }
+
+    // ── Read model for the dashboard ────────────────────────────────────────
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function status(User $user): array
+    {
+        $base = [
+            'enabled' => $this->enabled(),
+            'window_open' => $this->window->isWindowOpen(),
+            'window_label' => $this->window->windowLabel(),
+            'cooldown_active' => false,
+            'next_allowed_at' => 0,
+            'can_claim' => false,
+            'debt_usdt' => '0.00000000',
+            'stakes' => [],
+            'recent' => [],
+        ];
+        if (! $base['enabled']) {
+            return $base;
+        }
+
+        $wallet = $this->walletOf($user);
+        if ($wallet === null) {
+            return $base;
+        }
+
+        $now = $this->now();
+        $next = $this->readNextAllowedClaimAt($wallet);
+        $count = $this->readStakeCount($wallet);
+        if ($next === null || $count === null) {
+            $base['error'] = __('Could not read the Engine right now. Try again shortly.');
+
+            return $base;
+        }
+
+        $base['next_allowed_at'] = $next;
+        $base['cooldown_active'] = $next > $now;
+
+        $advances = StakeMintAdvance::query()->where('user_id', $user->id)->get()->keyBy('stake_index');
+        for ($i = 0; $i < $count; $i++) {
+            $stake = $this->readStake($wallet, $i);
+            if ($stake === null) {
+                continue;
+            }
+            $adv = $advances->get($i);
+            $days = $this->eligibleDays($stake, $adv, $now);
+            $reward = $this->rewardFor($stake, $days);
+            if ($days <= 0 && (int) ($adv?->days_outstanding ?? 0) <= 0) {
+                continue;
+            }
+            $base['stakes'][] = [
+                'index' => $i,
+                'principal_usdt' => $stake['principal_usdt'],
+                'daily_rate_bps' => (int) $stake['daily_rate_bps'],
+                'eligible_days' => $days,
+                'reward_usdt' => $reward['usdt'],
+                'reward_race' => $reward['race'],
+                'advance_days' => $this->projectAdvance($adv, $stake)['days'],
+            ];
+        }
+
+        $base['debt_usdt'] = (string) ($advances->sum('recoup_pending_usdt') ?? '0');
+        $base['can_claim'] = $base['window_open'] && $base['cooldown_active'];
+        $base['recent'] = StakeMintClaim::query()
+            ->where('user_id', $user->id)
+            ->where('status', StakeMintClaim::STATUS_COMPLETED)
+            ->orderByDesc('id')
+            ->limit(5)
+            ->get(['id', 'stake_index', 'days', 'race_amount', 'usdt_amount', 'tx_hash', 'created_at'])
+            ->toArray();
+
+        return $base;
+    }
+
+    // ── Claim ───────────────────────────────────────────────────────────────
+
+    public function claim(User $user, int $stakeIndex): StakeMintClaim
+    {
+        if (! $this->enabled()) {
+            throw ValidationException::withMessages(['claim' => __('Claim-by-mint is not enabled yet.')]);
+        }
+
+        $wallet = $this->walletOf($user);
+        if ($wallet === null) {
+            throw ValidationException::withMessages(['claim' => __('Bind a valid BEP20 wallet first.')]);
+        }
+
+        if (! $this->window->isWindowOpen()) {
+            throw ValidationException::withMessages([
+                'claim' => __('Claim is open only :window.', ['window' => $this->window->windowLabel()]),
+            ]);
+        }
+
+        $lock = Cache::lock('stake-mint-claim:'.$user->id, 180);
+        if (! $lock->get()) {
+            throw ValidationException::withMessages(['claim' => __('A claim is already in progress. Please wait.')]);
+        }
+
+        try {
+            $this->reconcileUser($user);
+
+            $next = $this->readNextAllowedClaimAt($wallet);
+            if ($next === null) {
+                throw ValidationException::withMessages(['claim' => __('Could not read the Engine right now. Try again shortly.')]);
+            }
+            $now = $this->now();
+            if ($next <= $now) {
+                throw ValidationException::withMessages([
+                    'claim' => __('Claim one stake on-chain first. This option is only for your other stakes after that claim.'),
+                ]);
+            }
+
+            $stake = $this->readStake($wallet, $stakeIndex);
+            if ($stake === null) {
+                throw ValidationException::withMessages(['claim' => __('Stake not found on-chain.')]);
+            }
+
+            $adv = StakeMintAdvance::query()
+                ->where('user_id', $user->id)
+                ->where('stake_index', $stakeIndex)
+                ->first();
+            $days = $this->eligibleDays($stake, $adv, $now);
+            if ($days <= 0) {
+                throw ValidationException::withMessages(['claim' => __('Nothing to claim for this stake yet.')]);
+            }
+
+            $reward = $this->rewardFor($stake, $days);
+            if (bccomp($reward['race'], '0', 8) <= 0 || bccomp($reward['usdt'], '0', 8) <= 0) {
+                throw ValidationException::withMessages(['claim' => __('Reward is too small to claim yet.')]);
+            }
+
+            $claim = StakeMintClaim::query()->create([
+                'user_id' => $user->id,
+                'stake_index' => $stakeIndex,
+                'wallet_address' => $wallet,
+                'days' => $days,
+                'usdt_amount' => $reward['usdt'],
+                'race_amount' => $reward['race'],
+                'race_price_usdt' => bcadd((string) $stake['reward_price_usdt'], '0', 8),
+                'status' => StakeMintClaim::STATUS_PENDING,
+                'meta' => ['engine_last_reward_at' => (int) $stake['last_reward_at']],
+            ]);
+
+            try {
+                $minted = $this->mint->mintToWallet($wallet, $reward['race']);
+            } catch (\Throwable $e) {
+                $claim->forceFill([
+                    'status' => StakeMintClaim::STATUS_FAILED,
+                    'error' => Str::limit($e->getMessage(), 1000),
+                ])->save();
+                Log::warning('stake mint claim failed', ['claim_id' => $claim->id, 'error' => $e->getMessage()]);
+
+                throw ValidationException::withMessages([
+                    'claim' => __('Mint failed. Nothing was paid — please try again later.'),
+                ]);
+            }
+
+            // Persist the tx hash first: RACE is already minted, the advance record must follow.
+            $claim->forceFill(['tx_hash' => $minted['tx_hash']])->save();
+
+            try {
+                DB::transaction(function () use ($user, $stakeIndex, $days, $reward, $stake, $claim) {
+                    $row = StakeMintAdvance::query()
+                        ->where('user_id', $user->id)
+                        ->where('stake_index', $stakeIndex)
+                        ->lockForUpdate()
+                        ->first()
+                        ?? new StakeMintAdvance(['user_id' => $user->id, 'stake_index' => $stakeIndex]);
+
+                    $row->days_outstanding = (int) $row->days_outstanding + $days;
+                    $row->usdt_outstanding = bcadd((string) ($row->usdt_outstanding ?? '0'), $reward['usdt'], 8);
+                    $row->race_minted_total = bcadd((string) ($row->race_minted_total ?? '0'), $reward['race'], 8);
+                    $row->last_onchain_reward_at = (int) $stake['last_reward_at'];
+                    $row->save();
+
+                    $claim->forceFill(['status' => StakeMintClaim::STATUS_COMPLETED])->save();
+                });
+            } catch (\Throwable $e) {
+                Log::critical('stake mint claim minted but advance not recorded', [
+                    'claim_id' => $claim->id,
+                    'tx_hash' => $minted['tx_hash'],
+                    'error' => $e->getMessage(),
+                ]);
+
+                throw new \RuntimeException(
+                    'RACE was minted (tx '.$minted['tx_hash'].') but the record failed. Contact support; do not retry.',
+                );
+            }
+
+            return $claim->refresh();
+        } finally {
+            $lock->release();
+        }
+    }
+
+    // ── Recoup (advance absorbed by Engine payments) ────────────────────────
+
+    /** Cheap DB check — true when the member has any advance still to reconcile. */
+    public function hasOpenAdvance(User $user): bool
+    {
+        return StakeMintAdvance::query()
+            ->where('user_id', $user->id)
+            ->where(fn ($q) => $q->where('days_outstanding', '>', 0)->orWhere('recoup_pending_usdt', '>', 0))
+            ->exists();
+    }
+
+    /**
+     * Compare each advance with the Engine's current lastRewardAt; days the Engine paid again are recouped
+     * from virtual income (any shortfall stays pending and is taken from the next available balance).
+     *
+     * @throws \RuntimeException when the chain cannot be read (fail closed)
+     */
+    public function reconcileUser(User $user): void
+    {
+        if (! $this->hasOpenAdvance($user)) {
+            return;
+        }
+
+        $wallet = $this->walletOf($user);
+        if ($wallet === null) {
+            return;
+        }
+
+        $rows = StakeMintAdvance::query()
+            ->where('user_id', $user->id)
+            ->where(fn ($q) => $q->where('days_outstanding', '>', 0)->orWhere('recoup_pending_usdt', '>', 0))
+            ->get();
+
+        foreach ($rows as $row) {
+            if ((int) $row->days_outstanding > 0) {
+                $stake = $this->readStake($wallet, (int) $row->stake_index);
+                if ($stake === null) {
+                    throw new \RuntimeException('Could not read stake '.$row->stake_index.' from the Engine.');
+                }
+                $this->applyAbsorption($row, $stake);
+            }
+            $this->settlePending($user, $row);
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $stake
+     */
+    protected function applyAbsorption(StakeMintAdvance $row, array $stake): void
+    {
+        DB::transaction(function () use ($row, $stake) {
+            /** @var StakeMintAdvance $locked */
+            $locked = StakeMintAdvance::query()->whereKey($row->id)->lockForUpdate()->firstOrFail();
+            $projection = $this->projectAdvance($locked, $stake);
+            $absorbed = $projection['absorbed'];
+
+            if ($absorbed > 0) {
+                $outstandingDays = (int) $locked->days_outstanding;
+                $recoup = $absorbed >= $outstandingDays
+                    ? (string) $locked->usdt_outstanding
+                    : bcdiv(bcmul((string) $locked->usdt_outstanding, (string) $absorbed, 8), (string) $outstandingDays, 8);
+
+                $locked->days_outstanding = $outstandingDays - $absorbed;
+                $locked->usdt_outstanding = bcsub((string) $locked->usdt_outstanding, $recoup, 8);
+                $locked->recoup_pending_usdt = bcadd((string) $locked->recoup_pending_usdt, $recoup, 8);
+            }
+
+            $current = (int) ($stake['last_reward_at'] ?? 0);
+            if ($current > (int) $locked->last_onchain_reward_at) {
+                $locked->last_onchain_reward_at = $current;
+            }
+            $locked->save();
+            $row->setRawAttributes($locked->getAttributes(), true);
+        });
+    }
+
+    protected function settlePending(User $user, StakeMintAdvance $row): void
+    {
+        $pending = (string) $row->recoup_pending_usdt;
+        if (bccomp($pending, '0', 8) <= 0) {
+            return;
+        }
+
+        $pendingFloor = bcdiv($pending, '1', 4);
+        if (bccomp($pendingFloor, '0.0001', 4) < 0) {
+            // Sub-cent dust (below ledger precision) — clear it.
+            $row->forceFill(['recoup_pending_usdt' => '0'])->save();
+
+            return;
+        }
+
+        $balanceFloor = bcdiv($this->wallets->virtualIncomeBalance($user), '1', 4);
+        $pay = bccomp($balanceFloor, $pendingFloor, 4) >= 0 ? $pendingFloor : $balanceFloor;
+        if (bccomp($pay, '0.0001', 4) < 0) {
+            return;
+        }
+
+        try {
+            $this->virtualWallet->debit(
+                $user,
+                IncomeWalletTransaction::TYPE_ADJUSTMENT,
+                $pay,
+                "stake_mint_recoup:{$row->id}",
+                "stake_mint_recoup:{$row->id}:".(string) Str::uuid(),
+                [
+                    'stake_index' => $row->stake_index,
+                    'note' => 'Recoup: stake ROI already paid by RACE mint was settled again by the Engine',
+                ],
+            );
+        } catch (\Throwable $e) {
+            Log::warning('stake mint recoup debit failed', ['advance_id' => $row->id, 'error' => $e->getMessage()]);
+
+            return;
+        }
+
+        DB::transaction(function () use ($row, $pay) {
+            $locked = StakeMintAdvance::query()->whereKey($row->id)->lockForUpdate()->firstOrFail();
+            $left = bcsub((string) $locked->recoup_pending_usdt, $pay, 8);
+            $locked->recoup_pending_usdt = bccomp($left, '0.0001', 8) >= 0 ? $left : '0';
+            $locked->save();
+            $row->setRawAttributes($locked->getAttributes(), true);
+        });
+    }
+
+    protected function walletOf(User $user): ?string
+    {
+        $wallet = strtolower(trim((string) ($user->wallet_address ?? '')));
+
+        return preg_match('/^0x[a-f0-9]{40}$/', $wallet) ? $wallet : null;
+    }
+}

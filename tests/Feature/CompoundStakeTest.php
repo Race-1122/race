@@ -16,6 +16,13 @@ class CompoundStakeTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // Claim window (07:00–12:00 IST) is covered separately; these tests exercise compounding.
+        config(['income.claim.window_enabled' => false]);
+    }
+
     public function test_compound_reinvests_daily_roi_into_principal(): void
     {
         $user = User::factory()->create([

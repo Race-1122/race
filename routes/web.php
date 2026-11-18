@@ -169,6 +169,13 @@ Route::middleware(['auth'])->group(function () {
         ->middleware('throttle:30,1')
         ->name('income.claim');
 
+    Route::get('/stake-mint-claim/status', [\App\Http\Controllers\StakeMintClaimController::class, 'status'])
+        ->middleware('throttle:60,1')
+        ->name('stake_mint_claim.status');
+    Route::post('/stake-mint-claim', [\App\Http\Controllers\StakeMintClaimController::class, 'claim'])
+        ->middleware('throttle:20,1')
+        ->name('stake_mint_claim.claim');
+
     Route::get('/virtual-income', [VirtualIncomeWalletController::class, 'index'])->name('virtual_income');
     Route::post('/virtual-income/compound/reserve', [VirtualIncomeCompoundController::class, 'reserve'])
         ->middleware('throttle:20,1')

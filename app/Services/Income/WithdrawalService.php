@@ -126,6 +126,19 @@ class WithdrawalService
             ]);
         }
 
+        // Stake ROI already paid by RACE mint is recouped first if the Engine paid the same days again.
+        $stakeMint = app(\App\Services\Income\StakeMintClaimService::class);
+        if ($stakeMint->hasOpenAdvance($user)) {
+            try {
+                $stakeMint->reconcileUser($user);
+            } catch (\Throwable $e) {
+                report($e);
+                throw ValidationException::withMessages([
+                    'amount_usd' => __('Could not verify your stake claims on-chain right now. Please try again in a minute.'),
+                ]);
+            }
+        }
+
         $rate = $this->rateLimitStatus($user);
         if ($rate['enabled'] && ! $rate['can_request']) {
             throw ValidationException::withMessages([

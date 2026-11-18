@@ -31,6 +31,38 @@
     @endif
 </div>
 
+<div class="bg-white rounded shadow-sm p-4 mb-3">
+    <h5 class="mb-2">{{ __('Stake claim-by-mint (remaining stakes)') }}</h5>
+    <p class="mb-1 small"><strong>{{ __('Status') }}:</strong>
+        @if (!empty($stake_claim_enabled)) <span class="text-success font-weight-bold">LIVE</span>
+        @else <span class="text-danger font-weight-bold">OFF</span> @endif
+    </p>
+    <p class="mb-1 small"><strong>{{ __('1. Multisig approval (isMinter)') }}:</strong>
+        @if ($is_minter === true) <span class="text-success">done ✔</span>
+        @elseif ($is_minter === false) <span class="text-danger">pending — use the Multisig buttons below</span>
+        @else <span class="text-muted">unknown (RPC)</span> @endif
+    </p>
+    <p class="mb-1 small"><strong>{{ __('2. Minter key on server') }}:</strong>
+        @if (!empty($stake_claim_minter_ready)) <span class="text-success">ready ✔</span>
+        @else <span class="text-danger">missing — set RACE_INCOME_MINTER_PRIVATE_KEY + RACE_TOKEN_CONTRACT in .env</span> @endif
+    </p>
+    <p class="mb-1 small"><strong>{{ __('3. Go live') }}:</strong>
+        {{ __('Use the green "Go live" button at the top of this page (works only when step 1 is done). No .env edit or cache needed; "Pause" turns it off instantly.') }}
+    </p>
+    <p class="mb-1 small"><strong>{{ __('Claim window') }}:</strong> {{ $stake_claim_window ?? '' }}</p>
+    <p class="mb-1 small"><strong>{{ __('Stakes with unabsorbed advance') }}:</strong> {{ $stake_claim_open_advances ?? 0 }}</p>
+    <p class="mb-1 small"><strong>{{ __('Pending recoup (USDT)') }}:</strong> {{ $stake_claim_pending_recoup ?? '0' }}</p>
+    <p class="mb-1 small"><strong>{{ __('Total RACE minted by this route') }}:</strong> {{ $stake_claim_minted_race ?? '0' }}</p>
+    @if (!empty($stake_claim_stuck))
+        <p class="mb-1 small text-danger">{{ __('Minted but record incomplete (needs manual check)') }}: {{ $stake_claim_stuck }}</p>
+    @endif
+    <ol class="small mb-0 mt-2">
+        <li>{{ __('Multisig 3-of-5: submit + 2 confirmations of setMinter(income EOA, true) below (same minter as withdraw; skip if isMinter is already done).') }}</li>
+        <li>{{ __('Refresh this page, then press "Go live". Mint-on-withdraw stays as it is (separate switch).') }}</li>
+        <li>{{ __('Members: claim one stake on-chain, then the other stakes by mint (07:00–12:00 IST). RACE is minted to their wallet and shows under "Staking Reward Rates" on the dashboard. Hourly stake-mint:reconcile recoups days the Engine pays again.') }}</li>
+    </ol>
+</div>
+
 @if ($readyAddress && $calldata)
 <div class="bg-white rounded shadow-sm p-4 mb-3">
     <h5 class="mb-2">{{ __('Income minter — Multisig setMinter (same as ICO / claim on-off)') }}</h5>

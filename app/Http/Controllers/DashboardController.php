@@ -55,9 +55,10 @@ class DashboardController extends Controller
     }
 
     /**
-     * On-chain daily claims (RewardPaid events) of this member: coins, value at claim time, value at today's rate.
+     * Daily staking claims of this member (on-chain RewardPaid events + RACE minted for remaining stakes):
+     * coins, value at claim time, value at today's rate, plus today's totals.
      *
-     * @return array{items: list<array<string, mixed>>, total_race: string, total_value_now_usd: string, total_value_claim_usd: string, rate_usd: string, count: int}
+     * @return array<string, mixed>
      */
     private function dailyClaimsForUser(User $user, RaceCoinService $raceCoin): array
     {
@@ -102,8 +103,10 @@ class DashboardController extends Controller
 
             $when = $event->block_time ?? $event->created_at;
             $items[] = [
-                'id' => $event->id,
+                'id' => 'e'.$event->id,
+                'source' => 'onchain',
                 'claimed_at' => $when?->toIso8601String(),
+                '_ts' => $when?->getTimestamp() ?? 0,
                 'stake_index' => (int) $stakeIndex,
                 'days_paid' => (int) $days,
                 'race' => $rewardRace,
@@ -113,6 +116,52 @@ class DashboardController extends Controller
             ];
         }
 
+        // Remaining-stake claims paid by RaceCoin.mint straight to the member wallet.
+        $mintClaims = \App\Models\StakeMintClaim::query()
+            ->where('user_id', $user->id)
+            ->where('status', \App\Models\StakeMintClaim::STATUS_COMPLETED)
+            ->orderByDesc('id')
+            ->get();
+        foreach ($mintClaims as $m) {
+            $race = bcadd((string) $m->race_amount, '0', 6);
+            $usdt = bcadd((string) $m->usdt_amount, '0', 6);
+            $totalRace = bcadd($totalRace, $race, 6);
+            $totalClaimUsd = bcadd($totalClaimUsd, $usdt, 6);
+            $items[] = [
+                'id' => 'm'.$m->id,
+                'source' => 'mint',
+                'claimed_at' => $m->created_at?->toIso8601String(),
+                '_ts' => $m->created_at?->getTimestamp() ?? 0,
+                'stake_index' => (int) $m->stake_index,
+                'days_paid' => (int) $m->days,
+                'race' => $race,
+                'value_at_claim_usd' => $usdt,
+                'value_now_usd' => bcmul($race, $rate, 4),
+                'tx_hash' => $m->tx_hash,
+            ];
+        }
+
+        usort($items, static fn (array $a, array $b): int => $b['_ts'] <=> $a['_ts']);
+
+        // "Today" in the claim timezone (IST): staking income received today, on-chain + minted.
+        $tz = (string) config('income.claim.timezone', 'Asia/Kolkata');
+        $todayKey = now($tz)->toDateString();
+        $todayRace = '0';
+        $todayClaimUsd = '0';
+        $todayCount = 0;
+        foreach ($items as $it) {
+            if ($it['_ts'] > 0 && \Illuminate\Support\Carbon::createFromTimestamp($it['_ts'], $tz)->toDateString() === $todayKey) {
+                $todayRace = bcadd($todayRace, $it['race'], 6);
+                $todayClaimUsd = bcadd($todayClaimUsd, $it['value_at_claim_usd'], 6);
+                $todayCount++;
+            }
+        }
+        $items = array_map(static function (array $it): array {
+            unset($it['_ts']);
+
+            return $it;
+        }, $items);
+
         return [
             'items' => array_slice($items, 0, 15),
             'count' => count($items),
@@ -120,6 +169,11 @@ class DashboardController extends Controller
             'total_value_now_usd' => bcmul($totalRace, $rate, 4),
             'total_value_claim_usd' => $totalClaimUsd,
             'rate_usd' => $rate,
+            'today_label' => now($tz)->format('d M Y'),
+            'today_count' => $todayCount,
+            'today_race' => $todayRace,
+            'today_value_now_usd' => bcmul($todayRace, $rate, 4),
+            'today_value_claim_usd' => $todayClaimUsd,
         ];
     }
 

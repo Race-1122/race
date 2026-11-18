@@ -15,6 +15,9 @@ class SiteSetting extends Model
 
     public const KEY_BONZA_BUSTER_ENABLED = 'bonza_buster_enabled';
 
+    /** Admin "Go live" switch for claim-by-mint (remaining stakes). Falls back to config when unset. */
+    public const KEY_STAKE_MINT_CLAIM_ENABLED = 'stake_mint_claim_enabled';
+
     public const KEY_MEMBER_POPUP_ENABLED = 'member_popup_enabled';
 
     public const KEY_MEMBER_POPUP_TITLE = 'member_popup_title';
@@ -183,6 +186,17 @@ class SiteSetting extends Model
         }
 
         return (bool) config('reward_plan.bonza_buster.enabled', true);
+    }
+
+    public static function stakeMintClaimEnabled(): bool
+    {
+        $fromDb = static::get(static::KEY_STAKE_MINT_CLAIM_ENABLED);
+
+        if ($fromDb !== null) {
+            return in_array(strtolower($fromDb), ['1', 'true', 'yes', 'on'], true);
+        }
+
+        return (bool) config('race_income_mint.stake_claim_enabled', false);
     }
 
     public static function withdrawalsGloballyDisabled(): bool

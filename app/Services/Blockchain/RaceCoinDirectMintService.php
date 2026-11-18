@@ -11,11 +11,17 @@ use Symfony\Component\Process\Process;
  */
 class RaceCoinDirectMintService
 {
+    /** Minter key + RaceCoin address are set (does not depend on the mint-on-withdraw switch). */
+    public function configured(): bool
+    {
+        return trim((string) config('race_income_mint.minter_private_key')) !== ''
+            && trim((string) config('race_income_mint.race_token')) !== '';
+    }
+
+    /** Mint-on-withdraw is ON (withdraw path). Claim-by-mint uses configured() + its own admin switch. */
     public function enabled(): bool
     {
-        return (bool) config('race_income_mint.enabled')
-            && trim((string) config('race_income_mint.minter_private_key')) !== ''
-            && trim((string) config('race_income_mint.race_token')) !== '';
+        return (bool) config('race_income_mint.enabled') && $this->configured();
     }
 
     public function minterAddress(): string
@@ -28,8 +34,8 @@ class RaceCoinDirectMintService
      */
     public function mintToWallet(string $toWallet, string $raceHumanAmount): array
     {
-        if (! $this->enabled()) {
-            throw new RuntimeException('RaceCoin mint-on-withdraw is not configured.');
+        if (! $this->configured()) {
+            throw new RuntimeException('RaceCoin minter is not configured (RACE_INCOME_MINTER_PRIVATE_KEY / RACE_TOKEN_CONTRACT).');
         }
 
         $to = strtolower(trim($toWallet));

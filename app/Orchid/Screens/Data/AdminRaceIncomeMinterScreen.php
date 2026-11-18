@@ -9,8 +9,10 @@ use App\Services\Blockchain\BscJsonRpcClient;
 use App\Services\Blockchain\RaceCoinDirectMintService;
 use App\Support\RaceErc20Calldata;
 use Orchid\Screen\Action;
+use Orchid\Screen\Actions\Button;
 use Orchid\Screen\Screen;
 use Orchid\Support\Facades\Layout;
+use Orchid\Support\Facades\Toast;
 
 /**
  * Multisig 3-of-5: RaceCoin.setMinter(income EOA, true) so withdraw can RaceCoin.mint.
@@ -67,6 +69,15 @@ class AdminRaceIncomeMinterScreen extends Screen
             'race_token' => $raceToken,
             'minter_address' => $minter,
             'mint_on_withdraw' => $mintOnWithdraw,
+            'stake_claim_enabled' => \App\Models\SiteSetting::stakeMintClaimEnabled(),
+            'stake_claim_minter_ready' => $mintService->configured(),
+            'stake_claim_window' => app(\App\Services\Income\IncomeClaimService::class)->windowLabel(),
+            'stake_claim_open_advances' => \App\Models\StakeMintAdvance::query()->where('days_outstanding', '>', 0)->count(),
+            'stake_claim_pending_recoup' => (string) (\App\Models\StakeMintAdvance::query()->sum('recoup_pending_usdt') ?? '0'),
+            'stake_claim_minted_race' => (string) (\App\Models\StakeMintClaim::query()
+                ->where('status', \App\Models\StakeMintClaim::STATUS_COMPLETED)->sum('race_amount') ?? '0'),
+            'stake_claim_stuck' => \App\Models\StakeMintClaim::query()
+                ->where('status', \App\Models\StakeMintClaim::STATUS_PENDING)->whereNotNull('tx_hash')->count(),
             'service_ready' => $serviceReady,
             'is_minter' => $isMinter,
             'bnb_balance' => $bnbBalance,
@@ -89,7 +100,7 @@ class AdminRaceIncomeMinterScreen extends Screen
 
     public function description(): ?string
     {
-        return __('One-time Multisig 3-of-5: RaceCoin.setMinter(income EOA, true). After that, member virtual-income withdraw mints RACE via RaceCoin.mint; gas paid by that EOA.');
+        return __('One-time Multisig 3-of-5: RaceCoin.setMinter(income EOA, true). After that, member virtual-income withdraw and stake claim-by-mint (remaining stakes after the one on-chain claim) mint RACE via RaceCoin.mint; gas paid by that EOA.');
     }
 
     /**
@@ -97,7 +108,75 @@ class AdminRaceIncomeMinterScreen extends Screen
      */
     public function commandBar(): iterable
     {
-        return [];
+        return [
+            Button::make(__('Go live: stake claim-by-mint'))
+                ->icon('bs.play-circle')
+                ->class('btn btn-success')
+                ->confirm(__('Multisig setMinter must already be executed (isMinter = true). Turn claim-by-mint ON for members now?'))
+                ->canSee(! \App\Models\SiteSetting::stakeMintClaimEnabled())
+                ->method('goLive'),
+            Button::make(__('Pause stake claim-by-mint'))
+                ->icon('bs.pause-circle')
+                ->class('btn btn-danger')
+                ->confirm(__('Members will no longer be able to claim remaining stakes by mint. On-chain claim is unaffected.'))
+                ->canSee(\App\Models\SiteSetting::stakeMintClaimEnabled())
+                ->method('pause'),
+        ];
+    }
+
+    /** Switch ON only after Multisig made the income EOA a RaceCoin minter (checked on-chain). */
+    public function goLive(RaceCoinDirectMintService $mintService): void
+    {
+        if (! $mintService->configured()) {
+            Toast::error(__('Set RACE_INCOME_MINTER_PRIVATE_KEY and RACE_TOKEN_CONTRACT on the server first.'));
+
+            return;
+        }
+
+        $isMinter = $this->readIsMinter($mintService);
+        if ($isMinter !== true) {
+            Toast::error($isMinter === false
+                ? __('Multisig has not approved yet: isMinter is false. Finish the setMinter Multisig tx (3 confirmations) and try again.')
+                : __('Could not read isMinter from the chain right now. Try again in a minute.'));
+
+            return;
+        }
+
+        \App\Models\SiteSetting::set(\App\Models\SiteSetting::KEY_STAKE_MINT_CLAIM_ENABLED, '1');
+        Toast::success(__('Stake claim-by-mint is LIVE. Members can claim remaining stakes (07:00–12:00 IST) and RACE is minted to their wallet.'));
+    }
+
+    public function pause(): void
+    {
+        \App\Models\SiteSetting::set(\App\Models\SiteSetting::KEY_STAKE_MINT_CLAIM_ENABLED, '0');
+        Toast::warning(__('Stake claim-by-mint is paused.'));
+    }
+
+    /** @return bool|null null = RPC/config problem */
+    private function readIsMinter(RaceCoinDirectMintService $mintService): ?bool
+    {
+        $minter = $mintService->minterAddress();
+        $raceToken = strtolower(trim((string) (config('race_income_mint.race_token')
+            ?: config('blockchain.contracts.race_token', ''))));
+        if (! preg_match('/^0x[a-f0-9]{40}$/', $minter) || ! preg_match('/^0x[a-f0-9]{40}$/', $raceToken)) {
+            return null;
+        }
+
+        try {
+            $hex = BscJsonRpcClient::fromConfig()->call('eth_call', [[
+                'to' => $raceToken,
+                'data' => '0xaa271e1a'.str_pad(substr($minter, 2), 64, '0', STR_PAD_LEFT),
+            ], 'latest']);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if (! is_string($hex) || ! str_starts_with($hex, '0x')) {
+            return null;
+        }
+        $trim = ltrim(substr($hex, 2), '0');
+
+        return $trim !== '' && $trim !== '0';
     }
 
     public function layout(): iterable

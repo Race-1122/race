@@ -21,6 +21,13 @@ class VirtualIncomeWalletArchitectureTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // Claim window (07:00–12:00 IST) is covered separately; these tests exercise wallet architecture.
+        config(['income.claim.window_enabled' => false]);
+    }
+
     private function fundVirtual(User $user, string $amount = '500.00'): void
     {
         app(VirtualIncomeWalletService::class)->credit(

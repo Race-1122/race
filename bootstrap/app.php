@@ -91,6 +91,9 @@ return Application::configure(basePath: dirname(__DIR__))
             $schedule->command('income:rollover-holdings')->hourly()->timezone($incomeTz);
         }
 
+        // Recoup stake ROI paid by RACE mint when the Engine later pays the same days (no-op without advances).
+        $schedule->command('stake-mint:reconcile')->hourly()->withoutOverlapping(30);
+
         if (config('blockchain.indexer.enabled')) {
             $schedule->command('blockchain:index-events')->everyMinute()->withoutOverlapping(4);
             $schedule->command('blockchain:backfill-ico-purchases --blocks=4000')->everyMinute()->withoutOverlapping(3);

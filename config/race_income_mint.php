@@ -21,6 +21,15 @@ return [
     'minter_address' => env('RACE_INCOME_MINTER_ADDRESS', ''),
     'minter_private_key' => env('RACE_INCOME_MINTER_PRIVATE_KEY', ''),
 
+    /**
+     * Claim-by-mint for stakes the Engine's 24h wallet cooldown blocks (one on-chain claim per wallet/day).
+     * Needs the same minter setup as mint-on-withdraw (Multisig setMinter + RACE_INCOME_MINT_ON_WITHDRAW=true).
+     */
+    'stake_claim_enabled' => filter_var(env('RACE_STAKE_MINT_CLAIM_ENABLED', false), FILTER_VALIDATE_BOOL),
+
+    /** Max whole days paid per stake per claim (mirrors Engine MAX_REWARD_DAYS). */
+    'stake_claim_max_days' => (int) env('RACE_STAKE_MINT_CLAIM_MAX_DAYS', 30),
+
     /** Node+ethers script path (relative to base_path). */
     'mint_script' => env('RACE_INCOME_MINT_SCRIPT', 'contracts/scripts/mint-race-to-wallet.js'),
 ];
