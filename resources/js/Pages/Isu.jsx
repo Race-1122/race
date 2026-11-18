@@ -1,4 +1,3 @@
-import IcoPhaseProgress from '@/Components/Ico/IcoPhaseProgress';
 import PanelCard from '@/Components/PanelCard';
 import MemberPageHero from '@/Components/Member/MemberPageHero';
 import MemberPageShell from '@/Components/Member/MemberPageShell';
@@ -526,15 +525,6 @@ export default function Isu({
         return () => clearInterval(timer);
     }, [contractsReady, refreshPhaseState]);
 
-    const scrollToBuy = useCallback(() => {
-        setBuyMoreOpen(true);
-        requestAnimationFrame(() => {
-            const target =
-                document.getElementById('ico-buy-more') || document.getElementById('ico-buy');
-            target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        });
-    }, []);
-
     useEffect(() => {
         let cancelled = false;
         async function runQuote() {
@@ -1050,16 +1040,6 @@ export default function Isu({
                     subtitle="Buy RACE (held). No level income on hold. After ICO completes, Create Your Stake — level income pays then if ≥$50."
                     logoSrc={RACE_LOGO_SRC}
                     bannerSrc={RACE_BANNER_STAKING}
-                />
-
-                <IcoPhaseProgress
-                    phases={phases}
-                    currentPhaseId={currentPhaseId}
-                    icoCompleted={icoCompleted}
-                    totalSold={totalSold}
-                    loading={loadingChain}
-                    canBuyNow={contractsReady && !icoCompleted}
-                    onBuy={scrollToBuy}
                 />
 
                 <div id="ico-buy" className="mt-6 grid scroll-mt-24 gap-6 lg:grid-cols-2">

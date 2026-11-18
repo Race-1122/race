@@ -1,5 +1,6 @@
 import PlanIncomeSection from '@/Components/PlanIncomeSection';
 import IncomeHoldWithdrawCard from '@/Components/IncomeHoldWithdrawCard';
+import OnChainClaimCard from '@/Components/OnChainClaimCard';
 import MemberPageHero from '@/Components/Member/MemberPageHero';
 import MemberPageShell from '@/Components/Member/MemberPageShell';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
@@ -750,7 +751,8 @@ export default function Dashboard({ summary: summaryProp = {}, memberActivation:
                         isTestnet={isTestnet}
                     />
 
-                    <div className="mx-auto w-full min-w-0 max-w-lg">
+                    <div className="mx-auto w-full min-w-0 max-w-lg space-y-3">
+                        <OnChainClaimCard />
                         <IncomeHoldWithdrawCard compact />
                     </div>
 

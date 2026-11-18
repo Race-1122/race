@@ -96,6 +96,12 @@ export default function Investment({
         can_claim: false,
         next_claim_at: null,
         claim_interval_hours: 24,
+        claim_window: {
+            enabled: true,
+            open_now: false,
+            label: '07:00 AM – 12:00 PM (Asia/Kolkata)',
+            community_release_at: '12:00',
+        },
     },
     race_coin_balance = '0.0000',
     race_coin_price_usd = '0.10',
@@ -470,7 +476,7 @@ export default function Investment({
                             {formatUsd(income_policy?.accrued_reward_usd ?? 0)}
                         </p>
                         <p className="mt-1 text-[11px] text-fintech-muted">
-                            Daily cron accrues ROI — midnight auto-claim moves it to income wallet
+                            Daily ROI accrues here — claim it manually to move it to your income wallet
                         </p>
                     </PanelCard>
                     <PanelCard title="Virtual Income Wallet" icon="wallet" className="border-fintech-line !p-4">
@@ -478,13 +484,17 @@ export default function Investment({
                             {formatUsd(income_policy?.virtual_income_usd ?? wallet_balance_usd ?? 0)}
                         </p>
                         <p className="mt-1 text-[11px] text-fintech-muted">
-                            Auto-claimed by cron · you can still Claim manually anytime due
+                            Claimed income lands here · no auto-claim
                         </p>
                     </PanelCard>
                     <PanelCard title="Claim income" icon="payout" className="border-fintech-line !p-4">
                         <p className="mt-1 text-xs text-fintech-muted">
-                            Optional manual claim. Nightly cron also credits this wallet automatically.
+                            Manual claim only — open {income_policy?.claim_window?.label ?? '07:00 AM – 12:00 PM (Asia/Kolkata)'}, once per day.
+                            Community income is released at {income_policy?.claim_window?.community_release_at ?? '12:00'}.
                         </p>
+                        {income_policy?.claim_window?.enabled && !income_policy?.claim_window?.open_now ? (
+                            <p className="mt-2 text-[11px] font-semibold text-red-700">Claim window is closed right now.</p>
+                        ) : null}
                         {income_policy?.next_claim_at ? (
                             <p className="mt-2 text-[11px] text-amber-800">
                                 Next claim after{' '}

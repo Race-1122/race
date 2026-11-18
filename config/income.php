@@ -11,6 +11,18 @@ return [
 
     'claim' => [
         'interval_hours' => (int) env('INCOME_CLAIM_INTERVAL_HOURS', 24),
+
+        /*
+        | MANUAL claim window (user presses Claim). Auto-claim cron is NOT scheduled.
+        | Claim is open only between window_start and window_end (timezone below), once per calendar day.
+        */
+        'window_enabled' => filter_var(env('INCOME_CLAIM_WINDOW_ENABLED', true), FILTER_VALIDATE_BOOL),
+        'window_start' => env('INCOME_CLAIM_WINDOW_START', '07:00'),
+        'window_end' => env('INCOME_CLAIM_WINDOW_END', '12:00'),
+        'timezone' => env('INCOME_CLAIM_TIMEZONE', 'Asia/Kolkata'),
+
+        /** Community Leadership (community income) is released once a day at this time (same timezone). */
+        'community_release_at' => env('INCOME_COMMUNITY_RELEASE_AT', '12:00'),
     ],
 
     /*

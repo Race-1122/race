@@ -46,6 +46,7 @@ class IncomeSettingsScreen extends Screen
     public function layout(): iterable
     {
         return [
+            Layout::view('orchid.income-settings-explain'),
             Layout::view('orchid.income-settings-pdf'),
         ];
     }

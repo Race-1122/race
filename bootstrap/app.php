@@ -72,30 +72,20 @@ return Application::configure(basePath: dirname(__DIR__))
         $autoClaimOn = (bool) config('income.auto_claim.enabled', true);
         $hybridIncome = config('blockchain.rewards_engine') !== 'blockchain_only';
 
-        // Daily ROI accrual + auto-claim → Virtual Income Wallet (user Claim button remains).
+        // Daily ROI accrual only. CLAIM IS MANUAL (user button, 07:00–12:00 IST) — no auto-claim cron.
         if ($hybridIncome || $autoClaimOn) {
             $payAt = (string) config('income.auto_claim.pay_roi_at', '00:15');
-            $claimAt = (string) config('income.auto_claim.auto_claim_at', '00:30');
-            $every = max(5, (int) config('income.auto_claim.due_every_minutes', 5));
 
             $schedule->command('income:pay-roi')
                 ->dailyAt($payAt)
                 ->timezone($incomeTz)
                 ->withoutOverlapping(30);
-
-            $schedule->command('income:auto-claim --midnight-batch')
-                ->dailyAt($claimAt)
-                ->timezone($incomeTz)
-                ->withoutOverlapping(30);
-
-            $schedule->command('income:auto-claim --due-only')
-                ->cron('*/'.$every.' * * * *')
-                ->timezone($incomeTz)
-                ->withoutOverlapping(4);
         }
 
         if ($hybridIncome) {
-            $schedule->command('income:pay-community-leadership')->dailyAt('03:00')->timezone($incomeTz);
+            // Community income (leadership) is released once a day at 12:00 (config income.claim.community_release_at).
+            $communityAt = (string) config('income.claim.community_release_at', '12:00');
+            $schedule->command('income:pay-community-leadership')->dailyAt($communityAt)->timezone($incomeTz);
             $schedule->command('income:pay-community-leadership-rank11-monthly')->monthlyOn(1, '04:00')->timezone($incomeTz);
             $schedule->command('income:release-stake-emis')->dailyAt('02:30')->timezone($incomeTz);
             $schedule->command('income:rollover-holdings')->hourly()->timezone($incomeTz);

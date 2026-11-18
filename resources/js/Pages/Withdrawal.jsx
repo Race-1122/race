@@ -228,7 +228,7 @@ export default function Withdrawal({
                 <MemberPageHero kicker="Income wallet" title="Income wallet" variant="pdf" icon="withdrawal">
                     {raceMintOnWithdraw
                         ? 'Virtual income withdraw mints RACE to your BEP20 wallet via RaceCoin.mint — no admin approval.'
-                        : 'Daily / auto-claim lands in Virtual income (USDT) below. “Bring to my wallet” is only for on-chain IncomeHold RACE (often 0).'}
+                        : 'Manually claimed income lands in Virtual income (USDT) below. “Bring to my wallet” is only for on-chain IncomeHold RACE (often 0).'}
                 </MemberPageHero>
 
                 <div className="mx-auto w-full min-w-0 max-w-lg">

@@ -125,7 +125,7 @@ class AdminMemberWithdrawalScreen extends Screen
                     ->sendTrueOrFalse(),
                 Label::make('hint')
                     ->title(__('How users withdraw daily claim'))
-                    ->value(__('Daily / auto-claim credits USDT virtual income balance. On Income wallet page use the USDT withdrawal form (not “Bring to my wallet” — that is only for on-chain IncomeHold RACE). Minimum $1. Pending approvals are not changed.')),
+                    ->value(__('Manually claimed income credits USDT virtual income balance. On Income wallet page use the USDT withdrawal form (not “Bring to my wallet” — that is only for on-chain IncomeHold RACE). Minimum $1. Pending approvals are not changed.')),
             ]),
         ];
     }
