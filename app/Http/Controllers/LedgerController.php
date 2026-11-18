@@ -22,7 +22,9 @@ class LedgerController extends Controller
 
         $query = LedgerEntry::query()
             ->production()
-            ->where('user_id', $user->id);
+            ->where('user_id', $user->id)
+            // Accrual is audit-only; take-home shows as income_claim after claim.
+            ->where('entry_type', '!=', LedgerEntry::TYPE_ROI_ACCRUAL);
 
         if ($incomeKey) {
             IncomeCatalog::applyIncomeKeyFilter($query, $incomeKey);
@@ -47,7 +49,7 @@ class LedgerController extends Controller
         $dayTotalUsd = null;
         if (! $showAllDates) {
             $dayTotalUsd = number_format(
-                (float) ((clone $query)->where('amount_usd', '>', 0)->sum('amount_usd') ?? 0),
+                (float) ((clone $query)->takeHomeCredits()->sum('amount_usd') ?? 0),
                 2,
                 '.',
                 '',

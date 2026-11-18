@@ -57,6 +57,10 @@ class IncomeCatalog
             LedgerEntry::TYPE_STAKE_UNLOCK_EMI => 'Stake unlock EMI',
             LedgerEntry::TYPE_COMPOUND_REINVEST => 'Daily compound',
             LedgerEntry::TYPE_INVESTMENT_DEBIT => 'Investment',
+            LedgerEntry::TYPE_ROI_ACCRUAL => 'Staking ROI accrual',
+            LedgerEntry::TYPE_INCOME_CLAIM => 'Staking reward claim',
+            LedgerEntry::TYPE_ROI_DAILY => 'Daily staking ROI',
+            LedgerEntry::TYPE_ROI_MONTHLY => 'Monthly staking ROI',
         ];
 
         foreach (self::items() as $item) {
@@ -111,7 +115,7 @@ class IncomeCatalog
         $query = LedgerEntry::query()
             ->production()
             ->where('user_id', $userId)
-            ->where('amount_usd', '>', 0);
+            ->takeHomeCredits();
 
         self::applyIncomeKeyFilter($query, $incomeKey);
 
@@ -132,8 +136,7 @@ class IncomeCatalog
         $totals = LedgerEntry::query()
             ->production()
             ->where('user_id', $userId)
-            ->where('amount_usd', '>', 0)
-            ->where('entry_type', '!=', LedgerEntry::TYPE_WALLET_DEPOSIT)
+            ->takeHomeCredits()
             ->selectRaw('entry_type, SUM(amount_usd) as total, COUNT(*) as cnt')
             ->groupBy('entry_type')
             ->get()
@@ -218,8 +221,7 @@ class IncomeCatalog
         $sum = (float) (LedgerEntry::query()
             ->production()
             ->where('user_id', $userId)
-            ->where('amount_usd', '>', 0)
-            ->where('entry_type', '!=', LedgerEntry::TYPE_WALLET_DEPOSIT)
+            ->takeHomeCredits()
             ->sum('amount_usd') ?? 0);
 
         return $memo[$userId] = number_format($sum, 2, '.', '');
@@ -278,6 +280,7 @@ class IncomeCatalog
         $query = LedgerEntry::query()
             ->production()
             ->where('user_id', $userId)
+            ->whereNotIn('entry_type', [LedgerEntry::TYPE_ROI_ACCRUAL])
             ->latest('id');
 
         if ($incomeKey) {

@@ -13,6 +13,7 @@ return [
             'short_label' => 'Staking',
             'types' => [
                 LedgerEntry::TYPE_ROI_DAILY,
+                LedgerEntry::TYPE_INCOME_CLAIM,
                 LedgerEntry::TYPE_STAKE_UNLOCK_EMI,
                 LedgerEntry::TYPE_COMPOUND_REINVEST,
             ],

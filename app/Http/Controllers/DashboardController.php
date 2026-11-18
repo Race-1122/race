@@ -181,7 +181,8 @@ class DashboardController extends Controller
     {
         $user = $request->user()->loadMissing('userWallet');
         $uid = $user->id;
-        $walletBalanceUsd = $wallets->currentBalanceFloat($user);
+        // Show Virtual Income Wallet (same authority as Withdrawal), not legacy ledger wallet.
+        $walletBalanceUsd = (float) $wallets->virtualIncomeBalance($user);
         $raceCoinBalance = $raceCoin->currentBalance($user);
 
         // Total Team on dashboard: unlimited depth (same as Total Team page). Income rules stay L1–L10.
@@ -193,7 +194,7 @@ class DashboardController extends Controller
         $creditGroups = LedgerEntry::query()
             ->production()
             ->where('user_id', $uid)
-            ->where('amount_usd', '>', 0)
+            ->takeHomeCredits()
             ->selectRaw('entry_type, SUM(amount_usd) as total, COUNT(*) as cnt')
             ->groupBy('entry_type')
             ->get();
@@ -205,11 +206,9 @@ class DashboardController extends Controller
         foreach ($creditGroups as $row) {
             $amount = (float) $row->total;
             $lifetimeCredits += $amount;
-            if ($row->entry_type !== LedgerEntry::TYPE_WALLET_DEPOSIT) {
-                $totalIncomeUsd += $amount;
-                $incomePayoutCount += (int) $row->cnt;
-                $incomeByType[$row->entry_type] = number_format($amount, 2, '.', '');
-            }
+            $totalIncomeUsd += $amount;
+            $incomePayoutCount += (int) $row->cnt;
+            $incomeByType[$row->entry_type] = number_format($amount, 2, '.', '');
         }
 
         $planIncome = IncomeCatalog::summarizeForUser($uid);
@@ -217,8 +216,7 @@ class DashboardController extends Controller
         $incomeEntries = LedgerEntry::query()
             ->production()
             ->where('user_id', $uid)
-            ->where('amount_usd', '>', 0)
-            ->where('entry_type', '!=', LedgerEntry::TYPE_WALLET_DEPOSIT)
+            ->takeHomeCredits()
             ->latest('id')
             ->limit(40)
             ->get([
@@ -294,8 +292,7 @@ class DashboardController extends Controller
         $todayAgg = LedgerEntry::query()
             ->production()
             ->where('user_id', $uid)
-            ->where('amount_usd', '>', 0)
-            ->where('entry_type', '!=', LedgerEntry::TYPE_WALLET_DEPOSIT)
+            ->takeHomeCredits()
             ->whereBetween('created_at', [$today, $todayEnd])
             ->selectRaw('COALESCE(SUM(amount_usd), 0) as total, COUNT(*) as cnt')
             ->first();
@@ -322,8 +319,7 @@ class DashboardController extends Controller
         $windowRows = LedgerEntry::query()
             ->production()
             ->where('user_id', $uid)
-            ->where('amount_usd', '>', 0)
-            ->where('entry_type', '!=', LedgerEntry::TYPE_WALLET_DEPOSIT)
+            ->takeHomeCredits()
             ->where('created_at', '>=', $previousStart)
             ->get(['entry_type', 'amount_usd', 'created_at']);
 
@@ -353,7 +349,11 @@ class DashboardController extends Controller
                 LedgerEntry::TYPE_BONZA_BUSTER,
             ], true)) {
                 $bucket['matching'.$suffix] += $amount;
-            } elseif ($row->entry_type === LedgerEntry::TYPE_ROI_MONTHLY || $row->entry_type === LedgerEntry::TYPE_ROI_DAILY) {
+            } elseif (in_array($row->entry_type, [
+                LedgerEntry::TYPE_ROI_MONTHLY,
+                LedgerEntry::TYPE_ROI_DAILY,
+                LedgerEntry::TYPE_INCOME_CLAIM,
+            ], true)) {
                 $bucket['roi'.$suffix] += $amount;
             } else {
                 $bucket['other'.$suffix] += $amount;
@@ -363,6 +363,7 @@ class DashboardController extends Controller
         $recentLedger = LedgerEntry::query()
             ->production()
             ->where('user_id', $uid)
+            ->where('entry_type', '!=', LedgerEntry::TYPE_ROI_ACCRUAL)
             ->latest('id')
             ->limit(5)
             ->get([
@@ -474,8 +475,8 @@ class DashboardController extends Controller
                 'commission_breakdown' => [
                     ['label' => 'Community', 'amount_usd' => number_format($communityMatchingUsd, 2, '.', ''), 'color' => '#3B82F6'],
                     ['label' => 'Direct', 'amount_usd' => number_format((float) ($incomeByType[LedgerEntry::TYPE_REFERRAL_DIRECT] ?? 0), 2, '.', ''), 'color' => '#8B5CF6'],
-                    ['label' => 'Participation', 'amount_usd' => number_format((float) ($incomeByType[LedgerEntry::TYPE_ROI_MONTHLY] ?? 0) + (float) ($incomeByType[LedgerEntry::TYPE_ROI_DAILY] ?? 0), 2, '.', ''), 'color' => '#10B981'],
-                    ['label' => 'Other', 'amount_usd' => number_format((float) max(0, (float) $totalIncomeUsd - $communityMatchingUsd - (float) ($incomeByType[LedgerEntry::TYPE_REFERRAL_DIRECT] ?? 0) - (float) ($incomeByType[LedgerEntry::TYPE_ROI_MONTHLY] ?? 0) - (float) ($incomeByType[LedgerEntry::TYPE_ROI_DAILY] ?? 0)), 2, '.', ''), 'color' => '#EAB308'],
+                    ['label' => 'Participation', 'amount_usd' => number_format((float) ($incomeByType[LedgerEntry::TYPE_ROI_MONTHLY] ?? 0) + (float) ($incomeByType[LedgerEntry::TYPE_ROI_DAILY] ?? 0) + (float) ($incomeByType[LedgerEntry::TYPE_INCOME_CLAIM] ?? 0), 2, '.', ''), 'color' => '#10B981'],
+                    ['label' => 'Other', 'amount_usd' => number_format((float) max(0, (float) $totalIncomeUsd - $communityMatchingUsd - (float) ($incomeByType[LedgerEntry::TYPE_REFERRAL_DIRECT] ?? 0) - (float) ($incomeByType[LedgerEntry::TYPE_ROI_MONTHLY] ?? 0) - (float) ($incomeByType[LedgerEntry::TYPE_ROI_DAILY] ?? 0) - (float) ($incomeByType[LedgerEntry::TYPE_INCOME_CLAIM] ?? 0)), 2, '.', ''), 'color' => '#EAB308'],
                 ],
                 'monthly_income_series' => array_values(array_map(static fn ($row) => [
                     'date' => $row['date'],
