@@ -181,9 +181,11 @@ class DashboardController extends Controller
     {
         $user = $request->user()->loadMissing('userWallet');
         $uid = $user->id;
-        // Show Virtual Income Wallet (same authority as Withdrawal), not legacy ledger wallet.
-        $walletBalanceUsd = (float) $wallets->virtualIncomeBalance($user);
+        // Unified income total (Daily claim + Other) — no Virtual/On-chain labels.
+        $incomeBuckets = $wallets->incomeBuckets($user);
+        $walletBalanceUsd = (float) $incomeBuckets['total_usd'];
         $raceCoinBalance = $raceCoin->currentBalance($user);
+        $stakeAutoClaimLive = \App\Models\SiteSetting::stakeMintClaimEnabled();
 
         // Total Team on dashboard: unlimited depth (same as Total Team page). Income rules stay L1–L10.
         $descendantIds = $referralTree->referralDescendantIds($uid, null);
@@ -443,8 +445,10 @@ class DashboardController extends Controller
             + (float) ($incomeByType[LedgerEntry::TYPE_COMMUNITY_REFERRAL] ?? 0);
 
         return Inertia::render('Dashboard', [
+            'stake_auto_claim_live' => $stakeAutoClaimLive,
             'summary' => [
                 'balance_usd' => number_format($walletBalanceUsd, 2, '.', ''),
+                'income_buckets' => $incomeBuckets,
                 'race_coin_balance' => $raceCoinBalance,
                 'race_coin_price_usd' => $raceCoin->formattedPriceUsd(4),
                 'lifetime_credits_usd' => number_format((float) $lifetimeCredits, 2, '.', ''),

@@ -103,14 +103,20 @@ class WithdrawalService
      *
      * Does NOT apply to fixed maturity / EMI / Engine Flexible stake exit.
      */
-    public function request(User $user, string $grossAmountUsd, string $destinationAddress): Withdrawal
-    {
+    public function request(
+        User $user,
+        string $grossAmountUsd,
+        string $destinationAddress,
+        string $incomeBucket = VirtualIncomeWalletService::BUCKET_OTHER,
+    ): Withdrawal {
         if (\App\Support\IncomeVaultFinancialAuthority::isAuthoritative()
             && ! config('income_vault.legacy_withdrawal_enabled', true)) {
             throw ValidationException::withMessages([
                 'amount_usd' => __('Use on-chain RaceIncomeVault withdrawal when authoritative mode is enabled.'),
             ]);
         }
+
+        $incomeBucket = $this->normalizeIncomeBucket($incomeBucket);
 
         $mintService = app(RaceCoinDirectMintService::class);
         $mintOnWithdraw = $mintService->enabled();
@@ -163,6 +169,19 @@ class WithdrawalService
             ]);
         }
 
+        $bucketAvailable = app(VirtualIncomeWalletService::class)->availableInBucket($user, $incomeBucket);
+        if (bccomp($bucketAvailable, $gross, 2) < 0) {
+            $label = $incomeBucket === VirtualIncomeWalletService::BUCKET_DAILY_CLAIM
+                ? __('Daily claim income')
+                : __('Other income');
+            throw ValidationException::withMessages([
+                'amount_usd' => __('Insufficient :label balance (:have USDT available).', [
+                    'label' => $label,
+                    'have' => $bucketAvailable,
+                ]),
+            ]);
+        }
+
         $storedAddress = trim((string) ($user->wallet_address ?? ''));
         $destination = $storedAddress !== ''
             ? $storedAddress
@@ -193,10 +212,11 @@ class WithdrawalService
                 $destination,
                 $storedAddress,
                 $mintService,
+                $incomeBucket,
             );
         }
 
-        return DB::transaction(function () use ($user, $gross, $teamReward, $adminFee, $net, $destination, $storedAddress) {
+        return DB::transaction(function () use ($user, $gross, $teamReward, $adminFee, $net, $destination, $storedAddress, $incomeBucket) {
             $locked = User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
 
             if (! $locked->canRequestWithdrawal()) {
@@ -225,7 +245,13 @@ class WithdrawalService
             $balance = $this->wallets->virtualIncomeBalance($locked);
             if (bccomp($balance, $gross, 2) < 0) {
                 throw ValidationException::withMessages([
-                    'amount_usd' => __('Insufficient Virtual Income Wallet balance.'),
+                    'amount_usd' => __('Insufficient income balance.'),
+                ]);
+            }
+            $bucketBal = app(VirtualIncomeWalletService::class)->availableInBucket($locked, $incomeBucket);
+            if (bccomp($bucketBal, $gross, 2) < 0) {
+                throw ValidationException::withMessages([
+                    'amount_usd' => __('Insufficient balance in selected income type.'),
                 ]);
             }
 
@@ -255,6 +281,7 @@ class WithdrawalService
                 "withdrawal_request:{$withdrawal->id}",
                 [
                     'withdrawal_id' => $withdrawal->id,
+                    'income_bucket' => $incomeBucket,
                     'team_reward_usd' => $teamReward,
                     'admin_fee_usd' => $adminFee,
                     'net_usd' => $net,
@@ -265,6 +292,16 @@ class WithdrawalService
 
             return $withdrawal;
         });
+    }
+
+    private function normalizeIncomeBucket(string $bucket): string
+    {
+        $bucket = trim(strtolower($bucket));
+        if ($bucket === VirtualIncomeWalletService::BUCKET_DAILY_CLAIM) {
+            return VirtualIncomeWalletService::BUCKET_DAILY_CLAIM;
+        }
+
+        return VirtualIncomeWalletService::BUCKET_OTHER;
     }
 
     /**
@@ -279,6 +316,7 @@ class WithdrawalService
         string $destination,
         string $storedAddress,
         RaceCoinDirectMintService $mintService,
+        string $incomeBucket = VirtualIncomeWalletService::BUCKET_OTHER,
     ): Withdrawal {
         $destination = strtolower(trim($destination));
         if (! preg_match('/^0x[a-f0-9]{40}$/', $destination)) {
@@ -297,7 +335,13 @@ class WithdrawalService
         $balancePre = $this->wallets->virtualIncomeBalance($user);
         if (bccomp($balancePre, $gross, 2) < 0) {
             throw ValidationException::withMessages([
-                'amount_usd' => __('Insufficient Virtual Income Wallet balance.'),
+                'amount_usd' => __('Insufficient income balance.'),
+            ]);
+        }
+        $bucketPre = app(VirtualIncomeWalletService::class)->availableInBucket($user, $incomeBucket);
+        if (bccomp($bucketPre, $gross, 2) < 0) {
+            throw ValidationException::withMessages([
+                'amount_usd' => __('Insufficient balance in selected income type.'),
             ]);
         }
 
@@ -334,6 +378,7 @@ class WithdrawalService
                 $raceAmount,
                 $price,
                 $minted,
+                $incomeBucket,
             ) {
                 $locked = User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
 
@@ -363,7 +408,13 @@ class WithdrawalService
                 $balance = $this->wallets->virtualIncomeBalance($locked);
                 if (bccomp($balance, $gross, 2) < 0) {
                     throw ValidationException::withMessages([
-                        'amount_usd' => __('Insufficient Virtual Income Wallet balance.'),
+                        'amount_usd' => __('Insufficient income balance.'),
+                    ]);
+                }
+                $bucketBal = app(VirtualIncomeWalletService::class)->availableInBucket($locked, $incomeBucket);
+                if (bccomp($bucketBal, $gross, 2) < 0) {
+                    throw ValidationException::withMessages([
+                        'amount_usd' => __('Insufficient balance in selected income type.'),
                     ]);
                 }
 
@@ -396,13 +447,14 @@ class WithdrawalService
                     "withdrawal_race_mint:{$withdrawal->id}",
                     [
                         'withdrawal_id' => $withdrawal->id,
+                        'income_bucket' => $incomeBucket,
                         'team_reward_usd' => $teamReward,
                         'admin_fee_usd' => $adminFee,
                         'net_usd' => $net,
                         'race_amount' => $raceAmount,
                         'race_price_usd' => $price,
                         'race_tx_hash' => $minted['tx_hash'],
-                        'note' => 'Virtual income settled via RaceCoin.mint to wallet',
+                        'note' => 'Income settled via RaceCoin.mint to wallet',
                         'phase' => 'race_mint_completed',
                     ],
                 );
@@ -421,6 +473,7 @@ class WithdrawalService
                         'race_amount' => $raceAmount,
                         'race_tx_hash' => $minted['tx_hash'],
                         'destination_address' => $destination,
+                        'income_bucket' => $incomeBucket,
                         'fee_destination' => 'community_team_rewards',
                         'admin_fee_destination' => 'admin_treasury',
                         'settled_as' => 'race_coin_mint',

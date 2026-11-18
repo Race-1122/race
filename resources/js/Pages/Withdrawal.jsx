@@ -115,6 +115,14 @@ function WithdrawalRowMobile({ row }) {
 
 export default function Withdrawal({
     balance_usd = '0.00',
+    income_buckets = {
+        total_usd: '0.00',
+        daily_claim_usd: '0.00',
+        other_usd: '0.00',
+        daily_claim_earned_usd: '0.00',
+        other_earned_usd: '0.00',
+    },
+    stake_auto_claim_live = false,
     income_policy = {
         accrued_reward_usd: '0.0000',
         virtual_income_usd: '0.00',
@@ -154,9 +162,10 @@ export default function Withdrawal({
     const raceMintOnWithdraw = Boolean(race_mint_on_withdraw);
     const raceOnlyIncome = Boolean(blockchain?.blockchain_only) && !raceMintOnWithdraw;
     const withdrawalAddressLocked = Boolean((wallet_address ?? auth?.user?.wallet_address ?? '').trim());
-    const walletBalance = Number(
-        balance_usd ?? auth?.user?.user_wallet?.balance_usd ?? auth?.user?.balance_usd ?? 0,
-    );
+    const totalBalance = Number(income_buckets?.total_usd ?? balance_usd ?? 0);
+    const dailyClaimBal = Number(income_buckets?.daily_claim_usd ?? 0);
+    const otherBal = Number(income_buckets?.other_usd ?? 0);
+    const dailyClaimEarned = Number(income_buckets?.daily_claim_earned_usd ?? 0);
     const percent = Number(withdrawal_fee.team_reward_percent ?? withdrawal_fee.percent) || 10;
     const adminFlat = Number(withdrawal_fee.flat_fee_usd) || 1;
     const adminPercentFrom = Number(withdrawal_fee.percent_from_usd) || 100;
@@ -171,7 +180,11 @@ export default function Withdrawal({
     const { data, setData, post, processing, errors, reset } = useForm({
         amount_usd: '',
         destination_address: wallet_address ?? '',
+        income_bucket: 'other',
     });
+
+    const selectedBucketBal =
+        data.income_bucket === 'daily_claim' ? dailyClaimBal : otherBal;
 
     const gross = Number(data.amount_usd) || 0;
     const teamReward = gross > 0 ? (gross * percent) / 100 : 0;
@@ -218,8 +231,8 @@ export default function Withdrawal({
                 <>
                 <MemberPageHero kicker="Income wallet" title="Income wallet" variant="pdf" icon="withdrawal">
                     {raceMintOnWithdraw
-                        ? 'Virtual income withdraw mints RACE to your BEP20 wallet via RaceCoin.mint — no admin approval.'
-                        : 'Manually claimed income lands in Virtual income (USDT) below. “Bring to my wallet” is only for on-chain IncomeHold RACE (often 0).'}
+                        ? 'Withdraw income as RACE to your BEP20 wallet. Team Reward + Admin Fee apply once per withdraw.'
+                        : 'Withdraw income to your BEP20 wallet. Team Reward + Admin Fee apply once per withdraw.'}
                 </MemberPageHero>
 
                 <div className="mx-auto w-full min-w-0 max-w-lg">
@@ -247,17 +260,11 @@ export default function Withdrawal({
                     ) : null}
 
                     <MemberAlert variant="info" className="mb-3">
-                        {raceMintOnWithdraw ? (
-                            <>
-                                Withdraw virtual income below — net amount is minted as <strong>RACE</strong> to your
-                                wallet instantly (fees still apply).
-                            </>
-                        ) : (
-                            <>
-                                To withdraw daily claim income: scroll to <strong>Request USDT payout</strong> and use
-                                your Virtual income balance (not the RACE “Bring to my wallet” card if it shows 0).
-                            </>
-                        )}
+                        Daily claim and other income use <strong>one total</strong>. Pick which type to withdraw —
+                        fees (Team 10% + Admin) apply <strong>once</strong> on that amount only.
+                        {stake_auto_claim_live
+                            ? ' Daily stake ROI auto-credits into Daily claim (no separate on-chain hold path).'
+                            : ''}
                     </MemberAlert>
                 </div>
 
@@ -314,36 +321,95 @@ export default function Withdrawal({
                         </p>
                     ) : null}
 
-                    <div className="mb-3 grid gap-3 sm:grid-cols-2">
+                    <div className="mb-3 space-y-3">
                         <div className="rounded-xl border border-fintech-line bg-white px-3 py-2.5 shadow-sm sm:px-4 sm:py-3">
                             <p className="text-xs font-semibold uppercase tracking-wide text-fintech-primary">
-                                Accrued reward (unclaimed)
+                                Total income
                             </p>
-                            <p className="mt-1 break-words text-lg font-bold text-fintech-ink sm:text-xl">
-                                {formatUsdtBalance(Number(income_policy?.accrued_reward_usd ?? 0))}
+                            <p className="mt-1 break-words text-2xl font-bold text-fintech-ink">
+                                {formatUsdtBalance(totalBalance)}
                             </p>
                             <p className="mt-1 text-[11px] text-fintech-muted">
-                                Claim on Staking page — no Admin Fee on claim.
+                                Daily claim + other income (withdrawable).
+                            </p>
+                        </div>
+                        <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 px-3 py-2.5 shadow-sm sm:px-4 sm:py-3">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">
+                                Daily claim hold
+                            </p>
+                            <p className="mt-1 break-words text-xl font-bold text-fintech-ink">
+                                {formatUsdtBalance(dailyClaimBal)}
+                            </p>
+                            <p className="mt-1 text-[11px] text-emerald-900/80">
+                                Daily claim se aaj tak hold: {formatUsdtBalance(dailyClaimBal)}
+                                {dailyClaimEarned > 0
+                                    ? ` · Lifetime credited ${formatUsdtBalance(dailyClaimEarned)}`
+                                    : ''}
+                                . Withdraw pe Team Reward + Admin Fee lagega.
                             </p>
                         </div>
                         <div className="rounded-xl border border-fintech-line bg-white px-3 py-2.5 shadow-sm sm:px-4 sm:py-3">
                             <p className="text-xs font-semibold uppercase tracking-wide text-fintech-primary">
-                                Virtual income (withdrawable)
+                                Other income
                             </p>
-                            <p className="mt-1 break-words text-xl font-bold text-fintech-ink sm:text-2xl">
-                                {formatUsdtBalance(walletBalance)}
+                            <p className="mt-1 break-words text-xl font-bold text-fintech-ink">
+                                {formatUsdtBalance(otherBal)}
                             </p>
                             <p className="mt-1 text-[11px] text-fintech-muted">
-                                Admin Fee + Team Reward apply only when you withdraw off-platform.
+                                Referral / leadership / team — kabhi bhi withdraw. Fees isi amount pe ek baar.
                             </p>
                         </div>
+                        {Number(income_policy?.accrued_reward_usd ?? 0) > 0 ? (
+                            <p className="text-[11px] text-fintech-muted">
+                                Accrued not yet in hold: {formatUsdtBalance(Number(income_policy.accrued_reward_usd))}{' '}
+                                (auto-claim / claim pe hold mein aayega).
+                            </p>
+                        ) : null}
                     </div>
 
                     <PanelCard
-                        title={raceMintOnWithdraw ? 'Bring virtual income as RACE' : 'Request USDT payout'}
+                        title={raceMintOnWithdraw ? 'Withdraw as RACE' : 'Request USDT payout'}
                         icon="payout"
                     >
                         <form onSubmit={submit} className="space-y-4">
+                            <div>
+                                <p className="block text-sm font-medium text-fintech-ink">Income type</p>
+                                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                                    <button
+                                        type="button"
+                                        disabled={formBlocked}
+                                        onClick={() => setData('income_bucket', 'daily_claim')}
+                                        className={`rounded-xl border px-3 py-2.5 text-left text-sm transition ${
+                                            data.income_bucket === 'daily_claim'
+                                                ? 'border-emerald-500 bg-emerald-50 text-fintech-ink'
+                                                : 'border-fintech-line bg-white text-fintech-muted'
+                                        }`}
+                                    >
+                                        <span className="block font-semibold text-fintech-ink">Daily claim</span>
+                                        <span className="mt-0.5 block text-xs">
+                                            {formatUsdtBalance(dailyClaimBal)} available
+                                        </span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={formBlocked}
+                                        onClick={() => setData('income_bucket', 'other')}
+                                        className={`rounded-xl border px-3 py-2.5 text-left text-sm transition ${
+                                            data.income_bucket === 'other'
+                                                ? 'border-sky-500 bg-sky-50 text-fintech-ink'
+                                                : 'border-fintech-line bg-white text-fintech-muted'
+                                        }`}
+                                    >
+                                        <span className="block font-semibold text-fintech-ink">Other income</span>
+                                        <span className="mt-0.5 block text-xs">
+                                            {formatUsdtBalance(otherBal)} available · anytime
+                                        </span>
+                                    </button>
+                                </div>
+                                {errors.income_bucket ? (
+                                    <p className="mt-1 text-xs text-red-600">{errors.income_bucket}</p>
+                                ) : null}
+                            </div>
                             <div>
                                 <label className="block text-sm font-medium text-fintech-ink">
                                     Amount (USDT) — gross
@@ -352,11 +418,15 @@ export default function Withdrawal({
                                     type="number"
                                     min="1"
                                     step="0.01"
+                                    max={selectedBucketBal > 0 ? selectedBucketBal : undefined}
                                     value={data.amount_usd}
                                     className="mt-2 block w-full"
                                     onChange={(e) => setData('amount_usd', e.target.value)}
-                                    disabled={formBlocked}
+                                    disabled={formBlocked || selectedBucketBal <= 0}
                                 />
+                                <p className="mt-1 text-[11px] text-fintech-muted">
+                                    Max for this type: {formatUsdtBalance(selectedBucketBal)}
+                                </p>
                                 {errors.amount_usd ? (
                                     <p className="mt-1 text-xs text-red-600">{errors.amount_usd}</p>
                                 ) : null}
@@ -412,8 +482,12 @@ export default function Withdrawal({
                                     : rateLimited
                                       ? `Wait ${formatCountdown(countdownMs)}`
                                       : raceMintOnWithdraw
-                                        ? 'Mint RACE to wallet'
-                                        : 'Submit USDT withdrawal'}
+                                        ? data.income_bucket === 'daily_claim'
+                                          ? 'Withdraw daily claim as RACE'
+                                          : 'Withdraw other income as RACE'
+                                        : data.income_bucket === 'daily_claim'
+                                          ? 'Withdraw daily claim'
+                                          : 'Withdraw other income'}
                             </PrimaryButton>
                         </form>
                     </PanelCard>

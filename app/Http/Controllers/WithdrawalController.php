@@ -56,9 +56,13 @@ class WithdrawalController extends Controller
             ->values()
             ->all();
 
+        $buckets = $wallets->incomeBuckets($user);
+
         return Inertia::render('Withdrawal', [
             'race_level_income' => app(\App\Services\Blockchain\OnChainLevelIncomeRows::class)->totalsForUser($user),
-            'balance_usd' => $wallets->virtualIncomeBalance($user),
+            'balance_usd' => $buckets['total_usd'],
+            'income_buckets' => $buckets,
+            'stake_auto_claim_live' => SiteSetting::stakeMintClaimEnabled(),
             'income_policy' => $incomePolicy,
             'wallet_address' => $user->wallet_address,
             'withdrawal_fee' => $feeRules,
@@ -80,6 +84,7 @@ class WithdrawalController extends Controller
         $validated = $request->validate([
             'amount_usd' => ['required', 'numeric', 'min:1', 'max:999999.99'],
             'destination_address' => ['required', 'string', 'min:10', 'max:255'],
+            'income_bucket' => ['required', 'string', 'in:daily_claim,other'],
         ]);
 
         try {
@@ -87,6 +92,7 @@ class WithdrawalController extends Controller
                 $request->user(),
                 (string) $validated['amount_usd'],
                 (string) $validated['destination_address'],
+                (string) $validated['income_bucket'],
             );
         } catch (\Illuminate\Validation\ValidationException $e) {
             throw $e;

@@ -44,6 +44,13 @@ function formatRacePriceUsd(value) {
 
 const defaultSummary = {
     balance_usd: '0.00',
+    income_buckets: {
+        total_usd: '0.00',
+        daily_claim_usd: '0.00',
+        other_usd: '0.00',
+        daily_claim_earned_usd: '0.00',
+        other_earned_usd: '0.00',
+    },
     race_coin_balance: '0.0000',
     race_coin_price_usd: '0.10',
     lifetime_credits_usd: '0.00',
@@ -658,17 +665,23 @@ function MemberActivationStatusCard({ activation, memberNumber, isTestnet = fals
     );
 }
 
-export default function Dashboard({ summary: summaryProp = {}, memberActivation: memberActivationProp }) {
+export default function Dashboard({
+    summary: summaryProp = {},
+    memberActivation: memberActivationProp,
+    stake_auto_claim_live = false,
+}) {
     const page = usePage();
     const { user } = page.props.auth;
     const isTestnet = Boolean(page.props.blockchain?.is_testnet);
     const memberActivation = useDashboardActivation(memberActivationProp ?? page.props.memberActivation ?? {});
     const summary = { ...defaultSummary, ...summaryProp };
     const displayName = user?.name?.trim() || 'Member';
+    const buckets = { ...defaultSummary.income_buckets, ...(summary.income_buckets || {}) };
+    const stakeAutoClaimLive = Boolean(stake_auto_claim_live ?? page.props.stake_auto_claim_live);
 
     usePoll(
         120000,
-        { only: ['summary'] },
+        { only: ['summary', 'stake_auto_claim_live'] },
         { preserveScroll: true, preserveState: true },
     );
 
@@ -676,7 +689,7 @@ export default function Dashboard({ summary: summaryProp = {}, memberActivation:
         {
             title: 'Total balance',
             value: formatUsdt(summary.balance_usd),
-            sub: summary.income_pct?.total ?? '+0.00% vs prior',
+            sub: `Daily claim ${formatUsdt(buckets.daily_claim_usd)} · Other ${formatUsdt(buckets.other_usd)}`,
             tintClass: 'bg-blue-400/30',
             icon: (
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
@@ -766,6 +779,8 @@ export default function Dashboard({ summary: summaryProp = {}, memberActivation:
         },
     ], [
         summary.balance_usd,
+        buckets.daily_claim_usd,
+        buckets.other_usd,
         summary.income_pct?.total,
         summary.income_pct?.roi,
         summary.race_coin_balance,
@@ -794,8 +809,33 @@ export default function Dashboard({ summary: summaryProp = {}, memberActivation:
                         isTestnet={isTestnet}
                     />
 
-                    <div className="mx-auto w-full min-w-0 max-w-lg space-y-3">
-                        <OnChainClaimCard />
+                    {!stakeAutoClaimLive ? (
+                        <div className="mx-auto w-full min-w-0 max-w-lg space-y-3">
+                            <OnChainClaimCard />
+                        </div>
+                    ) : null}
+
+                    <div className="mx-auto w-full min-w-0 max-w-lg rounded-2xl border border-emerald-200 bg-emerald-50/70 px-4 py-3 shadow-sm">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">
+                            Daily claim hold
+                        </p>
+                        <p className="mt-1 text-2xl font-bold text-fintech-ink">
+                            {formatUsdt(buckets.daily_claim_usd)}
+                        </p>
+                        <p className="mt-1 text-[11px] text-emerald-900/80">
+                            Daily claim se aaj tak aapki {formatUsdt(buckets.daily_claim_usd)} income hold padi hai
+                            {Number(buckets.daily_claim_earned_usd) > 0
+                                ? ` (lifetime credited ${formatUsdt(buckets.daily_claim_earned_usd)})`
+                                : ''}
+                            . Withdraw pe Team + Admin fee lagega. Other income:{' '}
+                            {formatUsdt(buckets.other_usd)} — kabhi bhi withdraw.
+                        </p>
+                        <Link
+                            href={route('withdrawal')}
+                            className="mt-2 inline-flex text-xs font-semibold text-emerald-800 underline"
+                        >
+                            Open Income wallet
+                        </Link>
                     </div>
 
                     <DailyEarningCard
