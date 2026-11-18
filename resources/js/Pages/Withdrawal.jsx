@@ -183,7 +183,6 @@ export default function Withdrawal({
     const adminPercentFrom = Number(withdrawal_fee.percent_from_usd) || 100;
     const adminPercent = Number(withdrawal_fee.admin_fee_percent) || 1;
     const adminAddress = (admin_wallet?.address || '').trim();
-    const adminNetwork = admin_wallet?.network || 'BEP20 (BNB Smart Chain)';
     const usdtContract = (admin_wallet?.usdt_contract || blockchain?.contracts?.usdt || '').trim();
     const minConfirmations = Number(admin_wallet?.min_confirmations ?? 12);
     const feeChainId = Number(admin_wallet?.chain_id ?? blockchain?.chain_id ?? 56);
@@ -422,17 +421,6 @@ export default function Withdrawal({
                                 </ul>
                             ) : null}
                         </div>
-                    ) : null}
-
-                    {adminAddress ? (
-                        <p className="mb-3 break-all rounded-lg border-2 border-amber-400/70 bg-amber-950/50 px-3 py-2 text-[11px] text-amber-100 sm:text-xs">
-                            <span className="font-semibold text-amber-200">
-                                {raceMintOnWithdraw
-                                    ? `Admin Fee USDT goes to treasury (${adminNetwork}):`
-                                    : `Admin / Treasury wallet (${adminNetwork}):`}
-                            </span>{' '}
-                            <span className="font-mono font-bold text-amber-50">{adminAddress}</span>
-                        </p>
                     ) : null}
 
                     <div className="mb-3 space-y-3">
