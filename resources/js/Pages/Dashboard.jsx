@@ -1,6 +1,7 @@
 import PlanIncomeSection from '@/Components/PlanIncomeSection';
 import IncomeHoldWithdrawCard from '@/Components/IncomeHoldWithdrawCard';
 import OnChainClaimCard from '@/Components/OnChainClaimCard';
+import DailyClaimsSection from '@/Components/DailyClaimsSection';
 import MemberPageHero from '@/Components/Member/MemberPageHero';
 import MemberPageShell from '@/Components/Member/MemberPageShell';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
@@ -755,6 +756,8 @@ export default function Dashboard({ summary: summaryProp = {}, memberActivation:
                         <OnChainClaimCard />
                         <IncomeHoldWithdrawCard compact />
                     </div>
+
+                    <DailyClaimsSection data={summary.daily_claims} />
 
                     <DailyEarningCard
                         amountUsd={summary.today_income_usd}

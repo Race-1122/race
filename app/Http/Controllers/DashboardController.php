@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Support\MemberCode;
 use App\Models\BlockchainEngineStake;
+use App\Models\BlockchainEvent;
 use App\Models\Investment;
 use App\Models\LedgerEntry;
 use App\Models\User;
@@ -34,6 +35,92 @@ class DashboardController extends Controller
         $sign = $pct >= 0 ? '+' : '';
 
         return $sign.number_format($pct, 2, '.', '').'%';
+    }
+
+    /** keccak256("RewardPaid(address,uint256,uint256,uint256,uint256,uint256)") — Engine / WalletRaceStake claim event. */
+    private const REWARD_PAID_TOPIC = '0x6a1c9812f6d42eaf5c00058b4fc1d00233e24805a4965009d650401f50adc53e';
+
+    private function hexToDecimal(string $hex): string
+    {
+        $hex = ltrim(strtolower($hex), '0');
+        if ($hex === '') {
+            return '0';
+        }
+        $dec = '0';
+        foreach (str_split($hex) as $ch) {
+            $dec = bcadd(bcmul($dec, '16'), (string) hexdec($ch));
+        }
+
+        return $dec;
+    }
+
+    /**
+     * On-chain daily claims (RewardPaid events) of this member: coins, value at claim time, value at today's rate.
+     *
+     * @return array{items: list<array<string, mixed>>, total_race: string, total_value_now_usd: string, total_value_claim_usd: string, rate_usd: string, count: int}
+     */
+    private function dailyClaimsForUser(User $user, RaceCoinService $raceCoin): array
+    {
+        $price = $raceCoin->priceUsd();
+        $rate = number_format($price, 8, '.', '');
+        $wallet = strtolower(trim((string) $user->wallet_address));
+        $wei = '1000000000000000000';
+
+        $events = BlockchainEvent::query()
+            ->whereIn('event_name', ['RewardClaimed', 'RewardPaid'])
+            ->where(function ($q) use ($user, $wallet) {
+                $q->where('user_id', $user->id);
+                if ($wallet !== '') {
+                    $q->orWhere('wallet_address', $wallet);
+                }
+            })
+            ->orderByDesc('id')
+            ->get();
+
+        $items = [];
+        $totalRace = '0';
+        $totalClaimUsd = '0';
+        foreach ($events as $event) {
+            $payload = is_array($event->payload) ? $event->payload : [];
+            if (strtolower((string) ($payload['topics'][0] ?? '')) !== self::REWARD_PAID_TOPIC) {
+                continue;
+            }
+            $data = (string) ($payload['data'] ?? '');
+            $hex = strtolower(str_starts_with($data, '0x') ? substr($data, 2) : $data);
+            if (strlen($hex) < 320) {
+                continue;
+            }
+            // data: stakeIndex, rewardUsdt, rewardRace, daysPaid, racePriceUsdt
+            $stakeIndex = $this->hexToDecimal(substr($hex, 0, 64));
+            $rewardUsdt = bcdiv($this->hexToDecimal(substr($hex, 64, 64)), $wei, 6);
+            $rewardRace = bcdiv($this->hexToDecimal(substr($hex, 128, 64)), $wei, 6);
+            $days = $this->hexToDecimal(substr($hex, 192, 64));
+            $valueNow = bcmul($rewardRace, $rate, 4);
+
+            $totalRace = bcadd($totalRace, $rewardRace, 6);
+            $totalClaimUsd = bcadd($totalClaimUsd, $rewardUsdt, 6);
+
+            $when = $event->block_time ?? $event->created_at;
+            $items[] = [
+                'id' => $event->id,
+                'claimed_at' => $when?->toIso8601String(),
+                'stake_index' => (int) $stakeIndex,
+                'days_paid' => (int) $days,
+                'race' => $rewardRace,
+                'value_at_claim_usd' => $rewardUsdt,
+                'value_now_usd' => $valueNow,
+                'tx_hash' => $event->tx_hash,
+            ];
+        }
+
+        return [
+            'items' => array_slice($items, 0, 15),
+            'count' => count($items),
+            'total_race' => $totalRace,
+            'total_value_now_usd' => bcmul($totalRace, $rate, 4),
+            'total_value_claim_usd' => $totalClaimUsd,
+            'rate_usd' => $rate,
+        ];
     }
 
     public function index(Request $request, ReferralTree $referralTree, WalletBalanceService $wallets, RaceCoinService $raceCoin): Response
@@ -311,6 +398,7 @@ class DashboardController extends Controller
                 'today_income_count' => $todayIncomeCount,
                 'today_label' => $today->format('M j, Y'),
                 'plan_income' => $planIncome,
+                'daily_claims' => $this->dailyClaimsForUser($user, $raceCoin),
                 'income_entries' => $incomeEntries,
                 'income_payout_count' => $incomePayoutCount,
                 'principal_invested_usd' => number_format((float) $principalInvested, 2, '.', ''),
