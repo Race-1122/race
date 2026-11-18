@@ -48,6 +48,7 @@ class Withdrawal extends Model
         'race_amount',
         'race_price_usd',
         'race_tx_hash',
+        'admin_fee_tx_hash',
         'destination_address',
         'status',
     ];

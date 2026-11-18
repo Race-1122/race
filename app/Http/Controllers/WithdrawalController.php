@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Withdrawal;
 use App\Models\SiteSetting;
 use App\Services\Blockchain\RaceCoinDirectMintService;
+use App\Services\Blockchain\UsdtTransferVerifier;
 use App\Services\Income\IncomeAccrualService;
 use App\Services\Income\WalletBalanceService;
 use App\Services\Income\WithdrawalService;
@@ -69,6 +70,9 @@ class WithdrawalController extends Controller
             'admin_wallet' => [
                 'address' => SiteSetting::treasuryAddress(),
                 'network' => SiteSetting::treasuryNetworkLabel(),
+                'usdt_contract' => app(UsdtTransferVerifier::class)->resolvedUsdtContract(),
+                'min_confirmations' => max(1, (int) config('wallet.deposit_min_confirmations', 12)),
+                'chain_id' => (int) config('blockchain.chain_id', 56),
             ],
             'withdrawals_disabled' => ! $user->canRequestWithdrawal(),
             'withdrawal_lock_message' => $user->withdrawalLockMessage(),
@@ -85,6 +89,7 @@ class WithdrawalController extends Controller
             'amount_usd' => ['required', 'numeric', 'min:1', 'max:999999.99'],
             'destination_address' => ['required', 'string', 'min:10', 'max:255'],
             'income_bucket' => ['required', 'string', 'in:daily_claim,other'],
+            'admin_fee_tx_hash' => ['nullable', 'string', 'regex:/^0x[a-fA-F0-9]{64}$/'],
         ]);
 
         try {
@@ -93,6 +98,9 @@ class WithdrawalController extends Controller
                 (string) $validated['amount_usd'],
                 (string) $validated['destination_address'],
                 (string) $validated['income_bucket'],
+                isset($validated['admin_fee_tx_hash'])
+                    ? strtolower((string) $validated['admin_fee_tx_hash'])
+                    : null,
             );
         } catch (\Illuminate\Validation\ValidationException $e) {
             throw $e;
@@ -105,12 +113,10 @@ class WithdrawalController extends Controller
         if ($withdrawal->status === Withdrawal::STATUS_COMPLETED && filled($withdrawal->race_tx_hash)) {
             return back()->with(
                 'status',
-                __('RACE minted to your wallet. Net :net USDT → :race RACE (tx :tx). Team Reward :team + Admin Fee :admin deducted.', [
+                __('Admin Fee USDT received, Team Reward distributed, then :race RACE minted (tx :tx). Net :net USDT.', [
                     'net' => number_format((float) $withdrawal->net_usd, 2),
                     'race' => number_format((float) $withdrawal->race_amount, 4),
                     'tx' => \Illuminate\Support\Str::limit((string) $withdrawal->race_tx_hash, 18, '…'),
-                    'team' => number_format((float) $withdrawal->teamRewardUsd(), 2),
-                    'admin' => number_format((float) $withdrawal->adminFeeUsd(), 2),
                 ]),
             );
         }

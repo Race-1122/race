@@ -8,6 +8,7 @@ use App\Models\SiteSetting;
 use App\Models\User;
 use App\Models\Withdrawal;
 use App\Services\Blockchain\RaceCoinDirectMintService;
+use App\Services\Blockchain\UsdtTransferVerifier;
 use App\Support\RewardPlan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -21,6 +22,7 @@ class WithdrawalService
         protected CompanyReserveLedger $companyReserve,
         protected WalletBalanceService $wallets,
         protected AffiliateTeamRewardsService $teamRewards,
+        protected UsdtTransferVerifier $usdtVerifier,
     ) {}
 
     /**
@@ -108,6 +110,7 @@ class WithdrawalService
         string $grossAmountUsd,
         string $destinationAddress,
         string $incomeBucket = VirtualIncomeWalletService::BUCKET_OTHER,
+        ?string $adminFeeTxHash = null,
     ): Withdrawal {
         if (\App\Support\IncomeVaultFinancialAuthority::isAuthoritative()
             && ! config('income_vault.legacy_withdrawal_enabled', true)) {
@@ -213,6 +216,7 @@ class WithdrawalService
                 $storedAddress,
                 $mintService,
                 $incomeBucket,
+                $adminFeeTxHash,
             );
         }
 
@@ -305,7 +309,10 @@ class WithdrawalService
     }
 
     /**
-     * Virtual USDT income → RaceCoin.mint(userWallet, raceAmount); no admin approve.
+     * Order (locked):
+     * 1) Verify Admin Fee USDT paid on-chain from user wallet → treasury
+     * 2) Mint net as RACE to user wallet
+     * 3) Debit income + distribute Team Reward 10% in DB
      */
     private function requestWithRaceMint(
         User $user,
@@ -317,6 +324,7 @@ class WithdrawalService
         string $storedAddress,
         RaceCoinDirectMintService $mintService,
         string $incomeBucket = VirtualIncomeWalletService::BUCKET_OTHER,
+        ?string $adminFeeTxHash = null,
     ): Withdrawal {
         $destination = strtolower(trim($destination));
         if (! preg_match('/^0x[a-f0-9]{40}$/', $destination)) {
@@ -345,6 +353,44 @@ class WithdrawalService
             ]);
         }
 
+        $feeTxHash = strtolower(trim((string) $adminFeeTxHash));
+        if (bccomp($adminFee, '0', 2) > 0) {
+            if (! preg_match('/^0x[a-f0-9]{64}$/', $feeTxHash)) {
+                throw ValidationException::withMessages([
+                    'admin_fee_tx_hash' => __('Pay the Admin Fee in USDT from your wallet first, then retry.'),
+                ]);
+            }
+
+            if (Withdrawal::query()->where('admin_fee_tx_hash', $feeTxHash)->exists()) {
+                throw ValidationException::withMessages([
+                    'admin_fee_tx_hash' => __('This Admin Fee transaction was already used.'),
+                ]);
+            }
+
+            $verified = $this->usdtVerifier->verifyTransferToTreasury(
+                $feeTxHash,
+                (float) $adminFee,
+                $destination,
+                'withdrawal_admin_fee',
+            );
+            if (! ($verified['ok'] ?? false)) {
+                throw ValidationException::withMessages([
+                    'admin_fee_tx_hash' => $verified['reason'] ?? __('Could not verify Admin Fee USDT transfer.'),
+                ]);
+            }
+
+            $paid = number_format((float) ($verified['amount_usd'] ?? 0), 2, '.', '');
+            if (bccomp($paid, $adminFee, 2) < 0) {
+                throw ValidationException::withMessages([
+                    'admin_fee_tx_hash' => __('Admin Fee must be at least :fee USDT.', [
+                        'fee' => $adminFee,
+                    ]),
+                ]);
+            }
+        } else {
+            $feeTxHash = null;
+        }
+
         $raceCoin = app(RaceCoinService::class);
         $price = $raceCoin->formattedPriceUsd(8);
         $raceAmount = $raceCoin->coinsForUsdt((float) $net);
@@ -354,7 +400,7 @@ class WithdrawalService
             ]);
         }
 
-        // Mint first (outside DB lock). Debit virtual only after on-chain success.
+        // Mint only after Admin Fee USDT is verified. Debit + team reward after mint success.
         try {
             $minted = $mintService->mintToWallet($destination, $raceAmount);
         } catch (\Throwable $e) {
@@ -379,6 +425,7 @@ class WithdrawalService
                 $price,
                 $minted,
                 $incomeBucket,
+                $feeTxHash,
             ) {
                 $locked = User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
 
@@ -418,6 +465,13 @@ class WithdrawalService
                     ]);
                 }
 
+                if ($feeTxHash !== null
+                    && Withdrawal::query()->where('admin_fee_tx_hash', $feeTxHash)->exists()) {
+                    throw ValidationException::withMessages([
+                        'admin_fee_tx_hash' => __('This Admin Fee transaction was already used.'),
+                    ]);
+                }
+
                 if ($storedAddress === '') {
                     $locked->forceFill(['wallet_address' => $destination])->save();
                 }
@@ -432,12 +486,14 @@ class WithdrawalService
                     'race_amount' => $raceAmount,
                     'race_price_usd' => $price,
                     'race_tx_hash' => $minted['tx_hash'],
+                    'admin_fee_tx_hash' => $feeTxHash,
                     'destination_address' => $destination,
                     'status' => Withdrawal::STATUS_COMPLETED,
                 ]);
 
-                $this->creditCashOutAdminFee($withdrawal);
+                // Team Reward 10% then ledger Admin Fee (on-chain USDT already paid).
                 $this->teamRewards->onWithdrawal($locked, $withdrawal);
+                $this->creditCashOutAdminFee($withdrawal);
 
                 app(VirtualIncomeWalletService::class)->debit(
                     $locked,
@@ -450,11 +506,12 @@ class WithdrawalService
                         'income_bucket' => $incomeBucket,
                         'team_reward_usd' => $teamReward,
                         'admin_fee_usd' => $adminFee,
+                        'admin_fee_tx_hash' => $feeTxHash,
                         'net_usd' => $net,
                         'race_amount' => $raceAmount,
                         'race_price_usd' => $price,
                         'race_tx_hash' => $minted['tx_hash'],
-                        'note' => 'Income settled via RaceCoin.mint to wallet',
+                        'note' => 'Admin USDT fee paid on-chain; Team Reward distributed; RACE minted',
                         'phase' => 'race_mint_completed',
                     ],
                 );
@@ -469,6 +526,7 @@ class WithdrawalService
                         'fee_usd' => $teamReward,
                         'team_reward_usd' => $teamReward,
                         'admin_fee_usd' => $adminFee,
+                        'admin_fee_tx_hash' => $feeTxHash,
                         'net_usd' => $net,
                         'race_amount' => $raceAmount,
                         'race_tx_hash' => $minted['tx_hash'],
@@ -476,6 +534,7 @@ class WithdrawalService
                         'income_bucket' => $incomeBucket,
                         'fee_destination' => 'community_team_rewards',
                         'admin_fee_destination' => 'admin_treasury',
+                        'admin_fee_settled_as' => 'on_chain_usdt',
                         'settled_as' => 'race_coin_mint',
                         'approved_by_admin' => false,
                     ],
@@ -598,6 +657,10 @@ class WithdrawalService
 
         $gross = number_format((float) $withdrawal->amount_usd, 2, '.', '');
 
+        $feeTx = $withdrawal->admin_fee_tx_hash
+            ? strtolower(trim((string) $withdrawal->admin_fee_tx_hash))
+            : null;
+
         $this->ledger->record(
             $this->companyReserve->user(),
             LedgerEntry::TYPE_WITHDRAWAL_ADMIN_FEE,
@@ -610,7 +673,11 @@ class WithdrawalService
                 'withdrawal_gross_usd' => $gross,
                 'team_reward_usd' => $withdrawal->teamRewardUsd(),
                 'admin_fee_usd' => $adminFee,
-                'note' => 'Income withdrawal Admin Fee ($1 flat under $100, else 1%)',
+                'admin_fee_tx_hash' => $feeTx,
+                'settled_as' => $feeTx ? 'on_chain_usdt' : 'ledger_only',
+                'note' => $feeTx
+                    ? 'Income withdrawal Admin Fee paid on-chain as USDT to treasury'
+                    : 'Income withdrawal Admin Fee ($1 flat under $100, else 1%)',
                 'admin_wallet_bep20' => SiteSetting::treasuryAddress(),
                 'network' => SiteSetting::treasuryNetworkLabel(),
             ],

@@ -6,6 +6,12 @@ import MemberPageHero from '@/Components/Member/MemberPageHero';
 import MemberPageShell from '@/Components/Member/MemberPageShell';
 import MemberTableScroll from '@/Components/Member/MemberTableScroll';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import { useWalletNetwork } from '@/hooks/useWalletNetwork';
+import {
+    configureWeb3Network,
+    sendUsdtTransfer,
+    waitForConfirmations,
+} from '@/lib/web3Deposit';
 import { Head, useForm, usePage } from '@inertiajs/react';
 import { useEffect, useState } from 'react';
 
@@ -141,7 +147,13 @@ export default function Withdrawal({
         percent_from_usd: '100.00',
         admin_fee_percent: '1.00',
     },
-    admin_wallet = { address: '', network: 'BEP20 (BNB Smart Chain)' },
+    admin_wallet = {
+        address: '',
+        network: 'BEP20 (BNB Smart Chain)',
+        usdt_contract: '',
+        min_confirmations: 12,
+        chain_id: 56,
+    },
     withdrawals_disabled = false,
     withdrawal_lock_message = null,
     withdrawals_locked_until = null,
@@ -172,16 +184,25 @@ export default function Withdrawal({
     const adminPercent = Number(withdrawal_fee.admin_fee_percent) || 1;
     const adminAddress = (admin_wallet?.address || '').trim();
     const adminNetwork = admin_wallet?.network || 'BEP20 (BNB Smart Chain)';
+    const usdtContract = (admin_wallet?.usdt_contract || blockchain?.contracts?.usdt || '').trim();
+    const minConfirmations = Number(admin_wallet?.min_confirmations ?? 12);
+    const feeChainId = Number(admin_wallet?.chain_id ?? blockchain?.chain_id ?? 56);
+
+    const { chainOk, switchNetwork } = useWalletNetwork({ expectedChainId: feeChainId });
 
     const rateLimited = Boolean(rate_limit?.enabled && !rate_limit?.can_request);
     const countdownMs = useReverseCountdown(rateLimited ? rate_limit?.next_available_at : null);
     const formBlocked = withdrawals_disabled || rateLimited;
 
-    const { data, setData, post, processing, errors, reset } = useForm({
+    const { data, setData, post, processing, errors, reset, transform } = useForm({
         amount_usd: '',
         destination_address: wallet_address ?? '',
         income_bucket: 'other',
+        admin_fee_tx_hash: '',
     });
+
+    const [feeStep, setFeeStep] = useState(null);
+    const [feeError, setFeeError] = useState(null);
 
     const selectedBucketBal =
         data.income_bucket === 'daily_claim' ? dailyClaimBal : otherBal;
@@ -192,16 +213,89 @@ export default function Withdrawal({
         gross > 0 ? (gross < adminPercentFrom ? adminFlat : (gross * adminPercent) / 100) : 0;
     const net = gross > 0 ? gross - teamReward - adminFee : 0;
 
-    const submit = (e) => {
+    useEffect(() => {
+        configureWeb3Network({
+            chainId: feeChainId,
+            usdtContract: usdtContract || undefined,
+            rpcUrl: blockchain?.rpc_url || undefined,
+        });
+    }, [feeChainId, usdtContract, blockchain?.rpc_url]);
+
+    const submit = async (e) => {
         e.preventDefault();
         if (formBlocked) {
             return;
         }
+        setFeeError(null);
+
+        // Race mint path: pay Admin Fee USDT on-chain first, then server mints RACE.
+        if (raceMintOnWithdraw && adminFee > 0) {
+            const from = String(data.destination_address || auth?.user?.wallet_address || '')
+                .trim()
+                .toLowerCase();
+            if (!/^0x[a-f0-9]{40}$/.test(from)) {
+                setFeeError('Connect / enter your BEP20 wallet address first.');
+                return;
+            }
+            if (!adminAddress || !usdtContract) {
+                setFeeError('Admin treasury / USDT contract is not configured. Contact support.');
+                return;
+            }
+
+            try {
+                setFeeStep('network');
+                if (!chainOk) {
+                    await switchNetwork();
+                }
+
+                setFeeStep('sending');
+                const txHash = await sendUsdtTransfer({
+                    from,
+                    to: adminAddress,
+                    usdtContract,
+                    amountUsd: adminFee,
+                });
+
+                setFeeStep('confirming');
+                await waitForConfirmations(txHash, { minConfirmations });
+
+                setFeeStep('minting');
+                transform((form) => ({ ...form, admin_fee_tx_hash: txHash }));
+                post(route('withdrawals.store'), {
+                    preserveScroll: true,
+                    onSuccess: () => {
+                        reset('amount_usd', 'admin_fee_tx_hash');
+                        setFeeStep(null);
+                    },
+                    onError: () => setFeeStep(null),
+                    onFinish: () => {
+                        transform((form) => form);
+                        setFeeStep(null);
+                    },
+                });
+            } catch (err) {
+                setFeeStep(null);
+                setFeeError(err?.message || 'Admin Fee USDT payment failed.');
+            }
+            return;
+        }
+
         post(route('withdrawals.store'), {
             preserveScroll: true,
-            onSuccess: () => reset('amount_usd'),
+            onSuccess: () => reset('amount_usd', 'admin_fee_tx_hash'),
         });
     };
+
+    const feeStepLabel =
+        feeStep === 'network'
+            ? 'Switching to BNB Smart Chain…'
+            : feeStep === 'sending'
+              ? `Confirm Admin Fee ${formatUsdtBalance(adminFee)} in your wallet…`
+              : feeStep === 'confirming'
+                ? `Waiting for ${minConfirmations} confirmations…`
+                : feeStep === 'minting'
+                  ? 'Admin Fee received — minting RACE…'
+                  : null;
 
     return (
         <AuthenticatedLayout
@@ -231,7 +325,7 @@ export default function Withdrawal({
                 <>
                 <MemberPageHero kicker="Income wallet" title="Income wallet" variant="pdf" icon="withdrawal">
                     {raceMintOnWithdraw
-                        ? 'Withdraw income as RACE to your BEP20 wallet. Team Reward + Admin Fee apply once per withdraw.'
+                        ? 'Pay Admin Fee in USDT from your wallet, Team Reward 10% is shared, then net income mints as RACE.'
                         : 'Withdraw income to your BEP20 wallet. Team Reward + Admin Fee apply once per withdraw.'}
                 </MemberPageHero>
 
@@ -260,12 +354,30 @@ export default function Withdrawal({
                     ) : null}
 
                     <MemberAlert variant="info" className="mb-3">
-                        Daily claim and other income use <strong>one total</strong>. Pick which type to withdraw —
-                        fees (Team 10% + Admin) apply <strong>once</strong> on that amount only.
+                        Daily claim and other income use one total. Pick which type to withdraw —
+                        fees apply once on that amount only.
+                        {raceMintOnWithdraw
+                            ? ' Order: 1) Admin Fee USDT leaves your wallet to treasury, 2) Team Reward 10% is shared, 3) net mints as RACE.'
+                            : ''}
                         {stake_auto_claim_live
                             ? ' Daily stake ROI auto-credits into Daily claim (no separate on-chain hold path).'
                             : ''}
                     </MemberAlert>
+                    {feeError ? (
+                        <MemberAlert variant="error" className="mb-3">
+                            {feeError}
+                        </MemberAlert>
+                    ) : null}
+                    {feeStepLabel ? (
+                        <MemberAlert variant="info" className="mb-3">
+                            {feeStepLabel}
+                        </MemberAlert>
+                    ) : null}
+                    {errors.admin_fee_tx_hash ? (
+                        <MemberAlert variant="error" className="mb-3">
+                            {errors.admin_fee_tx_hash}
+                        </MemberAlert>
+                    ) : null}
                 </div>
 
                 <div className="mx-auto w-full min-w-0 max-w-lg">
@@ -312,10 +424,12 @@ export default function Withdrawal({
                         </div>
                     ) : null}
 
-                    {!raceMintOnWithdraw && adminAddress ? (
+                    {adminAddress ? (
                         <p className="mb-3 break-all rounded-lg border-2 border-amber-400/70 bg-amber-950/50 px-3 py-2 text-[11px] text-amber-100 sm:text-xs">
                             <span className="font-semibold text-amber-200">
-                                Admin / Treasury wallet ({adminNetwork}):
+                                {raceMintOnWithdraw
+                                    ? `Admin Fee USDT goes to treasury (${adminNetwork}):`
+                                    : `Admin / Treasury wallet (${adminNetwork}):`}
                             </span>{' '}
                             <span className="font-mono font-bold text-amber-50">{adminAddress}</span>
                         </p>
@@ -472,22 +586,25 @@ export default function Withdrawal({
                                 className="mt-2 w-full justify-center border-red-500 bg-red-600 py-3 text-white hover:bg-red-500 focus:ring-red-400"
                                 disabled={
                                     processing ||
+                                    Boolean(feeStep) ||
                                     formBlocked ||
                                     !data.amount_usd ||
                                     !data.destination_address
                                 }
                             >
-                                {processing
-                                    ? 'Processing…'
-                                    : rateLimited
-                                      ? `Wait ${formatCountdown(countdownMs)}`
-                                      : raceMintOnWithdraw
-                                        ? data.income_bucket === 'daily_claim'
-                                          ? 'Withdraw daily claim as RACE'
-                                          : 'Withdraw other income as RACE'
-                                        : data.income_bucket === 'daily_claim'
-                                          ? 'Withdraw daily claim'
-                                          : 'Withdraw other income'}
+                                {feeStepLabel
+                                    ? feeStepLabel
+                                    : processing
+                                      ? 'Processing…'
+                                      : rateLimited
+                                        ? `Wait ${formatCountdown(countdownMs)}`
+                                        : raceMintOnWithdraw
+                                          ? data.income_bucket === 'daily_claim'
+                                            ? 'Pay Admin Fee → mint daily claim as RACE'
+                                            : 'Pay Admin Fee → mint other income as RACE'
+                                          : data.income_bucket === 'daily_claim'
+                                            ? 'Withdraw daily claim'
+                                            : 'Withdraw other income'}
                             </PrimaryButton>
                         </form>
                     </PanelCard>
