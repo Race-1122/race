@@ -341,11 +341,11 @@ export default function Withdrawal({
                                 {formatUsdtBalance(dailyClaimBal)}
                             </p>
                             <p className="mt-1 text-[11px] text-emerald-900/80">
-                                Daily claim se aaj tak hold: {formatUsdtBalance(dailyClaimBal)}
+                                From daily claims to date, {formatUsdtBalance(dailyClaimBal)} is on hold
                                 {dailyClaimEarned > 0
                                     ? ` · Lifetime credited ${formatUsdtBalance(dailyClaimEarned)}`
                                     : ''}
-                                . Withdraw pe Team Reward + Admin Fee lagega.
+                                . Team Reward + Admin Fee apply on withdraw.
                             </p>
                         </div>
                         <div className="rounded-xl border border-fintech-line bg-white px-3 py-2.5 shadow-sm sm:px-4 sm:py-3">
@@ -356,13 +356,13 @@ export default function Withdrawal({
                                 {formatUsdtBalance(otherBal)}
                             </p>
                             <p className="mt-1 text-[11px] text-fintech-muted">
-                                Referral / leadership / team — kabhi bhi withdraw. Fees isi amount pe ek baar.
+                                Referral / leadership / team — withdraw anytime. Fees apply once on this amount.
                             </p>
                         </div>
                         {Number(income_policy?.accrued_reward_usd ?? 0) > 0 ? (
                             <p className="text-[11px] text-fintech-muted">
                                 Accrued not yet in hold: {formatUsdtBalance(Number(income_policy.accrued_reward_usd))}{' '}
-                                (auto-claim / claim pe hold mein aayega).
+                                (moves to hold after auto-claim / claim).
                             </p>
                         ) : null}
                     </div>

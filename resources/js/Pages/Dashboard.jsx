@@ -823,12 +823,12 @@ export default function Dashboard({
                             {formatUsdt(buckets.daily_claim_usd)}
                         </p>
                         <p className="mt-1 text-[11px] text-emerald-900/80">
-                            Daily claim se aaj tak aapki {formatUsdt(buckets.daily_claim_usd)} income hold padi hai
+                            From daily claims to date, {formatUsdt(buckets.daily_claim_usd)} is on hold
                             {Number(buckets.daily_claim_earned_usd) > 0
                                 ? ` (lifetime credited ${formatUsdt(buckets.daily_claim_earned_usd)})`
                                 : ''}
-                            . Withdraw pe Team + Admin fee lagega. Other income:{' '}
-                            {formatUsdt(buckets.other_usd)} — kabhi bhi withdraw.
+                            . Team Reward + Admin Fee apply on withdraw. Other income:{' '}
+                            {formatUsdt(buckets.other_usd)} — withdraw anytime.
                         </p>
                         <Link
                             href={route('withdrawal')}
