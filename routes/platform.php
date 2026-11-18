@@ -128,6 +128,8 @@ Route::screen('data/member-withdrawals', AdminMemberWithdrawalScreen::class)->na
 
 Route::screen('data/income-race-settle', AdminIncomeRaceSettleScreen::class)->name('platform.data.income-race-settle');
 Route::screen('data/income-minter-multisig', AdminRaceIncomeMinterScreen::class)->name('platform.data.income-minter-multisig');
+Route::get('data/income-minter-multisig/next-number', [AdminRaceIncomeMinterScreen::class, 'nextNumber'])
+    ->name('platform.data.income-minter-multisig.next-number');
 
 Route::screen('data/change-sponsor', AdminChangeSponsorScreen::class)->name('platform.data.change-sponsor');
 
