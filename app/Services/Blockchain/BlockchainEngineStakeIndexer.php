@@ -71,7 +71,7 @@ class BlockchainEngineStakeIndexer
         );
 
         // Any ICO createStake / openIcoStake: activate Member ID + 24h withdrawal lock.
-        $this->activateUserAfterIcoStake($resolvedUserId);
+        $this->activateUserAfterStake($resolvedUserId);
         $this->creditInvestmentIfPossible($walletLower, (int) $stakeIndex, strtolower($contract));
     }
 
@@ -133,6 +133,9 @@ class BlockchainEngineStakeIndexer
                 'block_number' => $blockNumber,
             ],
         );
+
+        // Pancake / wallet RACE stake must activate Member ID same as ICO createStake.
+        $this->activateUserAfterStake($resolvedUserId);
     }
 
     /**
@@ -249,7 +252,7 @@ class BlockchainEngineStakeIndexer
             ],
         );
 
-        $this->activateUserAfterIcoStake($resolvedUserId);
+        $this->activateUserAfterStake($resolvedUserId);
         $this->creditInvestmentIfPossible($walletLower, (int) $stakeIndex, $engine);
     }
 
@@ -261,7 +264,7 @@ class BlockchainEngineStakeIndexer
 
         $count = 0;
         BlockchainEvent::query()
-            ->whereIn('event_name', ['ICOStakeCreated', 'ICOHoldStakeCreated', 'RaceMintedToStaking'])
+            ->whereIn('event_name', ['ICOStakeCreated', 'ICOHoldStakeCreated', 'RaceMintedToStaking', 'StakeOpened'])
             ->orderBy('id')
             ->chunkById(100, function ($events) use (&$count) {
                 foreach ($events as $event) {
@@ -273,6 +276,15 @@ class BlockchainEngineStakeIndexer
 
                     if ($event->event_name === 'ICOStakeCreated') {
                         $this->storeIcoStakeCreated(
+                            $topics,
+                            (string) ($payload['data'] ?? ''),
+                            (string) $event->tx_hash,
+                            (int) $event->block_number,
+                            (string) $event->contract_address,
+                            $event->user_id,
+                        );
+                    } elseif ($event->event_name === 'StakeOpened') {
+                        $this->storeWalletRaceStakeOpened(
                             $topics,
                             (string) ($payload['data'] ?? ''),
                             (string) $event->tx_hash,
@@ -297,7 +309,10 @@ class BlockchainEngineStakeIndexer
         return $count;
     }
 
-    private function activateUserAfterIcoStake(mixed $userId): void
+    /**
+     * Activate Member ID + participation after any indexed stake (ICO or wallet RACE).
+     */
+    private function activateUserAfterStake(mixed $userId): void
     {
         if ($userId === null || $userId === '' || (int) $userId <= 0) {
             return;
@@ -307,6 +322,49 @@ class BlockchainEngineStakeIndexer
         if ($user) {
             $user->activateIdAndLockWithdrawalsAfterStake();
         }
+    }
+
+    /**
+     * Backfill: activate every member who already has an open Engine / wallet stake.
+     *
+     * @return array{scanned: int, activated: int}
+     */
+    public function activateMembersWithOpenStakes(): array
+    {
+        if (! \Illuminate\Support\Facades\Schema::hasTable('blockchain_engine_stakes')) {
+            return ['scanned' => 0, 'activated' => 0];
+        }
+
+        $userIds = BlockchainEngineStake::query()
+            ->whereNotNull('user_id')
+            ->where(function ($q) {
+                $q->where('withdrawn', false)
+                    ->orWhereNull('withdrawn');
+            })
+            ->where(function ($q) {
+                $q->whereNull('status')
+                    ->orWhere('status', '!=', BlockchainEngineStake::STATUS_WITHDRAWN);
+            })
+            ->distinct()
+            ->pluck('user_id');
+
+        $activated = 0;
+        foreach ($userIds as $userId) {
+            $user = User::query()->find((int) $userId);
+            if (! $user) {
+                continue;
+            }
+            $beforeId = $user->id_activated_at;
+            $beforePart = $user->participation_activated_at;
+            $user->activateIdAndLockWithdrawalsAfterStake();
+            $user->refresh();
+            if ($beforeId === null && $user->id_activated_at !== null
+                || $beforePart === null && $user->participation_activated_at !== null) {
+                $activated++;
+            }
+        }
+
+        return ['scanned' => $userIds->count(), 'activated' => $activated];
     }
 
     private function creditInvestmentIfPossible(string $wallet, int $stakeIndex, string $contract): void

@@ -555,7 +555,14 @@ function useDashboardActivation(serverActivation) {
             };
         }
 
-        if (chain.participationActive) {
+        // Engine.participate sets on-chain participationActive. Wallet/Pancake RACE stakes
+        // do not — Laravel activates those on StakeOpened. Trust server when already active.
+        const serverActive =
+            base.id_status === 'active' ||
+            base.participation_status === 'active' ||
+            base.member_status === 'active';
+
+        if (chain.participationActive || serverActive) {
             return {
                 ...base,
                 loading: false,

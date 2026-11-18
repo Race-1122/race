@@ -258,7 +258,7 @@ class User extends OrchidUser
     }
 
     /**
-     * After ICO createStake / Engine ICO stake: activate Member ID and lock withdrawals 24h.
+     * After ICO createStake / wallet RACE StakeOpened / Engine stake: activate Member ID and lock withdrawals 24h.
      */
     public function activateIdAndLockWithdrawalsAfterStake(): void
     {
