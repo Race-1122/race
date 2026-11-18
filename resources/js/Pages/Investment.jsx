@@ -17,6 +17,7 @@ import { notifyError, notifySuccess } from '@/lib/appNotify';
 import { syncBlockchainTx } from '@/lib/web3Deposit';
 import { syncParticipationTx } from '@/lib/web3Participation';
 import { durationTiersForDays } from '@/lib/durationTiers';
+import { raceEquivLabel } from '@/lib/raceQuote';
 import { readErc20Balance, formatTokenWei, readRaceUsdtPrice } from '@/lib/web3PancakeSwap';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import { useEffect, useMemo, useState } from 'react';
@@ -368,7 +369,7 @@ export default function Investment({
             );
             router.reload({ only: ['investments', 'blockchainParticipations', 'communityEngineStakes', 'memberActivation', 'web3Engine'] });
         } catch (err) {
-            const msg = err?.message || 'On-chain participation failed.';
+            const msg = err?.message || 'Participation failed.';
             if (/stakeRace|function selector|execution reverted/i.test(msg)) {
                 notifyError(
                     walletRaceStakeContract
@@ -459,16 +460,32 @@ export default function Investment({
                         <p className="mt-1 text-2xl font-bold text-fintech-ink">
                             {formatUsd(income_policy?.accrued_reward_usd ?? 0)}
                         </p>
+                        {raceEquivLabel(income_policy?.accrued_reward_usd ?? 0, race_coin_price_usd) ? (
+                            <p className="mt-0.5 font-mono text-sm font-semibold text-sky-700">
+                                {raceEquivLabel(income_policy?.accrued_reward_usd ?? 0, race_coin_price_usd)}
+                            </p>
+                        ) : null}
                         <p className="mt-1 text-[11px] text-fintech-muted">
                             Daily ROI accrues here — claim it manually to move it to your income wallet
                         </p>
                     </PanelCard>
-                    <PanelCard title="Virtual Income Wallet" icon="wallet" className="border-fintech-line !p-4">
+                    <PanelCard title="Income wallet" icon="wallet" className="border-fintech-line !p-4">
                         <p className="mt-1 text-2xl font-bold text-fintech-ink">
                             {formatUsd(income_policy?.virtual_income_usd ?? wallet_balance_usd ?? 0)}
                         </p>
+                        {raceEquivLabel(
+                            income_policy?.virtual_income_usd ?? wallet_balance_usd ?? 0,
+                            race_coin_price_usd,
+                        ) ? (
+                            <p className="mt-0.5 font-mono text-sm font-semibold text-sky-700">
+                                {raceEquivLabel(
+                                    income_policy?.virtual_income_usd ?? wallet_balance_usd ?? 0,
+                                    race_coin_price_usd,
+                                )}
+                            </p>
+                        ) : null}
                         <p className="mt-1 text-[11px] text-fintech-muted">
-                            Claimed income lands here · no auto-claim
+                            Claimed income lands here · withdraw anytime
                         </p>
                     </PanelCard>
                 </div>
@@ -787,8 +804,8 @@ export default function Investment({
                                 ? onChainBusy
                                     ? 'Confirm in wallet…'
                                     : stakeWithWalletRace
-                                      ? `Stake ${amountRace} RACE on-chain`
-                                      : `Stake ${formatUsd(data.amount_usd)} USDT on-chain`
+                                      ? `Stake ${amountRace} RACE`
+                                      : `Stake ${formatUsd(data.amount_usd)} USDT`
                                 : processing
                                   ? 'Saving…'
                                   : payWithRaceCoin
@@ -804,7 +821,7 @@ export default function Investment({
                         title="Your participations"
                         subtitle={
                             onChain
-                                ? 'Indexed on-chain stakes (rewards paid by contract)'
+                                ? 'Indexed stakes (rewards paid by contract)'
                                 : 'Compound daily ROI · Flexible 10+ days = no unlock fee · fixed lock: unlock within 24h of completion or auto-rollover'
                         }
                     />

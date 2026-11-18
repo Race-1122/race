@@ -7,6 +7,7 @@ use App\Models\SiteSetting;
 use App\Services\Blockchain\RaceCoinDirectMintService;
 use App\Services\Blockchain\UsdtTransferVerifier;
 use App\Services\Income\IncomeAccrualService;
+use App\Services\Income\RaceCoinService;
 use App\Services\Income\WalletBalanceService;
 use App\Services\Income\WithdrawalService;
 use App\Support\RewardPlan;
@@ -79,6 +80,7 @@ class WithdrawalController extends Controller
             'withdrawals_locked_until' => $user->withdrawals_locked_until?->toIso8601String(),
             'rate_limit' => $withdrawalService->rateLimitStatus($user),
             'race_mint_on_withdraw' => $raceMintOnWithdraw,
+            'race_price_usd' => app(RaceCoinService::class)->formattedPriceUsd(8),
             'withdrawals' => $withdrawals,
         ]);
     }

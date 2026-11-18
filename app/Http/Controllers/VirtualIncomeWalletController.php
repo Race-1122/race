@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\IncomeWalletTransaction;
+use App\Services\Income\RaceCoinService;
 use App\Services\Income\VirtualIncomeWalletService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -38,6 +39,7 @@ class VirtualIncomeWalletController extends Controller
         return Inertia::render('VirtualIncomeWallet', [
             'summary' => $summary,
             'history' => $history,
+            'race_price_usd' => app(RaceCoinService::class)->formattedPriceUsd(8),
             'rewards_engine' => (string) config('blockchain.rewards_engine', 'hybrid'),
             'blockchain_only' => \App\Support\BlockchainMode::blockchainOnly(),
             'on_chain_income' => [

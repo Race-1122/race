@@ -4,6 +4,7 @@ import MemberPageHero from '@/Components/Member/MemberPageHero';
 import MemberPageShell from '@/Components/Member/MemberPageShell';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { formatMemberCode } from '@/lib/memberCode';
+import { raceEquivLabel } from '@/lib/raceQuote';
 import { chainIdMatches, readChainIdHex, readEngineMemberState } from '@/lib/web3Engine';
 import { getWalletProvider, walletRequest } from '@/lib/web3Wallet';
 import { Head, Link, usePage, usePoll } from '@inertiajs/react';
@@ -118,12 +119,13 @@ function formatRace(value, digits = 6) {
     return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: digits });
 }
 
-function DailyEarningCard({ amountUsd, count, dateLabel, dailyClaims }) {
+function DailyEarningCard({ amountUsd, count, dateLabel, dailyClaims, racePriceUsd }) {
     const hasEarnings = Number(amountUsd) > 0;
     const claims = dailyClaims ?? {};
     const todayRace = Number(claims.today_race ?? 0);
     const todayClaimCount = Number(claims.today_count ?? 0);
     const hasStakingToday = todayRace > 0 || todayClaimCount > 0;
+    const raceLine = raceEquivLabel(amountUsd, racePriceUsd);
 
     return (
         <DpCard className="border-emerald-200/80 bg-gradient-to-br from-emerald-50/90 via-white/80 to-sky-50/50 p-5 sm:p-6">
@@ -140,6 +142,9 @@ function DailyEarningCard({ amountUsd, count, dateLabel, dailyClaims }) {
                     >
                         {formatUsd(amountUsd)}
                     </p>
+                    {raceLine ? (
+                        <p className="mt-0.5 font-mono text-sm font-semibold text-sky-700">{raceLine}</p>
+                    ) : null}
                     <p className="mt-1 text-xs text-slate-500">
                         {count > 0
                             ? `${count} credit${count === 1 ? '' : 's'} today (all reward types, excl. deposits)`
@@ -161,7 +166,7 @@ function DailyEarningCard({ amountUsd, count, dateLabel, dailyClaims }) {
                         <p className="mt-0.5 text-xs text-slate-500">
                             {todayClaimCount > 0
                                 ? `${todayClaimCount} staking claim${todayClaimCount === 1 ? '' : 's'} · ≈ $${formatRace(claims.today_value_claim_usd ?? 0, 4)} at claim · ≈ $${formatRace(claims.today_value_now_usd ?? 0, 4)} at today's rate`
-                                : 'No staking claim yet today — appears after you claim on-chain or by mint'}
+                                : 'No staking claim yet today — appears after you claim or mint'}
                         </p>
                         {Number(claims.total_race ?? 0) > 0 ? (
                             <p className="mt-2 border-t border-emerald-100 pt-2 text-[11px] text-slate-500">
@@ -193,7 +198,7 @@ function DailyEarningCard({ amountUsd, count, dateLabel, dailyClaims }) {
     );
 }
 
-function GlassMetricCard({ title, value, sub, icon, tintClass }) {
+function GlassMetricCard({ title, value, raceLine, sub, icon, tintClass }) {
     return (
         <DpCard className="p-4 sm:p-5">
             <div className="relative flex items-start justify-between gap-2">
@@ -202,6 +207,9 @@ function GlassMetricCard({ title, value, sub, icon, tintClass }) {
                     <p className="mt-2 break-words font-mono text-lg font-bold tracking-tight text-[#0F172A] sm:text-xl">
                         {value}
                     </p>
+                    {raceLine ? (
+                        <p className="mt-0.5 font-mono text-[11px] font-semibold text-sky-700">{raceLine}</p>
+                    ) : null}
                     {sub ? <p className="mt-1 text-xs font-semibold text-emerald-600">{sub}</p> : null}
                 </div>
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-sky-200/50 bg-gradient-to-br from-sky-50 to-white text-[#2563EB] shadow-[0_0_20px_rgba(56,189,248,0.25)]">
@@ -529,7 +537,7 @@ function useDashboardActivation(serverActivation) {
                 id_status_label: 'Loading…',
                 participation_status: 'loading',
                 participation_status_label: 'Loading…',
-                income_eligibility_label: 'Confirming on-chain status…',
+                income_eligibility_label: 'Confirming wallet status…',
                 next_step: 'none',
             };
         }
@@ -551,7 +559,7 @@ function useDashboardActivation(serverActivation) {
                 id_status_label: '—',
                 participation_status: 'unknown',
                 participation_status_label: '—',
-                income_eligibility_label: 'Could not confirm on-chain status. Try again shortly.',
+                income_eligibility_label: 'Could not confirm wallet status. Try again shortly.',
                 next_step: 'none',
             };
         }
@@ -659,7 +667,7 @@ function MemberActivationStatusCard({ activation, memberNumber, isTestnet = fals
             </div>
 
             {a.banner === 'connect' ? (
-                <p className="mt-1.5 text-[11px] font-semibold text-sky-800">Connect wallet to confirm on-chain status.</p>
+                <p className="mt-1.5 text-[11px] font-semibold text-sky-800">Connect wallet to confirm status.</p>
             ) : null}
             {a.banner === 'network' ? (
                 <p className="mt-1.5 text-[11px] font-semibold text-amber-800">
@@ -697,6 +705,7 @@ export default function Dashboard({
         {
             title: 'Total balance',
             value: formatUsdt(summary.balance_usd),
+            raceLine: raceEquivLabel(summary.balance_usd, summary.race_coin_price_usd),
             sub: `Daily claim ${formatUsdt(buckets.daily_claim_usd)} · Other ${formatUsdt(buckets.other_usd)}`,
             tintClass: 'bg-blue-400/30',
             icon: (
@@ -727,6 +736,7 @@ export default function Dashboard({
         {
             title: 'Total reward earned',
             value: formatUsd(summary.total_income_usd ?? summary.lifetime_credits_usd),
+            raceLine: raceEquivLabel(summary.total_income_usd ?? summary.lifetime_credits_usd, summary.race_coin_price_usd),
             sub: summary.income_payout_count
                 ? `${summary.income_payout_count} payout(s) · ROI ${summary.income_pct?.roi ?? '+0.00%'}`
                 : (summary.income_pct?.roi ?? '+0.00% ROI window'),
@@ -834,13 +844,22 @@ export default function Dashboard({
                             <p className="mt-1 text-2xl font-bold text-fintech-ink">
                                 {formatUsdt(buckets.daily_claim_usd)}
                             </p>
+                            {raceEquivLabel(buckets.daily_claim_usd, summary.race_coin_price_usd) ? (
+                                <p className="mt-0.5 font-mono text-sm font-semibold text-sky-700">
+                                    {raceEquivLabel(buckets.daily_claim_usd, summary.race_coin_price_usd)}
+                                </p>
+                            ) : null}
                             <p className="mt-1 text-[11px] text-fintech-muted">
                                 From daily claims to date, {formatUsdt(buckets.daily_claim_usd)} is on hold
                                 {Number(buckets.daily_claim_earned_usd) > 0
                                     ? ` (lifetime credited ${formatUsdt(buckets.daily_claim_earned_usd)})`
                                     : ''}
                                 . Team Reward + Admin Fee apply on withdraw. Other income:{' '}
-                                {formatUsdt(buckets.other_usd)} — withdraw anytime.
+                                {formatUsdt(buckets.other_usd)}
+                                {raceEquivLabel(buckets.other_usd, summary.race_coin_price_usd)
+                                    ? ` (${raceEquivLabel(buckets.other_usd, summary.race_coin_price_usd)})`
+                                    : ''}{' '}
+                                — withdraw anytime.
                             </p>
                             <Link
                                 href={route('withdrawal')}
@@ -856,6 +875,7 @@ export default function Dashboard({
                         count={summary.today_income_count ?? 0}
                         dateLabel={summary.today_label}
                         dailyClaims={summary.daily_claims}
+                        racePriceUsd={summary.race_coin_price_usd}
                     />
 
                     <div className="member-stat-grid gap-3 lg:grid lg:grid-cols-4 lg:gap-4">

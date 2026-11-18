@@ -129,8 +129,7 @@ export default function IncomePayout({
 
             <MemberPageShell contentClassName="space-y-5 sm:space-y-6">
                 <MemberPageHero kicker="Income" title="Income Payout (RACE)" variant="pdf" icon="withdrawal">
-                    Your Virtual Income (USDT) is paid out as real on-chain RACE, minted straight to your BEP20 wallet.
-                    No admin approval.
+                    Your income (USDT) is paid out as RACE, minted straight to your BEP20 wallet. No admin approval.
                 </MemberPageHero>
 
                 <div className="mx-auto w-full min-w-0 max-w-lg space-y-3">
@@ -174,11 +173,16 @@ export default function IncomePayout({
                     <div className="grid gap-3 sm:grid-cols-2">
                         <div className="rounded-xl border border-fintech-line bg-white px-3 py-2.5 shadow-sm sm:px-4 sm:py-3">
                             <p className="text-xs font-semibold uppercase tracking-wide text-fintech-primary">
-                                Virtual income
+                                Income balance
                             </p>
                             <p className="mt-1 break-words text-xl font-bold text-fintech-ink sm:text-2xl">
                                 {fmtUsdt(balance)}
                             </p>
+                            {price > 0 && balance > 0 ? (
+                                <p className="mt-0.5 font-mono text-sm font-semibold text-sky-700">
+                                    ≈ {(balance / price).toLocaleString(undefined, { maximumFractionDigits: 4 })} RACE
+                                </p>
+                            ) : null}
                         </div>
                         <div className="rounded-xl border border-fintech-line bg-white px-3 py-2.5 shadow-sm sm:px-4 sm:py-3">
                             <p className="text-xs font-semibold uppercase tracking-wide text-fintech-primary">

@@ -293,7 +293,7 @@ export default function Swap({
                         <p className="mt-1 font-mono text-2xl font-bold text-sky-700">
                             {formatTokenWei(usdtBal, 18, 2)} USDT
                         </p>
-                        <p className="mt-1 text-xs text-fintech-muted">BEP-20 · on-chain route</p>
+                        <p className="mt-1 text-xs text-fintech-muted">BEP-20 · live route</p>
                     </div>
                 </div>
 
@@ -428,7 +428,7 @@ export default function Swap({
                                 </PrimaryButton>
 
                                 <p className="pt-1 text-center text-[11px] text-slate-400">
-                                    On-chain swap · LP stays in the pool · RACE 4% transfer tax may apply
+                                    Live swap · LP stays in the pool · RACE 4% transfer tax may apply
                                 </p>
                             </form>
                         )}
@@ -454,11 +454,11 @@ export default function Swap({
                 </div>
 
                 {!raceCoin.id_active && (
-                    <PanelCard title="Member ID (virtual Race Coin balance)" icon="investment">
+                    <PanelCard title="Member ID (Race Coin balance)" icon="investment">
                         <p className="mb-4 text-sm text-fintech-muted">
-                            Optional: activate member ID using the older virtual Race Coin ledger (
+                            Optional: activate member ID using the Race Coin ledger (
                             {formatCoins(raceCoin.id_activation_coins)} RC / {formatUsd(raceCoin.id_activation_usd)}).
-                            Swaps credit your wallet BEP-20 RACE, not this virtual balance.
+                            Swaps credit your wallet BEP-20 RACE, not this ledger balance.
                         </p>
                         <form onSubmit={activateId}>
                             <PrimaryButton
@@ -472,7 +472,7 @@ export default function Swap({
                             </PrimaryButton>
                         </form>
                         <p className="mt-3 text-xs text-fintech-muted">
-                            Virtual balance: {formatCoins(raceCoin.balance)} RC
+                            Balance: {formatCoins(raceCoin.balance)} RC
                         </p>
                     </PanelCard>
                 )}

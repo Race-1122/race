@@ -12,6 +12,7 @@ import {
     sendUsdtTransfer,
     waitForConfirmations,
 } from '@/lib/web3Deposit';
+import { raceEquivLabel } from '@/lib/raceQuote';
 import { Head, useForm, usePage } from '@inertiajs/react';
 import { useEffect, useState } from 'react';
 
@@ -168,6 +169,7 @@ export default function Withdrawal({
         slot_frees_at: [],
     },
     race_mint_on_withdraw = false,
+    race_price_usd = null,
     withdrawals = [],
 }) {
     const { auth, flash, blockchain } = usePage().props;
@@ -309,7 +311,7 @@ export default function Withdrawal({
                 {raceOnlyIncome ? (
                     <>
                         <MemberPageHero kicker="Income wallet" title="Bring income to your wallet" variant="pdf" icon="withdrawal">
-                            On-chain held RACE only. Daily claim USDT uses the payout form when rewards engine is hybrid.
+                            Held RACE only. Daily claim USDT uses the payout form when rewards engine is hybrid.
                         </MemberPageHero>
                         {withdrawals_disabled || withdrawal_lock_message ? (
                             <div className="mx-auto w-full min-w-0 max-w-lg">
@@ -359,7 +361,7 @@ export default function Withdrawal({
                             ? ' Order: 1) Admin Fee USDT leaves your wallet to treasury, 2) Team Reward 10% is shared, 3) net mints as RACE.'
                             : ''}
                         {stake_auto_claim_live
-                            ? ' Daily stake ROI auto-credits into Daily claim (no separate on-chain hold path).'
+                            ? ' Daily stake ROI auto-credits into Daily claim.'
                             : ''}
                     </MemberAlert>
                     {feeError ? (
@@ -431,6 +433,11 @@ export default function Withdrawal({
                             <p className="mt-1 break-words text-2xl font-bold text-fintech-ink">
                                 {formatUsdtBalance(totalBalance)}
                             </p>
+                            {raceEquivLabel(totalBalance, race_price_usd) ? (
+                                <p className="mt-0.5 font-mono text-sm font-semibold text-sky-700">
+                                    {raceEquivLabel(totalBalance, race_price_usd)}
+                                </p>
+                            ) : null}
                             <p className="mt-1 text-[11px] text-fintech-muted">
                                 Daily claim + other income (withdrawable).
                             </p>
@@ -442,6 +449,11 @@ export default function Withdrawal({
                             <p className="mt-1 break-words text-xl font-bold text-fintech-ink">
                                 {formatUsdtBalance(dailyClaimBal)}
                             </p>
+                            {raceEquivLabel(dailyClaimBal, race_price_usd) ? (
+                                <p className="mt-0.5 font-mono text-sm font-semibold text-sky-700">
+                                    {raceEquivLabel(dailyClaimBal, race_price_usd)}
+                                </p>
+                            ) : null}
                             <p className="mt-1 text-[11px] text-fintech-muted">
                                 From daily claims to date, {formatUsdtBalance(dailyClaimBal)} is on hold
                                 {dailyClaimEarned > 0
@@ -457,6 +469,11 @@ export default function Withdrawal({
                             <p className="mt-1 break-words text-xl font-bold text-fintech-ink">
                                 {formatUsdtBalance(otherBal)}
                             </p>
+                            {raceEquivLabel(otherBal, race_price_usd) ? (
+                                <p className="mt-0.5 font-mono text-sm font-semibold text-sky-700">
+                                    {raceEquivLabel(otherBal, race_price_usd)}
+                                </p>
+                            ) : null}
                             <p className="mt-1 text-[11px] text-fintech-muted">
                                 Referral / leadership / team — withdraw anytime. Fees apply once on this amount.
                             </p>
@@ -538,6 +555,15 @@ export default function Withdrawal({
                                         <strong>{formatUsdtBalance(teamReward)}</strong> · Admin Fee:{' '}
                                         <strong>{formatUsdtBalance(adminFee)}</strong> · Net withdrawal:{' '}
                                         <strong>{formatUsdtBalance(net)}</strong>
+                                        {raceEquivLabel(net, race_price_usd) ? (
+                                            <>
+                                                {' '}
+                                                · You receive{' '}
+                                                <strong className="text-sky-700">
+                                                    {raceEquivLabel(net, race_price_usd)}
+                                                </strong>
+                                            </>
+                                        ) : null}
                                     </p>
                                 ) : null}
                             </div>

@@ -1,4 +1,5 @@
 import MemberIcon, { iconForIncomeKey } from '@/Components/Member/MemberIcon';
+import { raceEquivLabel } from '@/lib/raceQuote';
 import { motion } from 'framer-motion';
 import { Link, usePage } from '@inertiajs/react';
 import { useMemo } from 'react';
@@ -89,7 +90,7 @@ function DailyClaimsList({ claims }) {
                                         c.source === 'mint' ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-600'
                                     }`}
                                 >
-                                    {c.source === 'mint' ? 'Virtual' : 'On-chain'}
+                                    {c.source === 'mint' ? 'Mint' : 'Engine'}
                                 </span>
                             </span>
                             <span className="shrink-0 text-right">
@@ -112,9 +113,10 @@ function DailyClaimsList({ claims }) {
     );
 }
 
-function IncomeTypeSection({ row, payouts, index, hubRow, totalSections, animate = true, dailyClaims = null }) {
+function IncomeTypeSection({ row, payouts, index, hubRow, totalSections, animate = true, dailyClaims = null, racePriceUsd = null }) {
     const accent = SECTION_ACCENTS[index % SECTION_ACCENTS.length];
     const recent = payouts.slice(0, 5);
+    const raceLine = raceEquivLabel(row.amount_usd, racePriceUsd);
     const motionProps = animate
         ? { initial: { opacity: 0, y: 14 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.35, delay: index * 0.05 } }
         : {};
@@ -160,6 +162,9 @@ function IncomeTypeSection({ row, payouts, index, hubRow, totalSections, animate
                     >
                         {formatUsd(row.amount_usd)}
                     </p>
+                    {raceLine ? (
+                        <p className="mt-0.5 font-mono text-[11px] font-semibold text-sky-700">{raceLine}</p>
+                    ) : null}
                 </motion.div>
             </motion.div>
 
@@ -184,8 +189,15 @@ function IncomeTypeSection({ row, payouts, index, hubRow, totalSections, animate
                                     className="flex items-center justify-between gap-2 rounded-lg border border-sky-100/60 bg-white/70 px-3 py-2"
                                 >
                                     <span className="text-xs text-slate-500">{dateStr}</span>
-                                    <span className="font-mono text-sm font-bold text-emerald-600">
-                                        +{formatUsd(p.amount_usd)}
+                                    <span className="text-right">
+                                        <span className="block font-mono text-sm font-bold text-emerald-600">
+                                            +{formatUsd(p.amount_usd)}
+                                        </span>
+                                        {raceEquivLabel(p.amount_usd, racePriceUsd) ? (
+                                            <span className="block font-mono text-[10px] font-semibold text-sky-700">
+                                                {raceEquivLabel(p.amount_usd, racePriceUsd)}
+                                            </span>
+                                        ) : null}
                                     </span>
                                 </li>
                             );
@@ -214,10 +226,12 @@ function IncomeTypeSection({ row, payouts, index, hubRow, totalSections, animate
 }
 
 export default function PlanIncomeSection({ planIncome = [], totalIncomeUsd = '0.00', incomeEntries = [], dailyClaims = null, children = null, animate = true }) {
-    const { incomeHub } = usePage().props;
+    const { incomeHub, summary } = usePage().props;
+    const racePriceUsd = summary?.race_coin_price_usd ?? null;
     const rows = planIncome?.length ? planIncome : incomeHub?.programs ?? [];
     const total = totalIncomeUsd || incomeHub?.total_income_usd || '0.00';
     const earnedCount = rows.filter((r) => r.has_earned).length;
+    const totalRaceLine = raceEquivLabel(total, racePriceUsd);
 
     const payoutsByLabel = useMemo(() => {
         const map = {};
@@ -247,6 +261,9 @@ export default function PlanIncomeSection({ planIncome = [], totalIncomeUsd = '0
                     <motion.div className="rounded-2xl bg-white/15 px-5 py-3 backdrop-blur-sm">
                         <p className="text-[0.65rem] font-bold uppercase tracking-wider text-white/80">Total received</p>
                         <p className="font-mono text-2xl font-bold text-white sm:text-3xl">{formatUsd(total)}</p>
+                        {totalRaceLine ? (
+                            <p className="mt-0.5 font-mono text-xs font-semibold text-sky-100">{totalRaceLine}</p>
+                        ) : null}
                     </motion.div>
                 </motion.div>
             </motion.div>
@@ -262,6 +279,7 @@ export default function PlanIncomeSection({ planIncome = [], totalIncomeUsd = '0
                             payouts={payoutsByLabel[row.label] ?? []}
                             index={i}
                             totalSections={rows.length}
+                            racePriceUsd={racePriceUsd}
                             dailyClaims={dailyClaims}
                             animate={animate}
                         />

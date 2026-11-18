@@ -1497,7 +1497,7 @@ export default function Isu({
 
                     <PanelCard title="Purchase history">
                         <p className="mb-3 text-xs text-slate-500">
-                            On-chain purchases. Held = in ICO contract until you Create Your Stake after ICO ends.
+                            ICO purchases. Held = in ICO contract until you Create Your Stake after ICO ends.
                         </p>
                         {historyRows.length === 0 ? (
                             <p className="rx-empty">No purchases yet.</p>

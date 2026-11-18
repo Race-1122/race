@@ -68,7 +68,7 @@ export default function StakeMintClaimPanel({ refreshKey = 0, onClaimed }) {
         try {
             const c = await claimOne(index);
             notifySuccess(
-                `$${fmt(c.usdt_amount, 4)} credited to Virtual Income (≈ ${fmt(c.race_amount)} RACE). Withdraw to mint to your wallet — Admin Fee + 10% team apply.`,
+                `$${fmt(c.usdt_amount, 4)} credited to Income wallet (≈ ${fmt(c.race_amount)} RACE). Withdraw to mint to your wallet — Admin Fee + 10% team apply.`,
                 'Claim',
             );
             await load();
@@ -93,7 +93,7 @@ export default function StakeMintClaimPanel({ refreshKey = 0, onClaimed }) {
                 credited += Number(c.usdt_amount || 0);
             }
             notifySuccess(
-                `$${fmt(credited, 4)} credited to Virtual Income. Withdraw later to mint RACE (fees apply).`,
+                `$${fmt(credited, 4)} credited to Income wallet. Withdraw later to mint RACE (fees apply).`,
                 'Claim',
             );
         } catch (err) {
@@ -124,7 +124,7 @@ export default function StakeMintClaimPanel({ refreshKey = 0, onClaimed }) {
     if (!data.window_open) {
         hint = `Claim is open only ${data.window_label}.`;
     } else if (!data.cooldown_active) {
-        hint = 'Claim one stake on-chain first. Your other stakes can then be claimed here as minted RACE.';
+        hint = 'Claim one stake from the engine first. Your other stakes can then be claimed here as RACE.';
     }
 
     return (
@@ -132,12 +132,12 @@ export default function StakeMintClaimPanel({ refreshKey = 0, onClaimed }) {
             <div className="flex items-start justify-between gap-2">
                 <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-fintech-primary">
-                        Other stakes — claim to Virtual Income
+                        Other stakes — claim to Income wallet
                     </p>
                     <p className="text-sm font-bold text-fintech-ink">{fmt(total)} RACE</p>
                     <p className="text-[11px] text-fintech-muted">
-                        Credits Virtual Income first. When you withdraw to your wallet: Admin Fee + 10% team, then RACE
-                        mint ({data.window_label || 'claim window'}).
+                        Credits Income wallet first. When you withdraw: Admin Fee + 10% team, then RACE mint (
+                        {data.window_label || 'claim window'}).
                     </p>
                 </div>
                 {claimable.length > 1 ? (
@@ -158,7 +158,7 @@ export default function StakeMintClaimPanel({ refreshKey = 0, onClaimed }) {
             {Number(data.debt_usdt || 0) > 0 ? (
                 <MemberAlert variant="warning">
                     ${fmt(data.debt_usdt, 4)} will be adjusted from your income balance (these days were already
-                    paid to your wallet and later settled again on-chain).
+                    paid to your wallet and later settled again).
                 </MemberAlert>
             ) : null}
 
