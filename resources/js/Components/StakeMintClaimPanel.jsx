@@ -30,8 +30,8 @@ async function request(url, options = {}) {
 }
 
 /**
- * Remaining stakes of the wallet (the Engine allows only ONE on-chain claim per wallet / 24h):
- * their daily ROI is minted as RACE straight to the member wallet (window 07:00–12:00 IST).
+ * Remaining stakes (Engine allows ONE on-chain claim / wallet / 24h):
+ * ROI is credited to Virtual Income. Wallet RACE mint + Admin Fee + 10% team fee happen on withdraw.
  */
 export default function StakeMintClaimPanel({ refreshKey = 0, onClaimed }) {
     const [data, setData] = useState(null);
@@ -67,10 +67,13 @@ export default function StakeMintClaimPanel({ refreshKey = 0, onClaimed }) {
         setBusy(index);
         try {
             const c = await claimOne(index);
-            notifySuccess(`${fmt(c.race_amount)} RACE minted to your wallet.`, 'Claim');
+            notifySuccess(
+                `$${fmt(c.usdt_amount, 4)} credited to Virtual Income (≈ ${fmt(c.race_amount)} RACE). Withdraw to mint to your wallet — Admin Fee + 10% team apply.`,
+                'Claim',
+            );
             await load();
             onClaimed?.();
-            router.reload({ only: ['summary'], preserveScroll: true }); // refresh "Staking income today"
+            router.reload({ only: ['summary'], preserveScroll: true });
         } catch (err) {
             const msg = err?.message || 'Claim failed.';
             setError(msg);
@@ -83,13 +86,16 @@ export default function StakeMintClaimPanel({ refreshKey = 0, onClaimed }) {
     const claimAll = async () => {
         setError('');
         setBusy('all');
-        let minted = 0;
+        let credited = 0;
         try {
             for (const s of claimable) {
                 const c = await claimOne(s.index);
-                minted += Number(c.race_amount || 0);
+                credited += Number(c.usdt_amount || 0);
             }
-            notifySuccess(`${fmt(minted)} RACE minted to your wallet.`, 'Claim');
+            notifySuccess(
+                `$${fmt(credited, 4)} credited to Virtual Income. Withdraw later to mint RACE (fees apply).`,
+                'Claim',
+            );
         } catch (err) {
             const msg = err?.message || 'Claim failed.';
             setError(msg);
@@ -126,11 +132,12 @@ export default function StakeMintClaimPanel({ refreshKey = 0, onClaimed }) {
             <div className="flex items-start justify-between gap-2">
                 <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-fintech-primary">
-                        Other stakes — claim as minted RACE
+                        Other stakes — claim to Virtual Income
                     </p>
                     <p className="text-sm font-bold text-fintech-ink">{fmt(total)} RACE</p>
                     <p className="text-[11px] text-fintech-muted">
-                        Daily ROI of your remaining stakes, minted straight to your wallet ({data.window_label}).
+                        Credits Virtual Income first. When you withdraw to your wallet: Admin Fee + 10% team, then RACE
+                        mint ({data.window_label || 'claim window'}).
                     </p>
                 </div>
                 {claimable.length > 1 ? (

@@ -100,7 +100,7 @@ class AdminRaceIncomeMinterScreen extends Screen
 
     public function description(): ?string
     {
-        return __('One-time Multisig 3-of-5: RaceCoin.setMinter(income EOA, true). After that, member virtual-income withdraw and stake claim-by-mint (remaining stakes after the one on-chain claim) mint RACE via RaceCoin.mint; gas paid by that EOA.');
+        return __('One-time Multisig 3-of-5: RaceCoin.setMinter(income EOA, true). Remaining-stake claim credits Virtual Income first; withdraw Virtual→wallet applies Admin Fee + 10% team then RaceCoin.mint(net).');
     }
 
     /**
@@ -143,7 +143,7 @@ class AdminRaceIncomeMinterScreen extends Screen
         }
 
         \App\Models\SiteSetting::set(\App\Models\SiteSetting::KEY_STAKE_MINT_CLAIM_ENABLED, '1');
-        Toast::success(__('Stake claim-by-mint is LIVE. Members can claim remaining stakes (07:00–12:00 IST) and RACE is minted to their wallet.'));
+        Toast::success(__('Remaining-stake claim is LIVE. Credits go to Virtual Income; withdraw to wallet applies fees then mints RACE.'));
     }
 
     public function pause(): void

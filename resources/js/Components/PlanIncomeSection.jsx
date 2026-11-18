@@ -89,7 +89,7 @@ function DailyClaimsList({ claims }) {
                                         c.source === 'mint' ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-600'
                                     }`}
                                 >
-                                    {c.source === 'mint' ? 'Minted' : 'On-chain'}
+                                    {c.source === 'mint' ? 'Virtual' : 'On-chain'}
                                 </span>
                             </span>
                             <span className="shrink-0 text-right">

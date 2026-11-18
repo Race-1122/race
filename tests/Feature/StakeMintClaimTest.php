@@ -100,39 +100,35 @@ class StakeMintClaimTest extends TestCase
         return $service;
     }
 
-    private function mintReturning(string $expectedRace): RaceCoinDirectMintService
-    {
-        $mint = Mockery::mock(RaceCoinDirectMintService::class);
-        $mint->shouldReceive('mintToWallet')
-            ->once()
-            ->with(self::WALLET, $expectedRace)
-            ->andReturn(['tx_hash' => '0x'.str_repeat('a', 64), 'to' => self::WALLET, 'amount_wei' => '0', 'minter' => '0x0']);
-
-        return $mint;
-    }
-
-    public function test_claim_mints_engine_roi_and_records_advance(): void
+    public function test_claim_credits_virtual_income_and_records_advance(): void
     {
         $this->inWindow();
         $user = $this->user();
-        // 100 USDT × 0.50% × 3 days = 1.5 USDT, at $0.50 per RACE = 3 RACE (same formula as the Engine).
-        $service = $this->service($this->mintReturning('3.00000000'));
+        // 100 USDT × 0.50% × 3 days = 1.5 USDT, at $0.50 per RACE = 3 RACE (display only — no mint on claim).
+        $service = $this->service();
         $service->stakes = [1 => $this->stake(3)];
 
         $claim = $service->claim($user, 1);
 
         $this->assertSame(StakeMintClaim::STATUS_COMPLETED, $claim->status);
+        $this->assertNull($claim->tx_hash);
         $this->assertSame(3, (int) $claim->days);
+        $this->assertSame(0, bccomp(app(WalletBalanceService::class)->virtualIncomeBalance($user), '1.5', 4));
         $advance = StakeMintAdvance::query()->where('user_id', $user->id)->where('stake_index', 1)->firstOrFail();
         $this->assertSame(3, (int) $advance->days_outstanding);
         $this->assertSame(0, bccomp((string) $advance->usdt_outstanding, '1.5', 8));
+        $this->assertSame(1, IncomeWalletTransaction::query()
+            ->where('user_id', $user->id)
+            ->where('type', IncomeWalletTransaction::TYPE_INCOME_CLAIM)
+            ->where('direction', IncomeWalletTransaction::DIRECTION_CREDIT)
+            ->count());
     }
 
     public function test_second_claim_same_day_has_nothing_to_claim(): void
     {
         $this->inWindow();
         $user = $this->user();
-        $service = $this->service($this->mintReturning('3.00000000'));
+        $service = $this->service();
         $service->stakes = [1 => $this->stake(3)];
         $service->claim($user, 1);
 
@@ -144,7 +140,7 @@ class StakeMintClaimTest extends TestCase
     {
         $this->inWindow();
         $user = $this->user();
-        $service = $this->service($this->mintReturning('3.00000000'));
+        $service = $this->service();
         $service->stakes = [1 => $this->stake(3)];
         $service->claim($user, 1);
 
@@ -170,6 +166,7 @@ class StakeMintClaimTest extends TestCase
 
     public function test_blocked_outside_claim_window(): void
     {
+        config(['income.claim.window_enabled' => true]);
         Carbon::setTestNow(Carbon::parse('2026-11-18 13:00:00', 'Asia/Kolkata'));
         $user = $this->user();
         $service = $this->service();
@@ -177,26 +174,6 @@ class StakeMintClaimTest extends TestCase
 
         $this->expectException(ValidationException::class);
         $service->claim($user, 1);
-    }
-
-    public function test_failed_mint_pays_nothing_and_records_nothing(): void
-    {
-        $this->inWindow();
-        $user = $this->user();
-        $mint = Mockery::mock(RaceCoinDirectMintService::class);
-        $mint->shouldReceive('mintToWallet')->once()->andThrow(new \RuntimeException('rpc down'));
-        $service = $this->service($mint);
-        $service->stakes = [1 => $this->stake(3)];
-
-        try {
-            $service->claim($user, 1);
-            $this->fail('Expected ValidationException');
-        } catch (ValidationException) {
-            // expected
-        }
-
-        $this->assertSame(0, StakeMintAdvance::query()->count());
-        $this->assertSame(StakeMintClaim::STATUS_FAILED, StakeMintClaim::query()->firstOrFail()->status);
     }
 
     public function test_engine_paying_same_days_is_recouped_from_virtual_income(): void
@@ -211,7 +188,7 @@ class StakeMintClaimTest extends TestCase
             'seed:'.$user->id,
         );
 
-        $service = $this->service($this->mintReturning('3.00000000'));
+        $service = $this->service();
         $service->stakes = [1 => $this->stake(3)];
         $service->claim($user, 1);
 
@@ -222,30 +199,32 @@ class StakeMintClaimTest extends TestCase
         $advance = StakeMintAdvance::query()->where('user_id', $user->id)->firstOrFail();
         $this->assertSame(0, (int) $advance->days_outstanding);
         $this->assertSame(0, bccomp((string) $advance->recoup_pending_usdt, '0', 8));
-        $this->assertSame(0, bccomp(app(WalletBalanceService::class)->virtualIncomeBalance($user), '8.5', 4));
+        // seed 10 + claim credit 1.5 − recoup 1.5 = 10
+        $this->assertSame(0, bccomp(app(WalletBalanceService::class)->virtualIncomeBalance($user), '10', 4));
     }
 
     public function test_recoup_shortfall_stays_pending_until_balance_exists(): void
     {
         $this->inWindow();
         $user = $this->user();
-        app(VirtualIncomeWalletService::class)->credit(
-            $user,
-            IncomeWalletTransaction::TYPE_ADJUSTMENT,
-            '0.50',
-            'test:seed',
-            'seed:'.$user->id,
-        );
-
-        $service = $this->service($this->mintReturning('3.00000000'));
+        $service = $this->service();
         $service->stakes = [1 => $this->stake(3)];
-        $service->claim($user, 1);
+        $service->claim($user, 1); // +1.5 virtual
+
+        // User already withdrew the virtual credit before the Engine paid the same days.
+        app(VirtualIncomeWalletService::class)->debit(
+            $user,
+            IncomeWalletTransaction::TYPE_WITHDRAWAL,
+            '1.50',
+            'test:drain',
+            'drain:'.$user->id,
+        );
 
         $service->stakes[1]['last_reward_at'] += 3 * 86400;
         $service->reconcileUser($user);
 
         $advance = StakeMintAdvance::query()->where('user_id', $user->id)->firstOrFail();
-        $this->assertSame(0, bccomp((string) $advance->recoup_pending_usdt, '1', 8));
+        $this->assertSame(0, bccomp((string) $advance->recoup_pending_usdt, '1.5', 8));
         $this->assertSame(0, bccomp(app(WalletBalanceService::class)->virtualIncomeBalance($user), '0', 4));
 
         app(VirtualIncomeWalletService::class)->credit(
@@ -259,7 +238,7 @@ class StakeMintClaimTest extends TestCase
 
         $advance->refresh();
         $this->assertSame(0, bccomp((string) $advance->recoup_pending_usdt, '0', 8));
-        $this->assertSame(0, bccomp(app(WalletBalanceService::class)->virtualIncomeBalance($user), '4', 4));
+        $this->assertSame(0, bccomp(app(WalletBalanceService::class)->virtualIncomeBalance($user), '3.5', 4));
     }
 
     public function test_matured_or_withdrawn_stake_is_not_claimable(): void
@@ -278,10 +257,6 @@ class StakeMintClaimTest extends TestCase
 
     public function test_admin_switch_controls_claim_by_mint(): void
     {
-        config([
-            'race_income_mint.minter_private_key' => '0xabc',
-            'race_income_mint.race_token' => self::WALLET,
-        ]);
         $service = new StakeMintClaimService(
             app(RaceCoinDirectMintService::class),
             app(IncomeClaimService::class),
@@ -292,14 +267,9 @@ class StakeMintClaimTest extends TestCase
         $this->assertFalse($service->enabled()); // default OFF
 
         \App\Models\SiteSetting::set(\App\Models\SiteSetting::KEY_STAKE_MINT_CLAIM_ENABLED, '1');
-        $this->assertTrue($service->enabled());
+        $this->assertTrue($service->enabled()); // virtual credit does not need minter key
 
         \App\Models\SiteSetting::set(\App\Models\SiteSetting::KEY_STAKE_MINT_CLAIM_ENABLED, '0');
-        $this->assertFalse($service->enabled());
-
-        // Switch ON but no minter key on the server → still disabled.
-        \App\Models\SiteSetting::set(\App\Models\SiteSetting::KEY_STAKE_MINT_CLAIM_ENABLED, '1');
-        config(['race_income_mint.minter_private_key' => '']);
         $this->assertFalse($service->enabled());
     }
 

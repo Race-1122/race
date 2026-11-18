@@ -15,16 +15,14 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Claim-by-mint for Engine stakes that the 24h wallet cooldown blocks.
+ * Claim remaining Engine stakes (after the one on-chain claim / 24h) into Virtual Income (USDT-notional).
  *
- * The Engine allows ONE claimReward per wallet per 24h. After that on-chain claim, the member may claim the
- * daily ROI of the OTHER stakes here (07:00–12:00 IST window): same ROI formula as the Engine
- * (principalUsdt × dailyRateBps × days / 10_000, paid in RACE at the stake's locked reward price), minted with
- * the existing RaceCoin.mint minter (Multisig setMinter) straight to the member wallet.
+ * No RACE is minted on this claim. When the member later withdraws Virtual → wallet, the existing
+ * WithdrawalService path applies: Admin Fee + 10% Team Reward, then RaceCoin.mint(net) to the wallet
+ * (requires Multisig setMinter + RACE_INCOME_MINT_ON_WITHDRAW).
  *
- * The Engine still counts those days as owed (its lastRewardAt cannot be advanced from here), so every mint is
- * tracked as an "advance" per stake. When the Engine later pays the same days (claim / compound / maturity),
- * the advance is recouped from the member's virtual income — total paid never exceeds total earned.
+ * The Engine still counts those days as owed, so every virtual credit is tracked as an "advance" per stake.
+ * When the Engine later pays the same days, the advance is recouped from virtual income — no double pay.
  */
 class StakeMintClaimService
 {
@@ -39,8 +37,8 @@ class StakeMintClaimService
 
     public function enabled(): bool
     {
-        // Admin "Go live" switch (Income minter screen) + minter key configured. Independent of mint-on-withdraw.
-        return \App\Models\SiteSetting::stakeMintClaimEnabled() && $this->mint->configured();
+        // Admin "Go live" only. Mint/minter is required later at virtual→wallet withdraw, not at claim.
+        return \App\Models\SiteSetting::stakeMintClaimEnabled();
     }
 
     // ── Chain reads (overridable in tests) ──────────────────────────────────
@@ -241,7 +239,7 @@ class StakeMintClaimService
     public function claim(User $user, int $stakeIndex): StakeMintClaim
     {
         if (! $this->enabled()) {
-            throw ValidationException::withMessages(['claim' => __('Claim-by-mint is not enabled yet.')]);
+            throw ValidationException::withMessages(['claim' => __('Claim for remaining stakes is not enabled yet.')]);
         }
 
         $wallet = $this->walletOf($user);
@@ -289,69 +287,75 @@ class StakeMintClaimService
             }
 
             $reward = $this->rewardFor($stake, $days);
-            if (bccomp($reward['race'], '0', 8) <= 0 || bccomp($reward['usdt'], '0', 8) <= 0) {
+            $usdt4 = number_format((float) $reward['usdt'], 4, '.', '');
+            if (bccomp($reward['race'], '0', 8) <= 0 || bccomp($usdt4, '0.0001', 4) < 0) {
                 throw ValidationException::withMessages(['claim' => __('Reward is too small to claim yet.')]);
             }
 
-            $claim = StakeMintClaim::query()->create([
-                'user_id' => $user->id,
-                'stake_index' => $stakeIndex,
-                'wallet_address' => $wallet,
-                'days' => $days,
-                'usdt_amount' => $reward['usdt'],
-                'race_amount' => $reward['race'],
-                'race_price_usdt' => bcadd((string) $stake['reward_price_usdt'], '0', 8),
-                'status' => StakeMintClaim::STATUS_PENDING,
-                'meta' => ['engine_last_reward_at' => (int) $stake['last_reward_at']],
-            ]);
-
-            try {
-                $minted = $this->mint->mintToWallet($wallet, $reward['race']);
-            } catch (\Throwable $e) {
-                $claim->forceFill([
-                    'status' => StakeMintClaim::STATUS_FAILED,
-                    'error' => Str::limit($e->getMessage(), 1000),
-                ])->save();
-                Log::warning('stake mint claim failed', ['claim_id' => $claim->id, 'error' => $e->getMessage()]);
-
-                throw ValidationException::withMessages([
-                    'claim' => __('Mint failed. Nothing was paid — please try again later.'),
-                ]);
-            }
-
-            // Persist the tx hash first: RACE is already minted, the advance record must follow.
-            $claim->forceFill(['tx_hash' => $minted['tx_hash']])->save();
-
-            try {
-                DB::transaction(function () use ($user, $stakeIndex, $days, $reward, $stake, $claim) {
-                    $row = StakeMintAdvance::query()
-                        ->where('user_id', $user->id)
-                        ->where('stake_index', $stakeIndex)
-                        ->lockForUpdate()
-                        ->first()
-                        ?? new StakeMintAdvance(['user_id' => $user->id, 'stake_index' => $stakeIndex]);
-
-                    $row->days_outstanding = (int) $row->days_outstanding + $days;
-                    $row->usdt_outstanding = bcadd((string) ($row->usdt_outstanding ?? '0'), $reward['usdt'], 8);
-                    $row->race_minted_total = bcadd((string) ($row->race_minted_total ?? '0'), $reward['race'], 8);
-                    $row->last_onchain_reward_at = (int) $stake['last_reward_at'];
-                    $row->save();
-
-                    $claim->forceFill(['status' => StakeMintClaim::STATUS_COMPLETED])->save();
-                });
-            } catch (\Throwable $e) {
-                Log::critical('stake mint claim minted but advance not recorded', [
-                    'claim_id' => $claim->id,
-                    'tx_hash' => $minted['tx_hash'],
-                    'error' => $e->getMessage(),
+            return DB::transaction(function () use ($user, $wallet, $stakeIndex, $days, $reward, $usdt4, $stake) {
+                $claim = StakeMintClaim::query()->create([
+                    'user_id' => $user->id,
+                    'stake_index' => $stakeIndex,
+                    'wallet_address' => $wallet,
+                    'days' => $days,
+                    'usdt_amount' => $reward['usdt'],
+                    'race_amount' => $reward['race'],
+                    'race_price_usdt' => bcadd((string) $stake['reward_price_usdt'], '0', 8),
+                    'status' => StakeMintClaim::STATUS_PENDING,
+                    'meta' => [
+                        'engine_last_reward_at' => (int) $stake['last_reward_at'],
+                        'settlement' => 'virtual_income',
+                        'note' => 'Credited to Virtual Income; RACE mint + fees on withdraw',
+                    ],
                 ]);
 
-                throw new \RuntimeException(
-                    'RACE was minted (tx '.$minted['tx_hash'].') but the record failed. Contact support; do not retry.',
+                // Virtual USDT only — no RaceCoin.mint here. Withdraw path takes fees then mints.
+                $this->virtualWallet->credit(
+                    $user,
+                    IncomeWalletTransaction::TYPE_INCOME_CLAIM,
+                    $usdt4,
+                    "stake_mint_claim:{$claim->id}",
+                    "stake_mint_claim:{$claim->id}",
+                    [
+                        'stake_index' => $stakeIndex,
+                        'days' => $days,
+                        'race_amount' => $reward['race'],
+                        'race_price_usdt' => $stake['reward_price_usdt'],
+                        'usdt_amount' => $reward['usdt'],
+                        'claim_id' => $claim->id,
+                        'note' => 'Remaining-stake ROI credited to Virtual Income (fees + RACE mint on withdraw)',
+                    ],
                 );
-            }
 
-            return $claim->refresh();
+                $row = StakeMintAdvance::query()
+                    ->where('user_id', $user->id)
+                    ->where('stake_index', $stakeIndex)
+                    ->lockForUpdate()
+                    ->first()
+                    ?? new StakeMintAdvance(['user_id' => $user->id, 'stake_index' => $stakeIndex]);
+
+                $row->days_outstanding = (int) $row->days_outstanding + $days;
+                $row->usdt_outstanding = bcadd((string) ($row->usdt_outstanding ?? '0'), $reward['usdt'], 8);
+                $row->race_minted_total = bcadd((string) ($row->race_minted_total ?? '0'), $reward['race'], 8);
+                $row->last_onchain_reward_at = (int) $stake['last_reward_at'];
+                $row->save();
+
+                $claim->forceFill([
+                    'status' => StakeMintClaim::STATUS_COMPLETED,
+                    'tx_hash' => null,
+                ])->save();
+
+                return $claim->refresh();
+            });
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            Log::warning('stake virtual claim failed', ['user_id' => $user->id, 'error' => $e->getMessage()]);
+            throw ValidationException::withMessages([
+                'claim' => __('Could not credit Virtual Income: :msg', [
+                    'msg' => Str::limit($e->getMessage(), 160),
+                ]),
+            ]);
         } finally {
             $lock->release();
         }

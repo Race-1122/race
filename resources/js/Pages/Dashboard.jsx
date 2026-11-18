@@ -52,6 +52,19 @@ const defaultSummary = {
     today_income_usd: '0.00',
     today_income_count: 0,
     today_label: '',
+    daily_claims: {
+        items: [],
+        count: 0,
+        total_race: '0',
+        total_value_now_usd: '0',
+        total_value_claim_usd: '0',
+        rate_usd: '0',
+        today_count: 0,
+        today_race: '0',
+        today_value_now_usd: '0',
+        today_value_claim_usd: '0',
+        today_label: '',
+    },
     principal_invested_usd: '0.00',
     active_principal_usd: '0.00',
     roi_paid_usd: '0.00',
@@ -92,8 +105,18 @@ function DpCard({ className = '', children, hover = true }) {
     );
 }
 
-function DailyEarningCard({ amountUsd, count, dateLabel }) {
+function formatRace(value, digits = 6) {
+    const n = Number(value ?? 0);
+    if (!Number.isFinite(n)) return '0';
+    return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: digits });
+}
+
+function DailyEarningCard({ amountUsd, count, dateLabel, dailyClaims }) {
     const hasEarnings = Number(amountUsd) > 0;
+    const claims = dailyClaims ?? {};
+    const todayRace = Number(claims.today_race ?? 0);
+    const todayClaimCount = Number(claims.today_count ?? 0);
+    const hasStakingToday = todayRace > 0 || todayClaimCount > 0;
 
     return (
         <DpCard className="border-emerald-200/80 bg-gradient-to-br from-emerald-50/90 via-white/80 to-sky-50/50 p-5 sm:p-6">
@@ -105,7 +128,7 @@ function DailyEarningCard({ amountUsd, count, dateLabel }) {
                     </p>
                     <p
                         className={`mt-3 font-mono text-3xl font-extrabold tracking-tight sm:text-4xl ${
-                            hasEarnings ? 'text-emerald-600' : 'text-slate-400'
+                            hasEarnings || hasStakingToday ? 'text-emerald-600' : 'text-slate-400'
                         }`}
                     >
                         {formatUsd(amountUsd)}
@@ -115,6 +138,31 @@ function DailyEarningCard({ amountUsd, count, dateLabel }) {
                             ? `${count} credit${count === 1 ? '' : 's'} today (all reward types, excl. deposits)`
                             : 'No reward credits yet today — ROI and team payouts appear here when paid'}
                     </p>
+
+                    <div className="mt-4 rounded-xl border border-emerald-200/70 bg-white/80 px-3 py-3">
+                        <p className="text-[0.65rem] font-bold uppercase tracking-wider text-emerald-800">
+                            Staking RACE received today
+                        </p>
+                        <p
+                            className={`mt-1 font-mono text-xl font-extrabold ${
+                                hasStakingToday ? 'text-emerald-700' : 'text-slate-400'
+                            }`}
+                        >
+                            {hasStakingToday ? '+' : ''}
+                            {formatRace(claims.today_race ?? 0)} RACE
+                        </p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                            {todayClaimCount > 0
+                                ? `${todayClaimCount} staking claim${todayClaimCount === 1 ? '' : 's'} · ≈ $${formatRace(claims.today_value_claim_usd ?? 0, 4)} at claim · ≈ $${formatRace(claims.today_value_now_usd ?? 0, 4)} at today's rate`
+                                : 'No staking claim yet today — appears after you claim on-chain or by mint'}
+                        </p>
+                        {Number(claims.total_race ?? 0) > 0 ? (
+                            <p className="mt-2 border-t border-emerald-100 pt-2 text-[11px] text-slate-500">
+                                Total staking claims recorded: {formatRace(claims.total_race)} RACE (
+                                {claims.count} claim{claims.count === 1 ? '' : 's'})
+                            </p>
+                        ) : null}
+                    </div>
                 </div>
                 <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
                     <div className="flex h-14 w-14 items-center justify-center self-start rounded-2xl border border-emerald-200/80 bg-white/90 text-emerald-600 shadow-sm sm:self-auto">
@@ -760,6 +808,7 @@ export default function Dashboard({ summary: summaryProp = {}, memberActivation:
                         amountUsd={summary.today_income_usd}
                         count={summary.today_income_count ?? 0}
                         dateLabel={summary.today_label}
+                        dailyClaims={summary.daily_claims}
                     />
 
                     <div className="member-stat-grid gap-3 lg:grid lg:grid-cols-4 lg:gap-4">
