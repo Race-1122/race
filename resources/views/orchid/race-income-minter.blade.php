@@ -68,11 +68,9 @@
     <p class="small mb-3"><strong>{{ __('Calldata') }}:</strong> <code class="user-select-all" style="word-break:break-all">{{ $calldata }}</code></p>
     <ol class="small mb-3">
         <li>{{ __('Open this admin page in TokenPocket / MetaMask on BNB Smart Chain (56).') }}</li>
-        <li>{{ __('Connect a Multisig signer wallet (one of the 5 below).') }}</li>
-        <li>{{ __('Tap 1. Submit — Multisig.submitTransaction(RaceCoin, 0, setMinterCalldata).') }}</li>
-        <li>{{ __('Save Multisig tx id from BscScan event / UI into the box below.') }}</li>
-        <li>{{ __('Two more signers tap 2. Confirm until the call executes.') }}</li>
-        <li>{{ __('Refresh this page — isMinter should become true.') }}</li>
+        <li>{{ __('Connect Multisig signer #1 → tap 1. Submit. Number auto-fills below.') }}</li>
+        <li>{{ __('Connect signer #2 and #3 → tap 2. Confirm (same number).') }}</li>
+        <li>{{ __('Refresh status — isMinter must become true.') }}</li>
     </ol>
     <p class="small mb-2"><strong>{{ __('Signers (3-of-5)') }}:</strong></p>
     <ul class="small mb-3">
@@ -81,9 +79,16 @@
         @endforeach
     </ul>
 
+    <div id="race-minter-id-banner" class="alert alert-warning mb-3 d-none" role="status">
+        <div class="fw-bold">{{ __('Multisig tx id (auto)') }}</div>
+        <div class="display-6 user-select-all" id="race-minter-id-big">—</div>
+        <div class="small mb-0">{{ __('This number is filled automatically after Submit. Confirm buttons use it.') }}</div>
+    </div>
+
     <div class="form-group mb-3" style="max-width: 280px;">
-        <label class="form-label small" for="race-minter-txid">{{ __('Multisig tx id (after Submit)') }}</label>
-        <input type="number" class="form-control" id="race-minter-txid" min="0" step="1" placeholder="e.g. 12">
+        <label class="form-label small" for="race-minter-txid">{{ __('Multisig tx id') }}</label>
+        <input type="number" class="form-control form-control-lg" id="race-minter-txid" min="0" step="1" placeholder="{{ __('Auto after Submit') }}" readonly>
+        <button type="button" class="btn btn-link btn-sm px-0" id="race-minter-txid-unlock">{{ __('Edit manually') }}</button>
     </div>
 
     <p class="small mb-2" id="race-minter-status"></p>
@@ -111,7 +116,11 @@
 
 <script>
 (function () {
+    const EXPECTED_MULTISIG = String(@json($multisig_contract ?? '')).toLowerCase();
+    const SUBMISSION_TOPIC = '0xc0ba8fe4b176c1714197d43b9cc6bcf797a4a7461c5fe8d0ef6e184ae7601e51';
     const statusEl = document.getElementById('race-minter-status');
+    const banner = document.getElementById('race-minter-id-banner');
+    const bigId = document.getElementById('race-minter-id-big');
     const setStatus = (msg, ok) => {
         if (!statusEl) return;
         statusEl.textContent = msg || '';
@@ -120,12 +129,43 @@
 
     const storageKey = 'race.multisig.setIncomeMinter.txId';
     const txInput = document.getElementById('race-minter-txid');
+    const unlockBtn = document.getElementById('race-minter-txid-unlock');
+
+    function showTxId(id) {
+        const n = String(id);
+        if (txInput) txInput.value = n;
+        window.localStorage.setItem(storageKey, n);
+        if (bigId) bigId.textContent = n;
+        if (banner) banner.classList.remove('d-none');
+    }
+
     if (txInput) {
         const saved = window.localStorage.getItem(storageKey);
-        if (saved) txInput.value = saved;
+        if (saved !== null && saved !== '') showTxId(saved);
         txInput.addEventListener('change', () => {
-            window.localStorage.setItem(storageKey, String(txInput.value || ''));
+            if (txInput.value !== '') showTxId(txInput.value);
         });
+    }
+    if (unlockBtn && txInput) {
+        unlockBtn.addEventListener('click', () => {
+            txInput.readOnly = false;
+            txInput.focus();
+        });
+    }
+
+    function normalizeAddr(a) {
+        return String(a || '').trim().toLowerCase();
+    }
+
+    function assertMultisig(addr) {
+        const a = normalizeAddr(addr);
+        if (!/^0x[a-f0-9]{40}$/.test(a)) {
+            throw new Error('Multisig address missing/invalid on page. Check RACE_MULTISIG_CONTRACT.');
+        }
+        if (EXPECTED_MULTISIG && a !== EXPECTED_MULTISIG) {
+            throw new Error('Multisig mismatch. Expected ' + EXPECTED_MULTISIG + ' got ' + a);
+        }
+        return a;
     }
 
     async function eth() {
@@ -163,27 +203,82 @@
 
     function encodeConfirm(txId) {
         const id = Number(txId);
-        if (!Number.isFinite(id) || id < 0) throw new Error('Enter Multisig tx id first.');
+        if (!Number.isFinite(id) || id < 0) throw new Error('Multisig tx id missing — Submit first so number auto-fills.');
         return '0xc01a8c84' + id.toString(16).padStart(64, '0');
+    }
+
+    async function ethCallUint(provider, to, data) {
+        const hex = await provider.request({
+            method: 'eth_call',
+            params: [{ to, data }, 'latest'],
+        });
+        if (!hex || hex === '0x') return null;
+        return parseInt(hex, 16);
+    }
+
+    async function waitReceipt(provider, hash) {
+        for (let i = 0; i < 45; i++) {
+            const r = await provider.request({ method: 'eth_getTransactionReceipt', params: [hash] });
+            if (r) return r;
+            await new Promise((res) => setTimeout(res, 2000));
+        }
+        throw new Error('Timeout waiting for tx receipt. Check BscScan, then use Edit manually.');
+    }
+
+    function txIdFromReceipt(receipt, multisig) {
+        const m = normalizeAddr(multisig);
+        const logs = receipt.logs || [];
+        for (const log of logs) {
+            if (normalizeAddr(log.address) !== m) continue;
+            if (!log.topics || log.topics[0] !== SUBMISSION_TOPIC) continue;
+            if (log.topics[1]) return parseInt(log.topics[1], 16);
+        }
+        return null;
     }
 
     const submitBtn = document.getElementById('race-minter-submit');
     if (submitBtn) {
         submitBtn.addEventListener('click', async () => {
             try {
-                setStatus('Submitting…', true);
+                setStatus('Submitting… reading Multisig tx count…', true);
                 const provider = await eth();
                 await ensureChain(provider);
                 const from = await accounts(provider);
-                const multisig = submitBtn.getAttribute('data-multisig');
+                const multisig = assertMultisig(submitBtn.getAttribute('data-multisig'));
                 const token = submitBtn.getAttribute('data-token');
                 const calldata = submitBtn.getAttribute('data-calldata');
+                if (!token || !calldata) throw new Error('Race token / calldata missing on page.');
+
+                const countBefore = await ethCallUint(provider, multisig, '0xb77bf600');
                 const data = encodeSubmit(token, calldata);
+                setStatus('Approve Submit in wallet… (to must be ' + multisig + ')', true);
                 const txHash = await provider.request({
                     method: 'eth_sendTransaction',
                     params: [{ from, to: multisig, data, value: '0x0' }],
                 });
-                setStatus('Submitted. Tx ' + txHash + ' — read Multisig transactionId from BscScan logs, save it below, then 2 more signers Confirm.', true);
+                setStatus('Submitted ' + txHash + ' — waiting receipt to auto-fill tx id…', true);
+                const receipt = await waitReceipt(provider, txHash);
+                if (normalizeAddr(receipt.to) !== multisig) {
+                    throw new Error('Tx went to wrong contract ' + receipt.to + ' (expected Multisig ' + multisig + '). Reject and retry.');
+                }
+                if (String(receipt.status) !== '0x1' && Number(receipt.status) !== 1) {
+                    throw new Error('Submit tx failed on-chain.');
+                }
+
+                let txId = txIdFromReceipt(receipt, multisig);
+                if (txId === null && countBefore !== null) {
+                    txId = countBefore; // new id == previous count
+                }
+                if (txId === null) {
+                    const countAfter = await ethCallUint(provider, multisig, '0xb77bf600');
+                    if (countAfter !== null && countAfter > 0) txId = countAfter - 1;
+                }
+                if (txId === null) {
+                    throw new Error('Could not auto-read tx id. Open BscScan Submission event and use Edit manually.');
+                }
+
+                showTxId(txId);
+                setStatus('OK — Multisig tx id ' + txId + ' auto-filled. Now connect signer #2 and #3 → Confirm.', true);
             } catch (e) {
                 setStatus(e && e.message ? e.message : String(e), false);
             }
@@ -198,15 +293,23 @@
                 const provider = await eth();
                 await ensureChain(provider);
                 const from = await accounts(provider);
-                const multisig = confirmBtn.getAttribute('data-multisig');
+                const multisig = assertMultisig(confirmBtn.getAttribute('data-multisig'));
                 const txId = txInput ? txInput.value : '';
-                if (txId) window.localStorage.setItem(storageKey, String(txId));
+                if (txId === '' || txId === null) {
+                    throw new Error('No Multisig tx id yet. Run Submit first (number auto-fills).');
+                }
+                showTxId(txId);
                 const data = encodeConfirm(txId);
+                setStatus('Approve Confirm in wallet… (to must be ' + multisig + ', id ' + txId + ')', true);
                 const txHash = await provider.request({
                     method: 'eth_sendTransaction',
                     params: [{ from, to: multisig, data, value: '0x0' }],
                 });
-                setStatus('Confirm sent. Tx ' + txHash + ' — after 3rd confirmation refresh page; isMinter should be true.', true);
+                const receipt = await waitReceipt(provider, txHash);
+                if (normalizeAddr(receipt.to) !== multisig) {
+                    throw new Error('Confirm went to wrong contract ' + receipt.to + ' — expected ' + multisig);
+                }
+                setStatus('Confirm OK. Tx ' + txHash + ' — after 3rd signer Confirm, tap Refresh status (isMinter=true).', true);
             } catch (e) {
                 setStatus(e && e.message ? e.message : String(e), false);
             }
