@@ -105,6 +105,7 @@ const memberNav = [
     { routeKey: 'team', label: 'Total Team', iconKey: 'team' },
     { routeKey: 'transactions', label: 'Total Earnings', iconKey: 'transactions' },
     { routeKey: 'withdrawal', label: 'Income wallet', iconKey: 'withdrawal' },
+    { routeKey: 'income-payout', label: 'Income Payout (RACE)', iconKey: 'withdrawal' },
     { routeKey: 'wallet', label: 'Wallet', iconKey: 'wallet' },
     { routeKey: 'about', label: 'Support', iconKey: 'about' },
 ];
