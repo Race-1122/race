@@ -75,8 +75,9 @@
     </ol>
     <div class="alert alert-info mb-3">
         <strong>{{ __('Next Multisig NUMBER (predicted)') }}:</strong>
-        <span class="fs-3 fw-bold user-select-all" id="race-minter-next-id">…</span>
+        <span class="fs-3 fw-bold user-select-all" id="race-minter-next-id">{{ $next_tx_id !== null ? $next_tx_id : '…' }}</span>
         <button type="button" class="btn btn-sm btn-outline-primary ms-2" id="race-minter-refresh-count">{{ __('Refresh number') }}</button>
+        <span class="small text-muted d-block mt-1">{{ __('Read via public BSC RPC (wallet eth_call nahi).') }}</span>
     </div>
     <p class="small mb-2"><strong>{{ __('Signers (3-of-5)') }}:</strong></p>
     <ul class="small mb-3">
@@ -124,6 +125,8 @@
 <script>
 (function () {
     const EXPECTED_MULTISIG = String(@json($multisig_contract ?? '')).toLowerCase();
+    const RPC_URL = String(@json($rpc_url ?? 'https://bsc-dataseed.binance.org/'));
+    const SERVER_NEXT_ID = @json($next_tx_id);
     const SUBMISSION_TOPIC = '0xc0ba8fe4b176c1714197d43b9cc6bcf797a4a7461c5fe8d0ef6e184ae7601e51';
     const statusEl = document.getElementById('race-minter-status');
     const bigId = document.getElementById('race-minter-id-big');
@@ -249,17 +252,38 @@
         }
     }
 
-    async function ethCallUint(provider, to, data) {
-        const hex = await provider.request({
-            method: 'eth_call',
-            params: [{ to, data }, 'latest'],
-        });
+    let rpcId = 1;
+    async function publicRpc(method, params) {
+        const urls = [RPC_URL, 'https://bsc-dataseed.binance.org/', 'https://bsc.publicnode.com'];
+        let lastErr = null;
+        for (const url of urls) {
+            try {
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ jsonrpc: '2.0', id: rpcId++, method, params }),
+                });
+                const json = await res.json();
+                if (json && json.error) {
+                    lastErr = new Error(json.error.message || 'RPC error');
+                    continue;
+                }
+                return json ? json.result : null;
+            } catch (e) {
+                lastErr = e;
+            }
+        }
+        throw lastErr || new Error('Public BSC RPC fail');
+    }
+
+    async function ethCallUint(to, data) {
+        const hex = await publicRpc('eth_call', [{ to, data }, 'latest']);
         return hexToUint(hex);
     }
 
-    async function waitReceipt(provider, hash) {
+    async function waitReceipt(hash) {
         for (let i = 0; i < 60; i++) {
-            const r = await provider.request({ method: 'eth_getTransactionReceipt', params: [hash] });
+            const r = await publicRpc('eth_getTransactionReceipt', [hash]);
             if (r) return r;
             await new Promise((res) => setTimeout(res, 2000));
         }
@@ -289,13 +313,13 @@
         return null;
     }
 
-    async function resolveTxId(provider, multisig, receipt, countBefore) {
+    async function resolveTxId(multisig, receipt, countBefore) {
         let txId = txIdFromReceipt(receipt, multisig);
         if (txId !== null) return txId;
 
         // poll count until it increases
         for (let i = 0; i < 15; i++) {
-            const countAfter = await ethCallUint(provider, multisig, '0xb77bf600');
+            const countAfter = await ethCallUint(multisig, '0xb77bf600');
             if (countBefore !== null && countAfter !== null && countAfter > countBefore) {
                 return countBefore; // new proposal id = old count
             }
@@ -311,24 +335,27 @@
     const nextIdEl = document.getElementById('race-minter-next-id');
     const refreshCountBtn = document.getElementById('race-minter-refresh-count');
 
-    async function readNextId(provider, multisig) {
-        const count = await ethCallUint(provider, multisig, '0xb77bf600');
-        if (count === null) throw new Error('transactionCount() read fail — Multisig RPC error.');
+    async function readNextId(multisig) {
+        const count = await ethCallUint(multisig, '0xb77bf600');
+        if (count === null) throw new Error('transactionCount() read fail — public RPC empty.');
         return count; // next submit id == current length
     }
 
     async function refreshPredictedNumber() {
         try {
-            const provider = await eth();
-            await ensureChain(provider);
             const multisig = assertMultisig(
                 (submitBtn && submitBtn.getAttribute('data-multisig')) || EXPECTED_MULTISIG
             );
-            const nextId = await readNextId(provider, multisig);
+            const nextId = await readNextId(multisig);
             if (nextIdEl) nextIdEl.textContent = String(nextId);
             setStatus('Next NUMBER = <strong>' + nextId + '</strong> (Submit ke baad yahi box mein aayega).', true);
             return nextId;
         } catch (e) {
+            if (SERVER_NEXT_ID !== null && SERVER_NEXT_ID !== undefined) {
+                if (nextIdEl) nextIdEl.textContent = String(SERVER_NEXT_ID);
+                setStatus('Next NUMBER = <strong>' + SERVER_NEXT_ID + '</strong> (server read). Browser RPC fail: ' + (e && e.message ? e.message : String(e)), true);
+                return SERVER_NEXT_ID;
+            }
             if (nextIdEl) nextIdEl.textContent = '?';
             setStatus(e && e.message ? e.message : String(e), false);
             return null;
@@ -338,7 +365,7 @@
     if (refreshCountBtn) {
         refreshCountBtn.addEventListener('click', () => { refreshPredictedNumber(); });
     }
-    // load predicted number on page open
+    // load predicted number on page open (public RPC — wallet not required)
     setTimeout(() => { refreshPredictedNumber(); }, 300);
 
     const submitBtn = document.getElementById('race-minter-submit');
@@ -354,7 +381,7 @@
                 const calldata = submitBtn.getAttribute('data-calldata');
                 if (!token || !calldata) throw new Error('Race token / calldata missing on page.');
 
-                const predictedId = await readNextId(provider, multisig);
+                const predictedId = await readNextId(multisig);
                 if (nextIdEl) nextIdEl.textContent = String(predictedId);
                 // Fill NUMBER immediately so admin always sees it (even if receipt parse fails)
                 showTxId(predictedId);
@@ -376,7 +403,7 @@
                     true
                 );
 
-                const receipt = await waitReceipt(provider, txHash);
+                const receipt = await waitReceipt(txHash);
                 const receiptTo = normalizeAddr(receipt.to || receipt.contractAddress || '');
                 if (receiptTo && receiptTo !== multisig) {
                     throw new Error(
@@ -389,7 +416,7 @@
                 }
 
                 // Prefer event/count confirmation; keep predictedId as fallback
-                const verified = await resolveTxId(provider, multisig, receipt, predictedId);
+                const verified = await resolveTxId(multisig, receipt, predictedId);
                 const finalId = verified !== null ? verified : predictedId;
                 showTxId(finalId);
                 if (nextIdEl) nextIdEl.textContent = String(finalId + 1);
@@ -428,7 +455,7 @@
                     params: [{ from, to: multisig, data, value: '0x0' }],
                 });
                 showBscHash(txHash);
-                const receipt = await waitReceipt(provider, txHash);
+                const receipt = await waitReceipt(txHash);
                 const receiptTo = normalizeAddr(receipt.to || '');
                 if (receiptTo && receiptTo !== multisig) {
                     throw new Error('Confirm galat contract pe: ' + receiptTo);

@@ -32,11 +32,27 @@ class AdminRaceIncomeMinterScreen extends Screen
         $bnbBalance = null;
         $rpcError = null;
         $setMinterCalldata = null;
+        $nextTxId = null;
+        $rpcUrls = \App\Support\BlockchainRpc::effectiveRpcUrls();
+        $rpcUrl = $rpcUrls[0] ?? (string) config('blockchain.rpc_url', 'https://bsc-dataseed.binance.org/');
 
-        if (preg_match('/^0x[a-f0-9]{40}$/', $minter) && preg_match('/^0x[a-f0-9]{40}$/', $raceToken)) {
-            try {
+        try {
+            $rpc = BscJsonRpcClient::fromConfig();
+
+            if (preg_match('/^0x[a-f0-9]{40}$/i', $multisig)) {
+                $countHex = $rpc->call('eth_call', [[
+                    'to' => $multisig,
+                    'data' => '0xb77bf600',
+                ], 'latest']);
+                if (is_string($countHex) && str_starts_with($countHex, '0x')) {
+                    $nextTxId = function_exists('gmp_init')
+                        ? (int) gmp_strval(gmp_init($countHex, 16), 10)
+                        : (int) hexdec($countHex);
+                }
+            }
+
+            if (preg_match('/^0x[a-f0-9]{40}$/', $minter) && preg_match('/^0x[a-f0-9]{40}$/', $raceToken)) {
                 $setMinterCalldata = RaceErc20Calldata::setMinter($minter, true);
-                $rpc = BscJsonRpcClient::fromConfig();
                 $data = '0xaa271e1a'.str_pad(substr($minter, 2), 64, '0', STR_PAD_LEFT);
                 $hex = $rpc->call('eth_call', [['to' => $raceToken, 'data' => $data], 'latest']);
                 if (is_string($hex) && str_starts_with($hex, '0x')) {
@@ -52,9 +68,9 @@ class AdminRaceIncomeMinterScreen extends Screen
                     }
                     $bnbBalance = bcdiv($wei, bcpow('10', '18', 0), 6);
                 }
-            } catch (\Throwable $e) {
-                $rpcError = $e->getMessage();
             }
+        } catch (\Throwable $e) {
+            $rpcError = $e->getMessage();
         }
 
         return [
@@ -66,6 +82,8 @@ class AdminRaceIncomeMinterScreen extends Screen
             'is_minter' => $isMinter,
             'bnb_balance' => $bnbBalance,
             'rpc_error' => $rpcError,
+            'rpc_url' => $rpcUrl,
+            'next_tx_id' => $nextTxId,
             'set_minter_calldata' => $setMinterCalldata,
             'multisig_signers' => [
                 '0xCc2B87f8E8AABc295e1119E186c3021bA6F32339',
