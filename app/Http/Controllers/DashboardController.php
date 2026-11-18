@@ -258,24 +258,19 @@ class DashboardController extends Controller
         $roiPaidOnBook = (string) ($investmentAgg->roi_paid ?? '0');
         $activeInvestments = (int) ($investmentAgg->active_count ?? 0);
 
-        // Include on-chain ICO/Engine stakes when investments rows are still catching up.
+        // Active package = stake-time locked USDT principal only (never live Pancake/RACE price).
+        // Keyed by users.id ($uid). member_number is display-only.
         if (Schema::hasTable('blockchain_engine_stakes')) {
-            $enginePrincipal = (float) BlockchainEngineStake::query()
+            $openEngineStakes = BlockchainEngineStake::query()
                 ->where('user_id', $uid)
                 ->where('withdrawn', false)
                 ->where(function ($q) {
                     $q->whereNull('status')
                         ->orWhere('status', '!=', BlockchainEngineStake::STATUS_WITHDRAWN);
-                })
-                ->sum('principal_usdt');
-            $engineCount = (int) BlockchainEngineStake::query()
-                ->where('user_id', $uid)
-                ->where('withdrawn', false)
-                ->where(function ($q) {
-                    $q->whereNull('status')
-                        ->orWhere('status', '!=', BlockchainEngineStake::STATUS_WITHDRAWN);
-                })
-                ->count();
+                });
+
+            $enginePrincipal = (float) (clone $openEngineStakes)->sum('principal_usdt');
+            $engineCount = (int) (clone $openEngineStakes)->count();
 
             if ($enginePrincipal > (float) $activePrincipalInvested) {
                 $activePrincipalInvested = number_format($enginePrincipal, 2, '.', '');
@@ -461,7 +456,9 @@ class DashboardController extends Controller
                 'income_entries' => $incomeEntries,
                 'income_payout_count' => $incomePayoutCount,
                 'principal_invested_usd' => number_format((float) $principalInvested, 2, '.', ''),
+                // Locked at stake time — do not reinterpret with race_coin_price_usd / Pancake.
                 'active_principal_usd' => number_format((float) $activePrincipalInvested, 2, '.', ''),
+                'active_package_locked' => true,
                 'roi_paid_usd' => number_format((float) $roiPaidOnBook, 2, '.', ''),
                 'active_investments' => $activeInvestments,
                 'income_by_type' => $incomeByType,

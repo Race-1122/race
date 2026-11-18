@@ -73,6 +73,7 @@ const defaultSummary = {
     },
     principal_invested_usd: '0.00',
     active_principal_usd: '0.00',
+    active_package_locked: true,
     roi_paid_usd: '0.00',
     active_investments: 0,
     income_by_type: {},
@@ -741,8 +742,10 @@ export default function Dashboard({
             value: formatUsd(summary.active_principal_usd ?? summary.principal_invested_usd),
             sub:
                 summary.active_investments > 0
-                    ? `${summary.active_investments} active position${summary.active_investments === 1 ? '' : 's'}`
-                    : null,
+                    ? `${summary.active_investments} active position${summary.active_investments === 1 ? '' : 's'} · stake-time value`
+                    : summary.active_package_locked
+                      ? 'Stake-time locked value'
+                      : null,
             tintClass: 'bg-sky-400/30',
             icon: (
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
@@ -796,6 +799,7 @@ export default function Dashboard({
         summary.lifetime_credits_usd,
         summary.income_payout_count,
         summary.active_principal_usd,
+        summary.active_package_locked,
         summary.principal_invested_usd,
         summary.active_investments,
         summary.team_size,

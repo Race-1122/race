@@ -58,6 +58,7 @@ class BlockchainEngineStakeIndexer
                 'ico_purchase_id' => $icoPurchaseId,
                 'principal_usdt' => $parsed['principal_usdt'],
                 'staked_race' => $parsed['staked_race'],
+                'stake_price_usdt' => $this->stakePriceUsdt($parsed['principal_usdt'], $parsed['staked_race']),
                 'lock_seconds' => $parsed['lock_seconds'],
                 'daily_rate_bps' => $parsed['daily_rate_bps'],
                 'unlock_at' => $parsed['unlock_at'],
@@ -109,7 +110,11 @@ class BlockchainEngineStakeIndexer
         $lockSeconds = (int) hexdec(substr($hex, 128, 64));
         $dailyRateBps = (int) hexdec(substr($hex, 192, 64));
         $walletLower = strtolower($wallet);
+        // Canonical key = users.id (resolved from linked wallet); member_number is display-only.
         $resolvedUserId = $userId ?? $this->walletSync->resolveUserIdForWallet($walletLower);
+
+        $principalUsdt = $this->weiToToken($usdtWei);
+        $stakedRace = $this->weiToToken($raceWei);
 
         BlockchainEngineStake::query()->updateOrCreate(
             [
@@ -120,8 +125,9 @@ class BlockchainEngineStakeIndexer
             [
                 'user_id' => $resolvedUserId,
                 'ico_purchase_id' => null,
-                'principal_usdt' => $this->weiToToken($usdtWei),
-                'staked_race' => $this->weiToToken($raceWei),
+                'principal_usdt' => $principalUsdt,
+                'staked_race' => $stakedRace,
+                'stake_price_usdt' => $this->stakePriceUsdt($principalUsdt, $stakedRace),
                 'lock_seconds' => $lockSeconds,
                 'daily_rate_bps' => $dailyRateBps,
                 'unlock_at' => 0,
@@ -240,6 +246,7 @@ class BlockchainEngineStakeIndexer
                 'ico_purchase_id' => $icoPurchaseId,
                 'principal_usdt' => $principal,
                 'staked_race' => $race,
+                'stake_price_usdt' => $this->stakePriceUsdt((string) $principal, (string) $race),
                 'lock_seconds' => $lockSeconds,
                 'daily_rate_bps' => $this->dailyRateBps($lockSeconds),
                 'unlock_at' => $unlockAt,
@@ -438,5 +445,26 @@ class BlockchainEngineStakeIndexer
         }
 
         return bcdiv($wei, '1000000000000000000', 18);
+    }
+
+    /**
+     * Stake-time RACE price in USDT (principal / race), locked for audit. Active package uses principal_usdt.
+     */
+    private function stakePriceUsdt(string $principalUsdt, string $stakedRace): ?string
+    {
+        if (! function_exists('bccomp') || ! function_exists('bcdiv')) {
+            $race = (float) $stakedRace;
+            if ($race <= 0) {
+                return null;
+            }
+
+            return number_format(((float) $principalUsdt) / $race, 18, '.', '');
+        }
+
+        if (bccomp($stakedRace, '0', 18) <= 0) {
+            return null;
+        }
+
+        return bcdiv($principalUsdt, $stakedRace, 18);
     }
 }
