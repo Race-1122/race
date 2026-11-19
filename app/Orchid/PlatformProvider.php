@@ -62,6 +62,11 @@ class PlatformProvider extends OrchidServiceProvider
                 ->route('platform.data.multisig-funds')
                 ->permission('platform.data'),
 
+            Menu::make(__('RACE fee wallets'))
+                ->icon('bs.wallet2')
+                ->route('platform.data.race-fee-wallets')
+                ->permission('platform.data'),
+
             Menu::make(__('Team structure'))
                 ->icon('bs.diagram-3')
                 ->route('platform.data.team')

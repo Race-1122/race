@@ -21,6 +21,7 @@ use App\Orchid\Screens\Data\BlockchainOverviewScreen;
 use App\Orchid\Screens\Data\BlockchainStakesListScreen;
 use App\Orchid\Screens\Data\ContractWatchScreen;
 use App\Orchid\Screens\Data\MultisigFundsScreen;
+use App\Orchid\Screens\Data\RaceFeeWalletsScreen;
 use App\Orchid\Screens\Data\MemberPopupSettingsScreen;
 use App\Orchid\Screens\Data\SupportTicketEditScreen;
 use App\Orchid\Screens\Data\SupportTicketListScreen;
@@ -121,6 +122,7 @@ Route::screen('data/blockchain-stakes', BlockchainStakesListScreen::class)
 Route::screen('data/ico-contract', IcoContractSettingsScreen::class)->name('platform.data.ico-contract');
 Route::screen('data/contracts-watch', ContractWatchScreen::class)->name('platform.data.contracts-watch');
 Route::screen('data/multisig-funds', MultisigFundsScreen::class)->name('platform.data.multisig-funds');
+Route::screen('data/race-fee-wallets', RaceFeeWalletsScreen::class)->name('platform.data.race-fee-wallets');
 
 Route::screen('data/admin-deposit', AdminDepositScreen::class)->name('platform.data.admin-deposit');
 
