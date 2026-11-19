@@ -19,7 +19,6 @@ use App\Http\Controllers\DirectTeamController;
 use App\Http\Controllers\TeamController;
 use App\Http\Controllers\WalletController;
 use App\Http\Controllers\SwapController;
-use App\Http\Controllers\IncomePayoutController;
 use App\Http\Controllers\WithdrawalController;
 use App\Http\Controllers\VirtualIncomeCompoundController;
 use App\Http\Controllers\VirtualIncomeWalletController;
@@ -252,10 +251,11 @@ Route::middleware(['auth'])->group(function () {
         ->middleware('throttle:10,1')
         ->name('withdrawals.store');
 
-    Route::get('/income-payout', [IncomePayoutController::class, 'index'])->name('income-payout');
-    Route::post('/income-payout', [IncomePayoutController::class, 'store'])
-        ->middleware('throttle:10,1')
-        ->name('income-payout.store');
+    // Income Payout page hidden — same flow lives on Withdrawal (fee-first RACE mint).
+    Route::redirect('/income-payout', '/withdrawal')->name('income-payout');
+    Route::post('/income-payout', function () {
+        return redirect()->route('withdrawal');
+    })->middleware('throttle:10,1')->name('income-payout.store');
 
     Route::get('/transactions', [LedgerController::class, 'index'])->name('transactions');
 

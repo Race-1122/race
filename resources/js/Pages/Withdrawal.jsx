@@ -318,17 +318,17 @@ export default function Withdrawal({
 
     return (
         <AuthenticatedLayout
-            pageTitle="Income wallet"
+            pageTitle="Withdrawal"
             memberSurface="race"
             showMobileFintechNav
-            mobileFintechPageTitle="Income wallet"
+            mobileFintechPageTitle="Withdrawal"
         >
-            <Head title="Income wallet" />
+            <Head title="Withdrawal" />
 
             <MemberPageShell contentClassName="space-y-5 sm:space-y-6">
                 {raceOnlyIncome ? (
                     <>
-                        <MemberPageHero kicker="Income wallet" title="Bring income to your wallet" variant="pdf" icon="withdrawal">
+                        <MemberPageHero kicker="Withdrawal" title="Bring income to your wallet" variant="pdf" icon="withdrawal">
                             Held RACE only. Daily claim USDT uses the payout form when rewards engine is hybrid.
                         </MemberPageHero>
                         {withdrawals_disabled || withdrawal_lock_message ? (
@@ -342,7 +342,7 @@ export default function Withdrawal({
                     </>
                 ) : (
                 <>
-                <MemberPageHero kicker="Income wallet" title="Income wallet" variant="pdf" icon="withdrawal">
+                <MemberPageHero kicker="Withdrawal" title="Withdrawal" variant="pdf" icon="withdrawal">
                     {raceMintOnWithdraw
                         ? 'Pay Admin Fee in USDT from your wallet. From income only 10% Team Reward is cut; net mints as RACE.'
                         : 'Withdraw income to your BEP20 wallet. Team Reward + Admin Fee apply once per withdraw.'}
