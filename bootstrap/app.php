@@ -104,6 +104,8 @@ return Application::configure(basePath: dirname(__DIR__))
 
         if (config('blockchain.indexer.enabled')) {
             $schedule->command('blockchain:index-events')->everyMinute()->withoutOverlapping(4);
+            // Safety net: any member with an open on-chain stake but ID still pending gets activated (no re-lock).
+            $schedule->command('members:activate-staked-ids')->everyMinute()->withoutOverlapping(4);
             $schedule->command('blockchain:backfill-ico-purchases --blocks=4000')->everyMinute()->withoutOverlapping(3);
             // ICO createStake → Active package / fund ledger (UI-less safety net).
             $schedule->command('blockchain:sync-all-ico-stakes')->everyFiveMinutes()->withoutOverlapping(10);

@@ -342,33 +342,49 @@ class BlockchainEngineStakeIndexer
             return ['scanned' => 0, 'activated' => 0];
         }
 
-        $userIds = BlockchainEngineStake::query()
+        $openStakes = function () {
+            return BlockchainEngineStake::query()
+                ->where(function ($q) {
+                    $q->where('withdrawn', false)
+                        ->orWhereNull('withdrawn');
+                })
+                ->where(function ($q) {
+                    $q->whereNull('status')
+                        ->orWhere('status', '!=', BlockchainEngineStake::STATUS_WITHDRAWN);
+                });
+        };
+
+        // Stake indexed before the wallet was linked to a member (user_id = null): link it now.
+        $openStakes()
+            ->whereNull('user_id')
+            ->limit(500)
+            ->get()
+            ->each(function (BlockchainEngineStake $stake): void {
+                $uid = $this->walletSync->resolveUserIdForWallet((string) $stake->wallet_address);
+                if ($uid !== null) {
+                    $stake->forceFill(['user_id' => $uid])->save();
+                }
+            });
+
+        $userIds = $openStakes()
             ->whereNotNull('user_id')
-            ->where(function ($q) {
-                $q->where('withdrawn', false)
-                    ->orWhereNull('withdrawn');
-            })
-            ->where(function ($q) {
-                $q->whereNull('status')
-                    ->orWhere('status', '!=', BlockchainEngineStake::STATUS_WITHDRAWN);
-            })
             ->distinct()
             ->pluck('user_id');
 
+        // Only members still waiting for activation — never re-touch already active members
+        // (activation also sets the 24h withdrawal lock; repeating it would re-lock everyone).
+        $pending = User::query()
+            ->whereIn('id', $userIds)
+            ->where(function ($q) {
+                $q->whereNull('id_activated_at')
+                    ->orWhereNull('participation_activated_at');
+            })
+            ->get();
+
         $activated = 0;
-        foreach ($userIds as $userId) {
-            $user = User::query()->find((int) $userId);
-            if (! $user) {
-                continue;
-            }
-            $beforeId = $user->id_activated_at;
-            $beforePart = $user->participation_activated_at;
+        foreach ($pending as $user) {
             $user->activateIdAndLockWithdrawalsAfterStake();
-            $user->refresh();
-            if ($beforeId === null && $user->id_activated_at !== null
-                || $beforePart === null && $user->participation_activated_at !== null) {
-                $activated++;
-            }
+            $activated++;
         }
 
         return ['scanned' => $userIds->count(), 'activated' => $activated];

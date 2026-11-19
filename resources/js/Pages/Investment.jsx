@@ -14,7 +14,7 @@ import {
     withdrawOnChainStake,
 } from '@/lib/web3Engine';
 import { notifyError, notifySuccess } from '@/lib/appNotify';
-import { syncBlockchainTx } from '@/lib/web3Deposit';
+import { syncBlockchainTx, waitForConfirmations } from '@/lib/web3Deposit';
 import { syncParticipationTx } from '@/lib/web3Participation';
 import { durationTiersForDays } from '@/lib/durationTiers';
 import { raceEquivLabel } from '@/lib/raceQuote';
@@ -352,8 +352,26 @@ export default function Investment({
                           sponsorWallet: on_chain_sponsor_wallet,
                           rpcUrl: engineConfig.rpc_url || blockchain?.rpc_url || '',
                       });
+            // Wait until the stake tx is mined, otherwise the server cannot see it yet and the
+            // Member ID activation would be left to the background indexer.
             try {
-                await syncBlockchainTx({ txHash });
+                await waitForConfirmations(txHash, {
+                    minConfirmations: 1,
+                    rpcUrl: engineConfig.rpc_url || blockchain?.rpc_url || '',
+                });
+            } catch (confirmErr) {
+                console.warn('stake confirmation wait:', confirmErr?.message || confirmErr);
+            }
+            try {
+                await syncBlockchainTx({ txHash, attempts: 6 });
+            } catch (syncErr) {
+                console.warn('stake sync:', syncErr?.message || syncErr);
+                notifyError(
+                    'Stake is confirmed on-chain. Your ID activation is still syncing — it will complete automatically within a minute.',
+                    'Stake',
+                );
+            }
+            try {
                 await syncParticipationTx({
                     txHash,
                     verifyUrl: '/participation/verify-onchain',
