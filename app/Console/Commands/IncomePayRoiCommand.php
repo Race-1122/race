@@ -4,7 +4,6 @@ namespace App\Console\Commands;
 
 use App\Models\Investment;
 use App\Models\LedgerEntry;
-use App\Services\Income\AffiliateNetworkRoiService;
 use App\Services\Income\IncomeAccrualService;
 use App\Services\Income\LedgerWriter;
 use Illuminate\Console\Command;
@@ -14,9 +13,9 @@ class IncomePayRoiCommand extends Command
 {
     protected $signature = 'income:pay-roi {--force-due : TESTING — mark all active stakes due now, then pay (allows multiple runs in one day)}';
 
-    protected $description = 'Pay participation reward rates + Level-1 ROI sharing (10% of direct ROI).';
+    protected $description = 'Accrue participation reward rates. Level-1 ROI sharing is paid later, when the direct claims.';
 
-    public function handle(LedgerWriter $ledger, AffiliateNetworkRoiService $roiSharing): int
+    public function handle(LedgerWriter $ledger): int
     {
         \App\Support\IncomeVaultFinancialAuthority::assertVirtualWalletMutationAllowed();
 
@@ -45,8 +44,8 @@ class IncomePayRoiCommand extends Command
             ->whereNotNull('next_roi_at')
             ->where('next_roi_at', '<=', now())
             ->orderBy('id')
-            ->each(function (Investment $investment) use ($ledger, $roiSharing) {
-                DB::transaction(function () use ($investment, $ledger, $roiSharing) {
+            ->each(function (Investment $investment) use ($ledger) {
+                DB::transaction(function () use ($investment, $ledger) {
                     $inv = Investment::query()->whereKey($investment->id)->lockForUpdate()->first();
                     if (! $inv || $inv->status !== Investment::STATUS_ACTIVE || ! $inv->next_roi_at || $inv->next_roi_at->isFuture()) {
                         return;
@@ -56,9 +55,9 @@ class IncomePayRoiCommand extends Command
                         if (bccomp((string) $inv->roi_percent_daily, '0', 4) <= 0) {
                             return;
                         }
-                        $this->accrueParticipationDailyReward($inv, $ledger, $roiSharing);
+                        $this->accrueParticipationDailyReward($inv, $ledger);
                     } else {
-                        $this->accrueLegacyMonthlyRoi($inv, $ledger, $roiSharing);
+                        $this->accrueLegacyMonthlyRoi($inv, $ledger);
                     }
                 });
             });
@@ -71,7 +70,6 @@ class IncomePayRoiCommand extends Command
     private function accrueParticipationDailyReward(
         Investment $inv,
         LedgerWriter $ledger,
-        AffiliateNetworkRoiService $roiSharing,
     ): void {
         while ($inv->next_roi_at
             && ! $inv->next_roi_at->isFuture()
@@ -114,12 +112,12 @@ class IncomePayRoiCommand extends Command
                     'duration_days' => $need,
                     'flexible' => $flexible,
                     'payout_index' => $done + 1,
+                    // Level-1 ROI sharing is paid when the user claims (IncomeClaimService), not now.
+                    'roi_share_on_claim' => true,
                 ],
             );
 
             app(IncomeAccrualService::class)->addAccrued($inv, $pay);
-
-            $roiSharing->onRoiCreditedToUser($user, $pay, $inv->id, LedgerEntry::TYPE_ROI_ACCRUAL);
 
             $done++;
             $completed = ! $flexible && $done >= $need;
@@ -142,7 +140,6 @@ class IncomePayRoiCommand extends Command
     private function accrueLegacyMonthlyRoi(
         Investment $inv,
         LedgerWriter $ledger,
-        AffiliateNetworkRoiService $roiSharing,
     ): void {
         $user = $inv->user()->lockForUpdate()->first();
         if (! $user || $user->is_blocked || $user->participation_activated_at === null) {
@@ -176,12 +173,13 @@ class IncomePayRoiCommand extends Command
             $pay,
             'investment',
             $inv->id,
-            ['roi_percent_monthly' => (string) $inv->roi_percent_monthly],
+            [
+                'roi_percent_monthly' => (string) $inv->roi_percent_monthly,
+                'roi_share_on_claim' => true,
+            ],
         );
 
         app(IncomeAccrualService::class)->addAccrued($inv, $pay);
-
-        $roiSharing->onRoiCreditedToUser($user, $pay, $inv->id, LedgerEntry::TYPE_ROI_ACCRUAL);
 
         $newTotal = bcadd((string) $inv->total_roi_paid_usd, $pay, 2);
         $completed = bccomp($newTotal, $cap, 2) >= 0;

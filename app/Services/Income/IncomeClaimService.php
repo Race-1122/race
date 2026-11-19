@@ -194,6 +194,14 @@ class IncomeClaimService
 
                 $stake->forceFill(['accrued_reward_usd' => '0.0000'])->save();
                 $totalClaim = bcadd($totalClaim, $chunk, 4);
+
+                // Level-1 ROI sharing is paid only now, on the direct's claim. A failure here must
+                // never block the claim; the unshared amount is retried on the next claim.
+                try {
+                    app(AffiliateNetworkRoiService::class)->onRoiClaimed($locked, $chunk, (int) $stake->id);
+                } catch (\Throwable $e) {
+                    report($e);
+                }
             }
 
             if (bccomp($totalClaim, '0', 4) <= 0) {

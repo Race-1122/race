@@ -20,7 +20,7 @@
         <li><strong>{{ __('Stake') }}</strong> — {{ __('member stakes USDT (min $1). Only a stake of $:q or more activates the member for community income.', ['q' => number_format($qualify)]) }}</li>
         <li><strong>{{ __('ROI accrues') }}</strong> — {{ __('every day at :t (:tz) the system adds the daily ROI to the stake (accrued reward). This is NOT in the wallet yet.', ['t' => $roiAt, 'tz' => $tz]) }}</li>
         <li><strong>{{ __('Member claims manually') }}</strong> — {{ __('only between :s and :e (:tz), once per day. Claim moves accrued ROI into the Virtual Income Wallet. There is NO auto-claim cron.', ['s' => $winStart, 'e' => $winEnd, 'tz' => $tz]) }}</li>
-        <li><strong>{{ __('Community income') }}</strong> — {{ __('Referral income is credited straight to the wallet when the downline stakes. ROI Sharing is credited when the direct’s ROI accrues. Community Leadership is released once a day at :t (:tz).', ['t' => $communityAt, 'tz' => $tz]) }}</li>
+        <li><strong>{{ __('Community income') }}</strong> — {{ __('Referral income is credited straight to the wallet when the downline stakes. ROI Sharing is credited when the direct claims their ROI. Community Leadership is released once a day at :t (:tz).', ['t' => $communityAt, 'tz' => $tz]) }}</li>
         <li><strong>{{ __('Withdraw') }}</strong> — {{ __('member withdraws from the Virtual Income Wallet. Fee = :t% Team Reward (goes to the upline L1–L10) + Admin Fee ($1 below $100, 1% at $100+). Coins are minted to the member wallet.', ['t' => $teamPct]) }}</li>
     </ol>
 </div>
