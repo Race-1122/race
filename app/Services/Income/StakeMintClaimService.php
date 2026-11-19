@@ -6,6 +6,7 @@ use App\Models\IncomeWalletTransaction;
 use App\Models\StakeMintAdvance;
 use App\Models\StakeMintClaim;
 use App\Models\User;
+use App\Models\VirtualStakeCompound;
 use App\Services\Blockchain\CommunityEngineRpcReader;
 use App\Services\Blockchain\RaceCoinDirectMintService;
 use Illuminate\Support\Facades\Cache;
@@ -57,6 +58,29 @@ class StakeMintClaimService
     protected function readStakeCount(string $wallet): ?int
     {
         return $this->reader()?->readStakeCount($wallet);
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $stake
+     * @return array<string, mixed>|null
+     */
+    protected function applyVirtualCompoundOverlay(User $user, int $stakeIndex, ?array $stake): ?array
+    {
+        if ($stake === null) {
+            return null;
+        }
+        if (! \Illuminate\Support\Facades\Schema::hasTable('virtual_stake_compounds')) {
+            return $stake;
+        }
+        $extra = (string) (VirtualStakeCompound::query()
+            ->where('user_id', $user->id)
+            ->where('stake_index', $stakeIndex)
+            ->sum('usdt_amount') ?? '0');
+        if (bccomp($extra, '0', 8) > 0) {
+            $stake['principal_usdt'] = bcadd((string) ($stake['principal_usdt'] ?? '0'), $extra, 18);
+        }
+
+        return $stake;
     }
 
     protected function readNextAllowedClaimAt(string $wallet): ?int
@@ -200,7 +224,7 @@ class StakeMintClaimService
 
         $advances = StakeMintAdvance::query()->where('user_id', $user->id)->get()->keyBy('stake_index');
         for ($i = 0; $i < $count; $i++) {
-            $stake = $this->readStake($wallet, $i);
+            $stake = $this->applyVirtualCompoundOverlay($user, $i, $this->readStake($wallet, $i));
             if ($stake === null) {
                 continue;
             }
@@ -237,11 +261,12 @@ class StakeMintClaimService
     // ── Claim ───────────────────────────────────────────────────────────────
 
     /**
-     * @param  array{from_cron?: bool, skip_onchain_gate?: bool}  $options
+     * @param  array{from_cron?: bool, skip_onchain_gate?: bool, force?: bool}  $options
      */
     public function claim(User $user, int $stakeIndex, array $options = []): StakeMintClaim
     {
-        if (! $this->enabled()) {
+        $force = (bool) ($options['force'] ?? false);
+        if (! $this->enabled() && ! $force) {
             throw ValidationException::withMessages(['claim' => __('Claim for remaining stakes is not enabled yet.')]);
         }
 
@@ -279,7 +304,11 @@ class StakeMintClaimService
                 ]);
             }
 
-            $stake = $this->readStake($wallet, $stakeIndex);
+            $stake = $this->applyVirtualCompoundOverlay(
+                $user,
+                $stakeIndex,
+                $this->readStake($wallet, $stakeIndex),
+            );
             if ($stake === null) {
                 throw ValidationException::withMessages(['claim' => __('Stake not found on-chain.')]);
             }
@@ -379,15 +408,16 @@ class StakeMintClaimService
     }
 
     /**
-     * Morning auto-claim: credit every Engine stake that has ≥1 day owed into Virtual Income.
-     * Does not send on-chain claimReward (that always needs the member's wallet signature).
+     * Credit every Engine stake (4, 5, 6…) that has ≥1 day owed into Virtual Income.
+     * Each stake uses its own principal and daily ROI rate. No wallet claimReward tx.
      *
+     * @param  array{force?: bool}  $options
      * @return array{claims: int, usdt: string, skipped: int, errors: list<string>}
      */
-    public function autoClaimUser(User $user): array
+    public function autoClaimUser(User $user, array $options = []): array
     {
         $out = ['claims' => 0, 'usdt' => '0.0000', 'skipped' => 0, 'errors' => []];
-        if (! $this->enabled()) {
+        if (! $this->enabled() && ! (bool) ($options['force'] ?? false)) {
             $out['errors'][] = 'disabled';
 
             return $out;
@@ -409,7 +439,11 @@ class StakeMintClaimService
 
         for ($i = 0; $i < $count; $i++) {
             try {
-                $claim = $this->claim($user, $i, ['from_cron' => true, 'skip_onchain_gate' => true]);
+                $claim = $this->claim($user, $i, [
+                    'from_cron' => true,
+                    'skip_onchain_gate' => true,
+                    'force' => (bool) ($options['force'] ?? false),
+                ]);
                 $out['claims']++;
                 $out['usdt'] = bcadd($out['usdt'], number_format((float) $claim->usdt_amount, 4, '.', ''), 4);
             } catch (ValidationException $e) {

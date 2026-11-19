@@ -10,20 +10,22 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * 04:00 IST — credit daily staking ROI of Engine stakes into Virtual Income.
- * Cannot send on-chain claimReward (needs member wallet signature).
+ * 04:00 IST / admin button — Engine stake ROI → Virtual Income.
+ * Live Engine claimReward still needs the member wallet.
  */
 class StakeMintAutoClaimCommand extends Command
 {
     protected $signature = 'stake-mint:auto-claim
         {--user= : Only this user id}
+        {--force : Run even if Go-live is OFF (admin one-shot)}
         {--dry-run : List users without writing}';
 
-    protected $description = 'Daily 04:00 IST: auto-claim Engine stake ROI into Virtual Income (not on-chain claimReward).';
+    protected $description = 'Credit Engine stake ROI into Virtual Income for all members.';
 
     public function handle(StakeMintClaimService $service): int
     {
-        if (! $service->enabled()) {
+        $force = (bool) $this->option('force');
+        if (! $service->enabled() && ! $force) {
             $this->warn('Stake claim Go-live is OFF — skipped.');
 
             return self::SUCCESS;
@@ -42,7 +44,6 @@ class StakeMintAutoClaimCommand extends Command
                 ->pluck('user_id');
         }
 
-        // Also include members with a bound wallet who may have on-chain stakes not yet indexed.
         if (! $this->option('user')) {
             $extra = User::query()
                 ->whereNotNull('wallet_address')
@@ -74,7 +75,7 @@ class StakeMintAutoClaimCommand extends Command
             }
 
             try {
-                $result = $service->autoClaimUser($user);
+                $result = $service->autoClaimUser($user, ['force' => $force]);
                 $claims += $result['claims'];
                 $usdt = bcadd($usdt, $result['usdt'], 4);
                 if ($result['claims'] > 0) {

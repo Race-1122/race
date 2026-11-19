@@ -326,4 +326,123 @@ class StakeMintClaimTest extends TestCase
 
         $this->assertSame(10, $service->engineOwedDays($stake, now()->getTimestamp()));
     }
+
+    public function test_auto_claim_credits_all_due_engine_stakes_to_virtual(): void
+    {
+        $this->inWindow();
+        $user = $this->user();
+        $service = $this->service();
+        $service->stakes = [
+            0 => $this->stake(1),
+            1 => $this->stake(3),
+        ];
+
+        $out = $service->autoClaimUser($user);
+
+        $this->assertSame(2, $out['claims']);
+        // Cron credits at most 1 day per stake per run (0.50% of $100 = $0.50 each).
+        $this->assertSame(0, bccomp($out['usdt'], '1.0', 4));
+        $this->assertSame(2, StakeMintAdvance::query()->where('user_id', $user->id)->count());
+    }
+
+    public function test_auto_claim_credits_onchain_stake_even_when_wallet_cooldown_is_open(): void
+    {
+        $this->inWindow();
+        $user = $this->user();
+        $service = $this->service();
+        $service->nextAllowed = 0; // Engine would still accept claimReward from the wallet
+        $service->stakes = [0 => $this->stake(1)];
+
+        $out = $service->autoClaimUser($user);
+
+        $this->assertSame(1, $out['claims']);
+        $this->assertSame(0, bccomp($out['usdt'], '0.5', 4));
+    }
+
+    public function test_compounded_virtual_raises_next_daily_claim(): void
+    {
+        $this->inWindow();
+        $user = $this->user();
+        app(VirtualIncomeWalletService::class)->credit(
+            $user,
+            IncomeWalletTransaction::TYPE_INCOME_CLAIM,
+            '50.00',
+            'test:seed',
+            'seed-compound:'.$user->id,
+        );
+        \App\Models\BlockchainEngineStake::query()->create([
+            'user_id' => $user->id,
+            'wallet_address' => self::WALLET,
+            'stake_index' => 0,
+            'principal_usdt' => '100',
+            'staked_race' => '200',
+            'stake_price_usdt' => '0.5',
+            'lock_seconds' => 180 * 86400,
+            'daily_rate_bps' => 50,
+            'started_at' => now()->getTimestamp() - 10 * 86400,
+            'unlock_at' => now()->getTimestamp() + 170 * 86400,
+            'source_type' => 'wallet_race',
+            'withdrawn' => false,
+            'status' => 'active',
+            'tx_hash' => '0x'.str_repeat('c', 64),
+            'contract_address' => '0x'.str_repeat('d', 40),
+        ]);
+
+        $result = app(\App\Services\Income\VirtualIncomeStakeCompoundService::class)->compoundAll($user);
+        $this->assertSame(0, $result['stake_index']);
+        $this->assertSame(0, bccomp(app(WalletBalanceService::class)->virtualIncomeBalance($user), '0', 4));
+
+        $service = $this->service();
+        $service->stakes = [0 => $this->stake(1)];
+        $claim = $service->claim($user, 0, ['from_cron' => true]);
+
+        // Overlay $50 on $100 principal → 0.50% of $150 = $0.75 (base would be $0.50).
+        $this->assertSame(0, bccomp((string) $claim->usdt_amount, '0.75', 4));
+    }
+
+    public function test_dashboard_compound_route_debits_virtual_and_is_not_refunded(): void
+    {
+        $this->inWindow();
+        $user = $this->user();
+        app(VirtualIncomeWalletService::class)->credit(
+            $user,
+            IncomeWalletTransaction::TYPE_INCOME_CLAIM,
+            '12.50',
+            'test:seed',
+            'seed-http-compound:'.$user->id,
+        );
+        \App\Models\BlockchainEngineStake::query()->create([
+            'user_id' => $user->id,
+            'wallet_address' => self::WALLET,
+            'stake_index' => 0,
+            'principal_usdt' => '100',
+            'staked_race' => '200',
+            'stake_price_usdt' => '0.5',
+            'lock_seconds' => 180 * 86400,
+            'daily_rate_bps' => 50,
+            'started_at' => now()->getTimestamp() - 10 * 86400,
+            'unlock_at' => now()->getTimestamp() + 170 * 86400,
+            'source_type' => 'wallet_race',
+            'withdrawn' => false,
+            'status' => 'active',
+            'tx_hash' => '0x'.str_repeat('e', 64),
+            'contract_address' => '0x'.str_repeat('f', 40),
+        ]);
+
+        $this->actingAs($user)
+            ->from(route('dashboard'))
+            ->post(route('virtual_income.compound_to_stake'))
+            ->assertRedirect(route('dashboard'));
+
+        $this->assertSame(0, bccomp(app(WalletBalanceService::class)->virtualIncomeBalance($user->fresh()), '0', 4));
+        $this->assertSame(1, \App\Models\VirtualStakeCompound::query()->where('user_id', $user->id)->count());
+
+        $this->travel(25)->hours();
+        $this->artisan('income:reconcile-pending-compounds')->assertSuccessful();
+        $this->assertSame(0, bccomp(app(WalletBalanceService::class)->virtualIncomeBalance($user->fresh()), '0', 4));
+        $this->assertSame(0, IncomeWalletTransaction::query()
+            ->where('user_id', $user->id)
+            ->where('type', IncomeWalletTransaction::TYPE_COMPOUND_REFUND)
+            ->count());
+    }
 }

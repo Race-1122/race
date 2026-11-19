@@ -33,7 +33,7 @@ return [
     /** Morning auto-claim (04:00 IST): max days credited per stake per run (usually 1). */
     'stake_claim_auto_max_days' => (int) env('RACE_STAKE_MINT_CLAIM_AUTO_MAX_DAYS', 1),
 
-    /** Daily auto virtual claim time (Asia/Kolkata). On-chain claimReward still needs the user wallet. */
+    /** Daily auto virtual claim time (Asia/Kolkata). Live Engine claimReward still needs the user wallet. */
     'stake_claim_auto_at' => env('RACE_STAKE_MINT_CLAIM_AUTO_AT', '04:00'),
 
 

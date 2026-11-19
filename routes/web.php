@@ -182,6 +182,9 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/virtual-income/compound/confirm', [VirtualIncomeCompoundController::class, 'confirm'])
         ->middleware('throttle:20,1')
         ->name('virtual_income.compound.confirm');
+    Route::post('/virtual-income/compound-to-stake', [\App\Http\Controllers\VirtualIncomeStakeCompoundController::class, 'store'])
+        ->middleware('throttle:10,1')
+        ->name('virtual_income.compound_to_stake');
 
     Route::post('/participation/verify-onchain', [ParticipationOnChainController::class, 'verifyOnChain'])
         ->middleware('throttle:10,1')

@@ -1,5 +1,5 @@
 import PlanIncomeSection from '@/Components/PlanIncomeSection';
-import OnChainClaimCard from '@/Components/OnChainClaimCard';
+import LiveIncomeTicker from '@/Components/Member/LiveIncomeTicker';
 import MemberPageHero from '@/Components/Member/MemberPageHero';
 import MemberPageShell from '@/Components/Member/MemberPageShell';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
@@ -119,7 +119,7 @@ function formatRace(value, digits = 6) {
     return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: digits });
 }
 
-function DailyEarningCard({ amountUsd, count, dateLabel, dailyClaims, racePriceUsd }) {
+function DailyEarningCard({ amountUsd, count, dateLabel, dailyClaims, racePriceUsd, virtualCompound = null }) {
     const hasEarnings = Number(amountUsd) > 0;
     const claims = dailyClaims ?? {};
     const todayRace = Number(claims.today_race ?? 0);
@@ -186,6 +186,17 @@ function DailyEarningCard({ amountUsd, count, dateLabel, dailyClaims, racePriceU
                             />
                         </svg>
                     </div>
+                    {virtualCompound?.can_compound ? (
+                        <Link
+                            href={route('virtual_income.compound_to_stake')}
+                            method="post"
+                            as="button"
+                            preserveScroll
+                            className="inline-flex items-center justify-center rounded-xl border border-violet-300 bg-violet-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-violet-500"
+                        >
+                            Compound {formatUsdt(virtualCompound.available_usd)}
+                        </Link>
+                    ) : null}
                     <Link
                         href={route('transactions')}
                         className="inline-flex items-center justify-center rounded-xl border border-emerald-200/80 bg-white/90 px-4 py-2 text-xs font-bold text-emerald-800 shadow-sm transition hover:bg-emerald-50"
@@ -685,6 +696,7 @@ export default function Dashboard({
     summary: summaryProp = {},
     memberActivation: memberActivationProp,
     stake_auto_claim_live = false,
+    virtual_compound = { available_usd: '0.00', can_compound: false, stake_index: null },
 }) {
     const page = usePage();
     const { user } = page.props.auth;
@@ -693,11 +705,10 @@ export default function Dashboard({
     const summary = { ...defaultSummary, ...summaryProp };
     const displayName = user?.name?.trim() || 'Member';
     const buckets = { ...defaultSummary.income_buckets, ...(summary.income_buckets || {}) };
-    const stakeAutoClaimLive = Boolean(stake_auto_claim_live ?? page.props.stake_auto_claim_live);
 
     usePoll(
         120000,
-        { only: ['summary', 'stake_auto_claim_live'] },
+        { only: ['summary', 'stake_auto_claim_live', 'virtual_compound'] },
         { preserveScroll: true, preserveState: true },
     );
 
@@ -822,6 +833,7 @@ export default function Dashboard({
             <Head title="Dashboard" />
 
             <MemberPageShell particles={false}>
+                    <LiveIncomeTicker />
                     <MemberPageHero kicker="Member dashboard" title={`Welcome back, ${displayName}`} variant="pdf" icon="dashboard" />
 
                     <MemberActivationStatusCard
@@ -829,12 +841,6 @@ export default function Dashboard({
                         memberNumber={user?.member_number}
                         isTestnet={isTestnet}
                     />
-
-                    {!stakeAutoClaimLive ? (
-                        <div className="mx-auto w-full min-w-0 max-w-lg space-y-3">
-                            <OnChainClaimCard />
-                        </div>
-                    ) : null}
 
                     <div className="mx-auto w-full min-w-0 max-w-lg">
                         <DpCard className="bg-gradient-to-br from-sky-50/80 to-white p-4 ring-1 ring-[#2563EB]/30 sm:p-5" hover={false}>
@@ -876,6 +882,7 @@ export default function Dashboard({
                         dateLabel={summary.today_label}
                         dailyClaims={summary.daily_claims}
                         racePriceUsd={summary.race_coin_price_usd}
+                        virtualCompound={virtual_compound}
                     />
 
                     <div className="member-stat-grid gap-3 lg:grid lg:grid-cols-4 lg:gap-4">
@@ -891,6 +898,7 @@ export default function Dashboard({
                         totalIncomeUsd={summary.total_income_usd}
                         incomeEntries={summary.income_entries}
                         dailyClaims={summary.daily_claims}
+                        virtualCompound={virtual_compound}
                         animate={false}
                     >
                         <RoyaltyAchievementShowcase />

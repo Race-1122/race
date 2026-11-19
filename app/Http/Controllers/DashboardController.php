@@ -186,6 +186,9 @@ class DashboardController extends Controller
         $walletBalanceUsd = (float) $incomeBuckets['total_usd'];
         $raceCoinBalance = $raceCoin->currentBalance($user);
         $stakeAutoClaimLive = \App\Models\SiteSetting::stakeMintClaimEnabled();
+        $compoundSvc = app(\App\Services\Income\VirtualIncomeStakeCompoundService::class);
+        $compoundUsd = $compoundSvc->availableUsd($user);
+        $compoundStake = $compoundSvc->bestActiveStake($user);
 
         // Total Team on dashboard: unlimited depth (same as Total Team page). Income rules stay L1–L10.
         $descendantIds = $referralTree->referralDescendantIds($uid, null);
@@ -441,6 +444,11 @@ class DashboardController extends Controller
 
         return Inertia::render('Dashboard', [
             'stake_auto_claim_live' => $stakeAutoClaimLive,
+            'virtual_compound' => [
+                'available_usd' => $compoundUsd,
+                'can_compound' => bccomp($compoundUsd, '0.01', 4) >= 0 && $compoundStake !== null,
+                'stake_index' => $compoundStake['index'] ?? null,
+            ],
             'summary' => [
                 'balance_usd' => number_format($walletBalanceUsd, 2, '.', ''),
                 'income_buckets' => $incomeBuckets,

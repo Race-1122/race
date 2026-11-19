@@ -59,7 +59,7 @@
     <ol class="small mb-0 mt-2">
         <li>{{ __('Multisig 3-of-5: submit + 2 confirmations of setMinter(income EOA, true) below (same minter as withdraw; skip if isMinter is already done).') }}</li>
         <li>{{ __('Refresh this page, then press "Go live". Mint-on-withdraw stays as it is (separate switch).') }}</li>
-        <li>{{ __('Go live → daily 04:00 IST auto-claims ALL on-chain Engine stakes into Virtual Income (stake #0, #1, #2…). Use “Run auto-claim now” to test. Optional wallet claimReward still exists for Income Hold. Withdraw Virtual→wallet needs setMinter. Recoup prevents double pay if Engine pays the same days later.') }}</li>
+        <li>{{ __('Live Engine cannot be claimed by cron (needs each member wallet). “Credit all users now” + daily 04:00 IST: Engine stake ROI → Virtual Income, remaining platform accrued ROI → Virtual Income. Recoup if a member later claims the same days on-chain. Withdraw Virtual→wallet needs setMinter.') }}</li>
     </ol>
 </div>
 

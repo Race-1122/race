@@ -121,12 +121,11 @@ class AdminRaceIncomeMinterScreen extends Screen
                 ->confirm(__('Pause daily auto-claim and manual remaining-stake virtual claim?'))
                 ->canSee(\App\Models\SiteSetting::stakeMintClaimEnabled())
                 ->method('pause'),
-            Button::make(__('Run auto-claim now'))
-                ->icon('bs.lightning')
-                ->class('btn btn-warning')
-                ->confirm(__('Credit today’s Engine stake ROI into Virtual Income for all members now?'))
-                ->canSee(\App\Models\SiteSetting::stakeMintClaimEnabled())
-                ->method('runAutoClaimNow'),
+            Button::make(__('Credit all users now'))
+                ->icon('bs.lightning-charge')
+                ->class('btn btn-primary')
+                ->confirm(__('Live Engine cannot be claimed without each member wallet. This credits ALL members now: on-chain Engine stake ROI → Virtual Income, plus remaining platform accrued ROI → Virtual Income. Continue?'))
+                ->method('creditAllUsersNow'),
         ];
     }
 
@@ -149,24 +148,27 @@ class AdminRaceIncomeMinterScreen extends Screen
         Toast::warning(__('Stake daily auto-claim is paused.'));
     }
 
-    public function runAutoClaimNow(): void
+    public function creditAllUsersNow(): void
     {
-        if (! \App\Models\SiteSetting::stakeMintClaimEnabled()) {
-            Toast::error(__('Go live first.'));
-
-            return;
-        }
-
         try {
-            $code = \Illuminate\Support\Facades\Artisan::call('stake-mint:auto-claim');
-            $out = trim(\Illuminate\Support\Facades\Artisan::output());
-            if ($code === 0) {
-                Toast::success(__('Auto-claim finished. :out', ['out' => \Illuminate\Support\Str::limit($out, 400)]));
+            $code1 = \Illuminate\Support\Facades\Artisan::call('stake-mint:auto-claim', ['--force' => true]);
+            $out1 = trim(\Illuminate\Support\Facades\Artisan::output());
+
+            $code2 = \Illuminate\Support\Facades\Artisan::call('income:auto-claim', ['--midnight-batch' => true]);
+            $out2 = trim(\Illuminate\Support\Facades\Artisan::output());
+
+            $out = trim($out1."\n".$out2);
+            if ($code1 === 0 && $code2 === 0) {
+                Toast::success(__('All-users credit finished. :out', ['out' => \Illuminate\Support\Str::limit($out, 500)]));
             } else {
-                Toast::error(__('Auto-claim exited :code. :out', ['code' => $code, 'out' => \Illuminate\Support\Str::limit($out, 400)]));
+                Toast::error(__('Credit exited engine=:e income=:i. :out', [
+                    'e' => $code1,
+                    'i' => $code2,
+                    'out' => \Illuminate\Support\Str::limit($out, 500),
+                ]));
             }
         } catch (\Throwable $e) {
-            Toast::error(__('Auto-claim failed: :msg', ['msg' => $e->getMessage()]));
+            Toast::error(__('Credit all users failed: :msg', ['msg' => $e->getMessage()]));
         }
     }
 

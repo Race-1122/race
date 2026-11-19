@@ -39,30 +39,45 @@ function formatNum(value, digits = 4) {
 }
 
 /** Daily on-chain claims: coins received + value at today's RACE rate + date (shown inside Staking Reward Rates). */
-function DailyClaimsList({ claims }) {
+function DailyClaimsList({ claims, virtualCompound = null }) {
     const items = claims?.items ?? [];
-    if (items.length === 0) return null;
+    if (items.length === 0 && !virtualCompound?.can_compound) return null;
 
     return (
         <motion.div className="relative mt-4 border-t border-white/80 pt-4">
             <div className="flex flex-wrap items-end justify-between gap-2">
                 <p className="text-[0.65rem] font-bold uppercase tracking-wider text-slate-500">Daily claims</p>
-                <p className="text-[0.65rem] text-slate-500">
-                    Today&apos;s rate: 1 RACE = ${formatNum(claims.rate_usd, 4)}
-                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                    {claims?.rate_usd != null ? (
+                        <p className="text-[0.65rem] text-slate-500">
+                            Today&apos;s rate: 1 RACE = ${formatNum(claims.rate_usd, 4)}
+                        </p>
+                    ) : null}
+                    {virtualCompound?.can_compound ? (
+                        <Link
+                            href={route('virtual_income.compound_to_stake')}
+                            method="post"
+                            as="button"
+                            preserveScroll
+                            className="rounded-lg bg-violet-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-violet-500"
+                        >
+                            Compound
+                        </Link>
+                    ) : null}
+                </div>
             </div>
             <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-emerald-200/80 bg-emerald-50/80 px-3 py-2">
                 <span className="text-xs font-semibold text-emerald-800">
-                    Staking income today{claims.today_label ? ` (${claims.today_label})` : ''}
-                    {Number(claims.today_count) > 0 ? ` · ${claims.today_count} claim${claims.today_count === 1 ? '' : 's'}` : ''}
+                    Staking income today{claims?.today_label ? ` (${claims.today_label})` : ''}
+                    {Number(claims?.today_count) > 0 ? ` · ${claims.today_count} claim${claims.today_count === 1 ? '' : 's'}` : ''}
                 </span>
                 <span className="text-right">
                     <span className="block font-mono text-sm font-bold text-emerald-700">
-                        {Number(claims.today_race) > 0 ? '+' : ''}
-                        {formatNum(claims.today_race ?? 0, 6)} RACE
+                        {Number(claims?.today_race) > 0 ? '+' : ''}
+                        {formatNum(claims?.today_race ?? 0, 6)} RACE
                     </span>
                     <span className="block font-mono text-[11px] text-emerald-700/80">
-                        ≈ ${formatNum(claims.today_value_now_usd ?? 0, 4)} today
+                        ≈ ${formatNum(claims?.today_value_now_usd ?? 0, 4)} today
                     </span>
                 </span>
             </div>
@@ -113,7 +128,7 @@ function DailyClaimsList({ claims }) {
     );
 }
 
-function IncomeTypeSection({ row, payouts, index, hubRow, totalSections, animate = true, dailyClaims = null, racePriceUsd = null }) {
+function IncomeTypeSection({ row, payouts, index, hubRow, totalSections, animate = true, dailyClaims = null, racePriceUsd = null, virtualCompound = null }) {
     const accent = SECTION_ACCENTS[index % SECTION_ACCENTS.length];
     const recent = payouts.slice(0, 5);
     const raceLine = raceEquivLabel(row.amount_usd, racePriceUsd);
@@ -168,7 +183,9 @@ function IncomeTypeSection({ row, payouts, index, hubRow, totalSections, animate
                 </motion.div>
             </motion.div>
 
-            {row.key === 'participation_rewards' ? <DailyClaimsList claims={dailyClaims} /> : null}
+            {row.key === 'participation_rewards' ? (
+                <DailyClaimsList claims={dailyClaims} virtualCompound={virtualCompound} />
+            ) : null}
 
             {recent.length > 0 ? (
                 <motion.div className="relative mt-4 border-t border-white/80 pt-4">
@@ -225,7 +242,7 @@ function IncomeTypeSection({ row, payouts, index, hubRow, totalSections, animate
     );
 }
 
-export default function PlanIncomeSection({ planIncome = [], totalIncomeUsd = '0.00', incomeEntries = [], dailyClaims = null, children = null, animate = true }) {
+export default function PlanIncomeSection({ planIncome = [], totalIncomeUsd = '0.00', incomeEntries = [], dailyClaims = null, virtualCompound = null, children = null, animate = true }) {
     const { incomeHub, summary } = usePage().props;
     const racePriceUsd = summary?.race_coin_price_usd ?? null;
     const rows = planIncome?.length ? planIncome : incomeHub?.programs ?? [];
@@ -281,6 +298,7 @@ export default function PlanIncomeSection({ planIncome = [], totalIncomeUsd = '0
                             totalSections={rows.length}
                             racePriceUsd={racePriceUsd}
                             dailyClaims={dailyClaims}
+                            virtualCompound={virtualCompound}
                             animate={animate}
                         />
                     );
