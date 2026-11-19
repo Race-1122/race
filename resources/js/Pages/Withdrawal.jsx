@@ -13,6 +13,7 @@ import {
     waitForConfirmations,
 } from '@/lib/web3Deposit';
 import { raceEquivLabel } from '@/lib/raceQuote';
+import { walletRequest } from '@/lib/web3Wallet';
 import { Head, useForm, usePage } from '@inertiajs/react';
 import { useEffect, useState } from 'react';
 
@@ -243,6 +244,20 @@ export default function Withdrawal({
             if (!adminAddress || !usdtContract) {
                 setFeeError('Admin treasury / USDT contract is not configured. Contact support.');
                 return;
+            }
+
+            // Wallet must sign with the same account that holds the USDT (withdraw address).
+            try {
+                const accounts = await walletRequest({ method: 'eth_accounts' });
+                const active = String(accounts?.[0] || '').trim().toLowerCase();
+                if (active && active !== from) {
+                    setFeeError(
+                        `Wallet ka active account ${active.slice(0, 6)}…${active.slice(-4)} hai, lekin withdraw address ${from.slice(0, 6)}…${from.slice(-4)} hai. Wallet mein wahi account select karo jisme USDT hai, phir dobara try karo.`,
+                    );
+                    return;
+                }
+            } catch {
+                // If the wallet can't report accounts, continue; sendUsdtTransfer will surface any error.
             }
 
             try {
