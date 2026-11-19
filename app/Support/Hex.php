@@ -24,8 +24,21 @@ final class Hex
             return '0';
         }
 
-        return function_exists('gmp_init')
-            ? gmp_strval(gmp_init($hex, 16), 10)
-            : (string) hexdec($hex);
+        if (! ctype_xdigit($hex)) {
+            return '0';
+        }
+
+        if (function_exists('gmp_init')) {
+            return gmp_strval(gmp_init($hex, 16), 10);
+        }
+
+        // No gmp: hexdec() returns a float ("1.0E+18") for big values and breaks bcmath.
+        $dec = '0';
+        $len = strlen($hex);
+        for ($i = 0; $i < $len; $i++) {
+            $dec = bcadd(bcmul($dec, '16', 0), (string) hexdec($hex[$i]), 0);
+        }
+
+        return $dec;
     }
 }

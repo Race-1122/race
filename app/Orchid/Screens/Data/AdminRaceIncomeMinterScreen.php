@@ -55,7 +55,7 @@ class AdminRaceIncomeMinterScreen extends Screen
                     if (function_exists('gmp_init')) {
                         $wei = gmp_strval(gmp_init($balHex, 16), 10);
                     } else {
-                        $wei = (string) hexdec($balHex);
+                        $wei = \App\Support\Hex::wordToDecimal($balHex);
                     }
                     $bnbBalance = bcdiv($wei, bcpow('10', '18', 0), 6);
                 }

@@ -206,16 +206,25 @@ class BlockchainEngineStakeIndexer
                     return;
                 }
 
-                $result = $this->upsertWalletRaceStakeRow(
-                    $topics,
-                    (string) ($payload['data'] ?? ''),
-                    (string) $event->tx_hash,
-                    (int) $event->block_number,
-                    $contract,
-                    $event->user_id,
-                );
-                if ($result['written']) {
-                    $repaired++;
+                try {
+                    $result = $this->upsertWalletRaceStakeRow(
+                        $topics,
+                        (string) ($payload['data'] ?? ''),
+                        (string) $event->tx_hash,
+                        (int) $event->block_number,
+                        $contract,
+                        $event->user_id,
+                    );
+                    if ($result['written']) {
+                        $repaired++;
+                    }
+                } catch (\Throwable $e) {
+                    // One bad event must never block the others (or ID activation).
+                    \Illuminate\Support\Facades\Log::error('StakeOpened repair failed', [
+                        'event_id' => $event->id,
+                        'tx' => $event->tx_hash,
+                        'error' => $e->getMessage(),
+                    ]);
                 }
             });
 
@@ -452,6 +461,17 @@ class BlockchainEngineStakeIndexer
             ->distinct()
             ->pluck('user_id');
 
+        // A saved StakeOpened event with a linked member is proof of a stake, even if the
+        // engine row could not be written (activation must never depend on that row).
+        if (\Illuminate\Support\Facades\Schema::hasTable('blockchain_events')) {
+            $eventUserIds = BlockchainEvent::query()
+                ->where('event_name', 'StakeOpened')
+                ->whereNotNull('user_id')
+                ->distinct()
+                ->pluck('user_id');
+            $userIds = $userIds->merge($eventUserIds)->unique()->values();
+        }
+
         // Only members still waiting for activation — never re-touch already active members
         // (activation also sets the 24h withdrawal lock; repeating it would re-lock everyone).
         $pending = User::query()
@@ -531,9 +551,7 @@ class BlockchainEngineStakeIndexer
             return '0';
         }
 
-        return function_exists('gmp_init')
-            ? gmp_strval(gmp_init($hex, 16), 10)
-            : (string) hexdec($hex);
+        return \App\Support\Hex::wordToDecimal($hex);
     }
 
     private function weiToToken(string $wei): string

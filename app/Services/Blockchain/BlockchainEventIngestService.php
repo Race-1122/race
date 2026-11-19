@@ -300,6 +300,14 @@ class BlockchainEventIngestService
                 );
             } catch (\Throwable $e) {
                 Log::error('StakeOpened engine write failed', ['tx' => $txHash, 'error' => $e->getMessage()]);
+                // The stake is on-chain: activate the member ID anyway.
+                try {
+                    if ($userId && ($stakeUser = User::query()->find((int) $userId))) {
+                        $stakeUser->activateIdAndLockWithdrawalsAfterStake();
+                    }
+                } catch (\Throwable $e2) {
+                    Log::error('StakeOpened fallback activation failed', ['tx' => $txHash, 'error' => $e2->getMessage()]);
+                }
             }
         }
         // Engine ParticipationPurchased (ICO openIcoStake / participate): mirror into investments
@@ -502,9 +510,7 @@ class BlockchainEventIngestService
             return '0';
         }
 
-        return function_exists('gmp_init')
-            ? gmp_strval(gmp_init($hex, 16), 10)
-            : (string) hexdec($hex);
+        return \App\Support\Hex::wordToDecimal($hex);
     }
 
     private function weiToToken(string $wei): string

@@ -164,9 +164,7 @@ class IncomeVaultEventDecoder
         if ($hex === '') {
             return '0.00000000';
         }
-        $wei = function_exists('gmp_init')
-            ? gmp_strval(gmp_init($hex, 16), 10)
-            : (string) hexdec($hex);
+        $wei = \App\Support\Hex::wordToDecimal($hex);
 
         return bcdiv($wei, bcpow('10', '18', 0), 8);
     }

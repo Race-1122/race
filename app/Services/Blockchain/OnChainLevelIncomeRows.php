@@ -164,7 +164,7 @@ class OnChainLevelIncomeRows
         if ($hex === '') {
             return number_format(0, $scale, '.', '');
         }
-        $wei = function_exists('gmp_init') ? gmp_strval(gmp_init($hex, 16), 10) : (string) hexdec($hex);
+        $wei = \App\Support\Hex::wordToDecimal($hex);
 
         return bcdiv($wei, '1000000000000000000', $scale);
     }
