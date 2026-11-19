@@ -281,6 +281,26 @@ class User extends OrchidUser
         }
     }
 
+    /**
+     * Activate Member ID + participation for an existing on-chain stake without touching
+     * withdrawals_locked_until (repair path for old stakes).
+     */
+    public function activateIdWithoutLock(): void
+    {
+        $patch = [];
+
+        if ($this->id_activated_at === null) {
+            $patch['id_activated_at'] = now();
+        }
+        if ($this->participation_activated_at === null) {
+            $patch['participation_activated_at'] = now();
+        }
+
+        if ($patch !== []) {
+            $this->forceFill($patch)->save();
+        }
+    }
+
     public function isLendingAccessActive(): bool
     {
         return ($this->lending_user_status ?? self::LENDING_STATUS_ACTIVE) === self::LENDING_STATUS_ACTIVE;

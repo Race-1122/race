@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\BlockchainEngineStake;
+use App\Models\BlockchainEvent;
 use App\Models\User;
 use App\Services\Blockchain\BlockchainEngineStakeIndexer;
 use App\Services\Blockchain\BlockchainEventIngestService;
@@ -116,6 +117,80 @@ class StakeIdActivationTest extends TestCase
         $this->assertNotNull($pending->id_activated_at);
         $this->assertNotNull($pending->participation_activated_at);
         $this->assertNull($active->withdrawals_locked_until, 'already-active members must not be re-locked');
+    }
+
+    /** StakeOpened data: principalUsdt=1e18, raceStaked=2e18, lockPeriod=1095d, dailyRateBps=100. */
+    private function stakeOpenedData(): string
+    {
+        return '0x'
+            .str_pad('de0b6b3a7640000', 64, '0', STR_PAD_LEFT)
+            .str_pad('1bc16d674ec80000', 64, '0', STR_PAD_LEFT)
+            .str_pad('5a39a80', 64, '0', STR_PAD_LEFT)
+            .str_pad('64', 64, '0', STR_PAD_LEFT);
+    }
+
+    private function storeStakeOpenedEvent(User $user, string $wallet, int $index = 0): void
+    {
+        BlockchainEvent::query()->create([
+            'user_id' => $user->id,
+            'wallet_address' => $wallet,
+            'contract_address' => self::STAKE_CONTRACT,
+            'event_name' => 'StakeOpened',
+            'tx_hash' => self::TX,
+            'log_index' => $index,
+            'block_number' => 1,
+            'payload' => [
+                'topics' => [
+                    self::STAKE_OPENED_TOPIC,
+                    '0x'.str_pad(substr($wallet, 2), 64, '0', STR_PAD_LEFT),
+                    '0x'.str_pad(dechex($index), 64, '0', STR_PAD_LEFT),
+                ],
+                'data' => $this->stakeOpenedData(),
+            ],
+        ]);
+    }
+
+    public function test_missing_engine_row_is_repaired_and_id_activated_without_lock(): void
+    {
+        $user = User::factory()->create([
+            'wallet_address' => self::WALLET,
+            'id_activated_at' => null,
+            'participation_activated_at' => null,
+            'withdrawals_locked_until' => null,
+        ]);
+        // Event saved, but engine write never happened (the reported bug).
+        $this->storeStakeOpenedEvent($user, self::WALLET, 0);
+
+        app(BlockchainEngineStakeIndexer::class)->activateMembersWithOpenStakes();
+
+        $this->assertDatabaseHas('blockchain_engine_stakes', [
+            'wallet_address' => self::WALLET,
+            'stake_index' => 0,
+            'user_id' => $user->id,
+        ]);
+        $user->refresh();
+        $this->assertNotNull($user->id_activated_at);
+        $this->assertNotNull($user->participation_activated_at);
+        $this->assertNull($user->withdrawals_locked_until, 'old stakes must not add a 24h withdrawal lock');
+    }
+
+    public function test_repair_never_relocks_an_already_active_member(): void
+    {
+        $user = User::factory()->create([
+            'wallet_address' => self::WALLET,
+            'id_activated_at' => now()->subDays(3),
+            'participation_activated_at' => now()->subDays(3),
+            'withdrawals_locked_until' => null,
+        ]);
+        $this->storeStakeOpenedEvent($user, self::WALLET, 0);
+
+        $indexer = app(BlockchainEngineStakeIndexer::class);
+        $indexer->activateMembersWithOpenStakes();
+        $indexer->activateMembersWithOpenStakes();
+
+        $user->refresh();
+        $this->assertNull($user->withdrawals_locked_until);
+        $this->assertDatabaseCount('blockchain_engine_stakes', 1);
     }
 
     private function makeStake(string $wallet, ?int $userId, int $index): void

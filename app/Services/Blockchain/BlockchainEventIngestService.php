@@ -200,6 +200,23 @@ class BlockchainEventIngestService
             ->exists();
 
         if ($alreadyStored) {
+            // The event row was saved earlier but its engine row may have failed then: rewrite it
+            // (idempotent, no activation, no lock).
+            if ($eventName === 'StakeOpened') {
+                try {
+                    app(BlockchainEngineStakeIndexer::class)->upsertWalletRaceStakeRow(
+                        $topics,
+                        (string) ($log['data'] ?? ''),
+                        $txHash,
+                        $blockNumber,
+                        $contract,
+                        null,
+                    );
+                } catch (\Throwable $e) {
+                    Log::error('StakeOpened engine row rewrite failed', ['tx' => $txHash, 'error' => $e->getMessage()]);
+                }
+            }
+
             if ($eventName === 'ICOPurchased' || $eventName === 'ICOPurchase') {
                 $walletTopicIndex = $eventName === 'ICOPurchased' ? 2 : 1;
                 $wallet = isset($topics[$walletTopicIndex])
@@ -270,14 +287,20 @@ class BlockchainEventIngestService
             );
         }
         if ($eventName === 'StakeOpened') {
-            $stakeIndexer->storeWalletRaceStakeOpened(
-                $topics,
-                (string) ($log['data'] ?? ''),
-                $txHash,
-                $blockNumber,
-                $contract,
-                $userId,
-            );
+            // Event row is already saved above. A failure here must be logged, not silently
+            // skipped forever; repairMissingWalletStakeRows() retries it every minute.
+            try {
+                $stakeIndexer->storeWalletRaceStakeOpened(
+                    $topics,
+                    (string) ($log['data'] ?? ''),
+                    $txHash,
+                    $blockNumber,
+                    $contract,
+                    $userId,
+                );
+            } catch (\Throwable $e) {
+                Log::error('StakeOpened engine write failed', ['tx' => $txHash, 'error' => $e->getMessage()]);
+            }
         }
         // Engine ParticipationPurchased (ICO openIcoStake / participate): mirror into investments
         // via UI-less path when the wallet is already linked to a user.

@@ -89,20 +89,43 @@ class BlockchainEngineStakeIndexer
         string $contract,
         mixed $userId,
     ): void {
+        $result = $this->upsertWalletRaceStakeRow($topics, $data, $txHash, $blockNumber, $contract, $userId);
+
+        // Pancake / wallet RACE stake must activate Member ID same as ICO createStake (new stake only).
+        if ($result['written']) {
+            $this->activateUserAfterStake($result['user_id']);
+        }
+    }
+
+    /**
+     * Writes / updates the engine row for one StakeOpened log. Idempotent. No activation, no lock.
+     *
+     * @return array{written: bool, user_id: ?int}
+     */
+    public function upsertWalletRaceStakeRow(
+        array $topics,
+        string $data,
+        string $txHash,
+        int $blockNumber,
+        string $contract,
+        mixed $userId,
+    ): array {
+        $none = ['written' => false, 'user_id' => null];
+
         if (! \Illuminate\Support\Facades\Schema::hasTable('blockchain_engine_stakes')) {
-            return;
+            return $none;
         }
 
         $wallet = isset($topics[1]) ? '0x'.substr((string) $topics[1], 26) : '';
         $stakeIndex = isset($topics[2]) ? hexdec((string) $topics[2]) : null;
         if ($wallet === '' || $stakeIndex === null || $txHash === '') {
-            return;
+            return $none;
         }
 
         $hex = Str::lower(Str::startsWith($data, '0x') ? substr($data, 2) : $data);
         // principalUsdt, raceStaked, lockPeriod, dailyRateBps
         if (strlen($hex) < 256) {
-            return;
+            return $none;
         }
 
         $usdtWei = $this->hexToDecimalString(substr($hex, 0, 64));
@@ -140,8 +163,63 @@ class BlockchainEngineStakeIndexer
             ],
         );
 
-        // Pancake / wallet RACE stake must activate Member ID same as ICO createStake.
-        $this->activateUserAfterStake($resolvedUserId);
+        return [
+            'written' => true,
+            'user_id' => $resolvedUserId !== null ? (int) $resolvedUserId : null,
+        ];
+    }
+
+    /**
+     * Self-heal: StakeOpened events already saved in blockchain_events whose engine row is missing
+     * (engine write failed once after the event was saved). Writes the row. Activation is handled by
+     * activateMembersWithOpenStakes() and never adds a withdrawal lock for old stakes.
+     */
+    private function repairMissingWalletStakeRows(int $limit = 500): int
+    {
+        if (! \Illuminate\Support\Facades\Schema::hasTable('blockchain_events')) {
+            return 0;
+        }
+
+        $repaired = 0;
+        BlockchainEvent::query()
+            ->where('event_name', 'StakeOpened')
+            ->orderBy('id')
+            ->limit($limit)
+            ->get()
+            ->each(function (BlockchainEvent $event) use (&$repaired): void {
+                $payload = is_array($event->payload) ? $event->payload : [];
+                $topics = $payload['topics'] ?? [];
+                if (! is_array($topics) || count($topics) < 3) {
+                    return;
+                }
+
+                $wallet = strtolower((string) $event->wallet_address);
+                $contract = strtolower((string) $event->contract_address);
+                $stakeIndex = (int) hexdec((string) $topics[2]);
+
+                $exists = BlockchainEngineStake::query()
+                    ->where('wallet_address', $wallet)
+                    ->where('stake_index', $stakeIndex)
+                    ->where('contract_address', $contract)
+                    ->exists();
+                if ($exists) {
+                    return;
+                }
+
+                $result = $this->upsertWalletRaceStakeRow(
+                    $topics,
+                    (string) ($payload['data'] ?? ''),
+                    (string) $event->tx_hash,
+                    (int) $event->block_number,
+                    $contract,
+                    $event->user_id,
+                );
+                if ($result['written']) {
+                    $repaired++;
+                }
+            });
+
+        return $repaired;
     }
 
     /**
@@ -342,6 +420,9 @@ class BlockchainEngineStakeIndexer
             return ['scanned' => 0, 'activated' => 0];
         }
 
+        // First: recover engine rows for StakeOpened events that were saved without them.
+        $this->repairMissingWalletStakeRows();
+
         $openStakes = function () {
             return BlockchainEngineStake::query()
                 ->where(function ($q) {
@@ -383,7 +464,8 @@ class BlockchainEngineStakeIndexer
 
         $activated = 0;
         foreach ($pending as $user) {
-            $user->activateIdAndLockWithdrawalsAfterStake();
+            // ID only, no 24h withdrawal lock: this path handles stakes that already exist on-chain.
+            $user->activateIdWithoutLock();
             $activated++;
         }
 
