@@ -354,16 +354,6 @@ export default function Withdrawal({
                         </MemberAlert>
                     ) : null}
 
-                    <MemberAlert variant="info" className="mb-3">
-                        Daily claim and other income use one total. Pick which type to withdraw —
-                        fees apply once on that amount only.
-                        {raceMintOnWithdraw
-                            ? ' Order: 1) Admin Fee USDT leaves your wallet to treasury, 2) Team Reward 10% is shared, 3) net mints as RACE.'
-                            : ''}
-                        {stake_auto_claim_live
-                            ? ' Daily stake ROI auto-credits into Daily claim.'
-                            : ''}
-                    </MemberAlert>
                     {feeError ? (
                         <MemberAlert variant="error" className="mb-3">
                             {feeError}
