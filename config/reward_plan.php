@@ -163,8 +163,10 @@ return [
     | Official path: Laravel WithdrawalService (earned income ledger → BEP20 USDT).
     | TWO SEPARATE deductions from gross:
     |   A) Team Reward = 10% of gross → L1–L10 (unqualified → admin ledger remainder)
-    |   B) Admin Fee  = $1 flat if gross < 100; else 1% of gross → Admin/Treasury
-    | Net = gross − team_reward − admin_fee.
+    |   B) Admin Fee  = $1 flat if gross < 100; else 2% of gross → Admin/Treasury
+    | Fee-first (RACE mint on withdraw): Admin Fee paid as USDT on-chain; income net =
+    |   gross − team_reward only (admin not subtracted again from income).
+    | Legacy pending path (no mint): Net = gross − team_reward − admin_fee.
     | NOT applied to: fixed maturity RaceTreasury fee, on-chain EMI claim, Flexible Engine exit,
     | ROI claim, compound, ICO. Flexible on-chain exit still uses Engine RACE team rewards.
     */

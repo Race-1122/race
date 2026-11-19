@@ -53,6 +53,32 @@ class WithdrawalTeamRewardTest extends TestCase
         }
     }
 
+    public function test_fee_first_income_net_cuts_only_team_reward(): void
+    {
+        // Admin Fee paid as USDT externally — income net = gross − 10% only.
+        $cases = [
+            ['10', '9.00'],
+            ['50', '45.00'],
+            ['99', '89.10'],
+            ['100', '90.00'],
+            ['1000', '900.00'],
+        ];
+
+        foreach ($cases as [$gross, $incomeNet]) {
+            $this->assertSame(
+                $incomeNet,
+                RewardPlan::incomeNetUsd($gross, true),
+                "fee-first income net for {$gross}",
+            );
+            // Legacy (admin taken from income) stays dual.
+            $this->assertSame(
+                RewardPlan::calculateWalletWithdrawalFee($gross)['net_usd'],
+                RewardPlan::incomeNetUsd($gross, false),
+                "legacy income net for {$gross}",
+            );
+        }
+    }
+
     public function test_income_withdrawal_applies_team_reward_and_separate_admin_fee(): void
     {
         $sponsor = User::factory()->create([

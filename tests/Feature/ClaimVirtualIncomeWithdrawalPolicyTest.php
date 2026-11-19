@@ -177,6 +177,8 @@ class ClaimVirtualIncomeWithdrawalPolicyTest extends TestCase
         $response = $this->actingAs($member)->post(route('withdrawals.store'), [
             'amount_usd' => '500',
             'destination_address' => '0x1234567890123456789012345678901234567890',
+            'income_bucket' => 'other',
+            // Client-forged fee fields must be ignored; server recalculates.
             'admin_fee_usd' => '0.01',
             'net_usd' => '999.00',
             'team_reward_usd' => '0.00',
@@ -186,6 +188,7 @@ class ClaimVirtualIncomeWithdrawalPolicyTest extends TestCase
         $withdrawal = Withdrawal::query()->where('user_id', $member->id)->latest('id')->first();
         $this->assertNotNull($withdrawal);
         $this->assertSame('10.00', number_format((float) $withdrawal->admin_fee_usd, 2, '.', ''));
+        // Pending (no mint) path: net = gross − team − admin = 500 − 50 − 10 = 440.
         $this->assertSame('440.00', number_format((float) $withdrawal->net_usd, 2, '.', ''));
     }
 

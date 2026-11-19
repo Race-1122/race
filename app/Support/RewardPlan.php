@@ -46,8 +46,9 @@ final class RewardPlan
     /**
      * User income / USDT wallet withdrawal fees (Laravel only) — dual deduction:
      *   Team Reward = 10% of gross → Community Team Rewards L1–L10 pool
-     *   Admin Fee   = $1 if gross < 100; else 1% of gross → Admin/Treasury
-     * Net = gross − team_reward − admin_fee.
+     *   Admin Fee   = $1 if gross < 100; else 2% of gross → Admin/Treasury
+     * Legacy net (this helper) = gross − team_reward − admin_fee.
+     * Fee-first mint path overrides net to gross − team only (admin paid as USDT).
      * Separate from on-chain fixed maturity 10% → RaceTreasury / EMI.
      *
      * @return array{
@@ -86,7 +87,21 @@ final class RewardPlan
     }
 
     /**
-     * Cash-out Admin Fee (USDT): $1 flat when gross < 100; else 1% of gross.
+     * Income net the user receives after fees.
+     * When Admin Fee is paid externally (USDT fee-first), only Team Reward (10%) is cut from income.
+     */
+    public static function incomeNetUsd(string|float $grossAmountUsd, bool $adminFeePaidExternally = false): string
+    {
+        $gross = number_format((float) $grossAmountUsd, 2, '.', '');
+        $calc = self::calculateWalletWithdrawalFee($gross);
+
+        return $adminFeePaidExternally
+            ? bcsub($gross, $calc['team_reward_usd'], 2)
+            : $calc['net_usd'];
+    }
+
+    /**
+     * Cash-out Admin Fee (USDT): $1 flat when gross < 100; else 2% of gross.
      * Shared helper for income withdrawal (and any future USDT payout gate).
      * Not the fixed-maturity 10% RaceTreasury company fee.
      *

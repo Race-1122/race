@@ -215,7 +215,8 @@ export default function Withdrawal({
     const adminFeeRaw =
         gross > 0 ? (gross < adminPercentFrom ? adminFlat : (gross * adminPercent) / 100) : 0;
     const adminFee = Math.floor(adminFeeRaw * 100 + 1e-6) / 100;
-    const net = gross > 0 ? gross - teamReward - adminFee : 0;
+    // Fee-first (RACE mint): Admin Fee is paid in USDT separately — income net = gross − 10% only.
+    const net = gross > 0 ? (raceMintOnWithdraw ? gross - teamReward : gross - teamReward - adminFee) : 0;
 
     useEffect(() => {
         configureWeb3Network({
@@ -343,7 +344,7 @@ export default function Withdrawal({
                 <>
                 <MemberPageHero kicker="Income wallet" title="Income wallet" variant="pdf" icon="withdrawal">
                     {raceMintOnWithdraw
-                        ? 'Pay Admin Fee in USDT from your wallet, Team Reward 10% is shared, then net income mints as RACE.'
+                        ? 'Pay Admin Fee in USDT from your wallet. From income only 10% Team Reward is cut; net mints as RACE.'
                         : 'Withdraw income to your BEP20 wallet. Team Reward + Admin Fee apply once per withdraw.'}
                 </MemberPageHero>
 
@@ -559,9 +560,23 @@ export default function Withdrawal({
                                 {gross > 0 ? (
                                     <p className="mt-2 text-xs text-fintech-muted">
                                         Team Reward ({percent}%):{' '}
-                                        <strong>{formatUsdtBalance(teamReward)}</strong> · Admin Fee:{' '}
-                                        <strong>{formatUsdtBalance(adminFee)}</strong> · Net withdrawal:{' '}
-                                        <strong>{formatUsdtBalance(net)}</strong>
+                                        <strong>{formatUsdtBalance(teamReward)}</strong>
+                                        {raceMintOnWithdraw ? (
+                                            <>
+                                                {' '}
+                                                · Admin Fee (USDT wallet):{' '}
+                                                <strong>{formatUsdtBalance(adminFee)}</strong> · From
+                                                income you receive:{' '}
+                                                <strong>{formatUsdtBalance(net)}</strong>
+                                            </>
+                                        ) : (
+                                            <>
+                                                {' '}
+                                                · Admin Fee:{' '}
+                                                <strong>{formatUsdtBalance(adminFee)}</strong> · Net
+                                                withdrawal: <strong>{formatUsdtBalance(net)}</strong>
+                                            </>
+                                        )}
                                         {raceEquivLabel(net, race_price_usd) ? (
                                             <>
                                                 {' '}

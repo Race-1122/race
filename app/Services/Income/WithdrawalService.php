@@ -96,12 +96,14 @@ class WithdrawalService
      * Create a user income / USDT wallet withdrawal request.
      *
      * Server-side dual fee (do not trust client):
-     *   Team Reward = 10% of gross → L1–L10
-     *   Admin Fee   = $1 if gross < 100; else 1% → Admin/Treasury ledger
-     * Net = gross − team − admin.
+     *   Team Reward = 10% of gross → L1–L10 (always from income)
+     *   Admin Fee   = $1 if gross < 100; else 2% → paid as USDT (fee-first mint path)
+     *                   or deducted from income net (legacy pending / no-mint path)
      *
-     * When race_income_mint.enabled: mint net as RACE via RaceCoin.mint to wallet (no admin approve).
-     * Otherwise: gross reserved until admin approval debit.
+     * When race_income_mint.enabled (fee-first):
+     *   Admin Fee is paid on-chain as USDT first; income net = gross − team only.
+     *   Mint that net as RACE (no admin approve).
+     * Otherwise: net = gross − team − admin; gross reserved until admin approval debit.
      *
      * Does NOT apply to fixed maturity / EMI / Engine Flexible stake exit.
      */
@@ -198,10 +200,14 @@ class WithdrawalService
         $feeCalc = RewardPlan::calculateWalletWithdrawalFee($gross);
         $teamReward = $feeCalc['team_reward_usd'];
         $adminFee = $feeCalc['admin_fee_usd'];
-        $net = $feeCalc['net_usd'];
+        // Fee-first (RACE mint): Admin Fee is paid in USDT from the user's wallet — do not
+        // subtract it again from income. Income loses only the 10% Team Reward.
+        $net = RewardPlan::incomeNetUsd($gross, $mintOnWithdraw);
         if (bccomp($net, '0', 2) <= 0) {
             throw ValidationException::withMessages([
-                'amount_usd' => __('Amount too small after Team Reward and Admin Fee. Increase the withdrawal amount.'),
+                'amount_usd' => $mintOnWithdraw
+                    ? __('Amount too small after Team Reward (10%). Increase the withdrawal amount.')
+                    : __('Amount too small after Team Reward and Admin Fee. Increase the withdrawal amount.'),
             ]);
         }
 
@@ -677,7 +683,7 @@ class WithdrawalService
                 'settled_as' => $feeTx ? 'on_chain_usdt' : 'ledger_only',
                 'note' => $feeTx
                     ? 'Income withdrawal Admin Fee paid on-chain as USDT to treasury'
-                    : 'Income withdrawal Admin Fee ($1 flat under $100, else 1%)',
+                    : 'Income withdrawal Admin Fee ($1 flat under $100, else 2%)',
                 'admin_wallet_bep20' => SiteSetting::treasuryAddress(),
                 'network' => SiteSetting::treasuryNetworkLabel(),
             ],
