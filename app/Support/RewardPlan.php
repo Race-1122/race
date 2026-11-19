@@ -135,7 +135,7 @@ final class RewardPlan
             'flat_fee_usd' => number_format((float) ($adminCfg['flat_usd'] ?? 1), 2, '.', ''),
             'flat_fee_max_gross_usd' => $flatMax,
             'percent_from_usd' => $threshold,
-            'admin_fee_percent' => number_format((float) ($adminCfg['percent'] ?? 1), 2, '.', ''),
+            'admin_fee_percent' => number_format((float) ($adminCfg['percent'] ?? 2), 2, '.', ''),
         ];
     }
 

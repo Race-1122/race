@@ -36,7 +36,7 @@ const defaultProps = {
         percent_from_usd: '100.00',
         percent: '10.00',
         team_reward_percent: '10.00',
-        admin_fee_percent: '1.00',
+        admin_fee_percent: '2.00',
         mode: 'dual',
         destination: 'community_team_rewards',
     },

@@ -90,7 +90,7 @@ export default function IncomePayout({
     const teamPercent = Number(withdrawal_fee.team_reward_percent ?? withdrawal_fee.percent) || 10;
     const adminFlat = Number(withdrawal_fee.flat_fee_usd) || 1;
     const adminFrom = Number(withdrawal_fee.percent_from_usd) || 100;
-    const adminPercent = Number(withdrawal_fee.admin_fee_percent) || 1;
+    const adminPercent = Number(withdrawal_fee.admin_fee_percent) || 2;
     const minAmount = Number(withdrawal_fee.min_amount_usd) || 1;
     const price = Number(race_price_usd) || 0;
 

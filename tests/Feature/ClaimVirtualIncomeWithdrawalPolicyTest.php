@@ -119,8 +119,8 @@ class ClaimVirtualIncomeWithdrawalPolicyTest extends TestCase
         $cases = [
             ['50', '1.00'],
             ['99', '1.00'],
-            ['100', '1.00'],
-            ['500', '5.00'],
+            ['100', '2.00'],
+            ['500', '10.00'],
         ];
 
         foreach ($cases as [$gross, $admin]) {
@@ -146,8 +146,8 @@ class ClaimVirtualIncomeWithdrawalPolicyTest extends TestCase
             '500',
             '0x1234567890123456789012345678901234567890',
         );
-        $this->assertSame('5.00', number_format((float) $w500->admin_fee_usd, 2, '.', ''));
-        $this->assertSame('445.00', number_format((float) $w500->net_usd, 2, '.', ''));
+        $this->assertSame('10.00', number_format((float) $w500->admin_fee_usd, 2, '.', ''));
+        $this->assertSame('440.00', number_format((float) $w500->net_usd, 2, '.', ''));
     }
 
     public function test_admin_fee_charged_only_once_per_withdrawal(): void
@@ -185,8 +185,8 @@ class ClaimVirtualIncomeWithdrawalPolicyTest extends TestCase
         $response->assertRedirect();
         $withdrawal = Withdrawal::query()->where('user_id', $member->id)->latest('id')->first();
         $this->assertNotNull($withdrawal);
-        $this->assertSame('5.00', number_format((float) $withdrawal->admin_fee_usd, 2, '.', ''));
-        $this->assertSame('445.00', number_format((float) $withdrawal->net_usd, 2, '.', ''));
+        $this->assertSame('10.00', number_format((float) $withdrawal->admin_fee_usd, 2, '.', ''));
+        $this->assertSame('440.00', number_format((float) $withdrawal->net_usd, 2, '.', ''));
     }
 
     public function test_claim_has_zero_admin_fee_even_when_user_posts_fake_fee(): void

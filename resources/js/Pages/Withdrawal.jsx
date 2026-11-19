@@ -147,7 +147,7 @@ export default function Withdrawal({
         flat_fee_usd: '1.00',
         flat_fee_max_gross_usd: '99.99',
         percent_from_usd: '100.00',
-        admin_fee_percent: '1.00',
+        admin_fee_percent: '2.00',
     },
     admin_wallet = {
         address: '',
@@ -184,7 +184,7 @@ export default function Withdrawal({
     const percent = Number(withdrawal_fee.team_reward_percent ?? withdrawal_fee.percent) || 10;
     const adminFlat = Number(withdrawal_fee.flat_fee_usd) || 1;
     const adminPercentFrom = Number(withdrawal_fee.percent_from_usd) || 100;
-    const adminPercent = Number(withdrawal_fee.admin_fee_percent) || 1;
+    const adminPercent = Number(withdrawal_fee.admin_fee_percent) || 2;
     const adminAddress = (admin_wallet?.address || '').trim();
     const usdtContract = (admin_wallet?.usdt_contract || blockchain?.contracts?.usdt || '').trim();
     const minConfirmations = Number(admin_wallet?.min_confirmations ?? 12);

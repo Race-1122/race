@@ -178,7 +178,7 @@ return [
                 'flat_usd' => 1.0,
                 /** Gross below this threshold uses flat_usd; at/above uses percent. */
                 'percent_from_usd' => 100.0,
-                'percent' => 1.0,
+                'percent' => 2.0,
             ],
         ],
         'withdrawal_fee_percent' => 10.0,

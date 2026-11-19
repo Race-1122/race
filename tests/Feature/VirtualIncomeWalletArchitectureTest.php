@@ -138,7 +138,7 @@ class VirtualIncomeWalletArchitectureTest extends TestCase
 
     public function test_withdrawal_admin_fee_examples(): void
     {
-        foreach ([['50', '1.00'], ['99', '1.00'], ['100', '1.00'], ['500', '5.00']] as [$g, $fee]) {
+        foreach ([['50', '1.00'], ['99', '1.00'], ['100', '2.00'], ['500', '10.00']] as [$g, $fee]) {
             $calc = RewardPlan::calculateWalletWithdrawalFee($g);
             $this->assertSame($fee, $calc['admin_fee_usd']);
         }
