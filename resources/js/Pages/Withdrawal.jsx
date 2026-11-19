@@ -210,8 +210,10 @@ export default function Withdrawal({
 
     const gross = Number(data.amount_usd) || 0;
     const teamReward = gross > 0 ? (gross * percent) / 100 : 0;
-    const adminFee =
+    // Same 2-decimal truncation as server (RewardPlan::calculatePayoutAdminFee).
+    const adminFeeRaw =
         gross > 0 ? (gross < adminPercentFrom ? adminFlat : (gross * adminPercent) / 100) : 0;
+    const adminFee = Math.floor(adminFeeRaw * 100 + 1e-6) / 100;
     const net = gross > 0 ? gross - teamReward - adminFee : 0;
 
     useEffect(() => {
@@ -254,7 +256,7 @@ export default function Withdrawal({
                     from,
                     to: adminAddress,
                     usdtContract,
-                    amountUsd: adminFee,
+                    amountUsd: adminFee.toFixed(2),
                 });
 
                 setFeeStep('confirming');
