@@ -4,6 +4,7 @@ import MemberPageShell from '@/Components/Member/MemberPageShell';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { useWalletNetwork } from '@/hooks/useWalletNetwork';
 import { linkWalletToAccount } from '@/lib/walletAccountLink';
+import { csrfHeaders } from '@/lib/csrf';
 import { parseTokenAmount } from '@/lib/web3Deposit';
 import {
     applySlippage,
@@ -40,6 +41,26 @@ function formatCoins(n) {
     }).format(v);
 }
 
+async function makeWholeBuy(txHash) {
+    const response = await fetch(route('swap.buy_make_whole'), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+            ...csrfHeaders(),
+        },
+        body: JSON.stringify({ tx_hash: txHash }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const firstError = payload.errors ? Object.values(payload.errors).flat()[0] : null;
+        throw new Error(firstError || payload.error || payload.message || 'Could not credit the full buy amount.');
+    }
+    return payload;
+}
+
 /**
  * On-chain swap via PancakeSwap Router (BSC).
  * Liquidity stays in the Pancake pair — no internal swap/stake contract.
@@ -52,7 +73,7 @@ export default function Swap({
         usdt_contract: '',
         pancake_router: '',
         block_explorer: 'https://bscscan.com',
-        slippage_bps: 100,
+        slippage_bps: 0,
         deadline_seconds: 1200,
     },
     raceCoin = {
@@ -70,7 +91,7 @@ export default function Swap({
     const router = (pancake.pancake_router || blockchain?.contracts?.pancake_router || '').trim();
     const rpcUrl = (pancake.rpc_url || blockchain?.rpc_url || '').trim();
     const explorer = pancake.block_explorer || 'https://bscscan.com';
-    const slippageBps = Number(pancake.slippage_bps ?? 100);
+    const slippageBps = Number(pancake.slippage_bps ?? 0);
     const deadlineSeconds = Number(pancake.deadline_seconds ?? 1200);
     const expectedChainId = Number(pancake.chain_id || blockchain?.chain_id || 56);
 
@@ -150,9 +171,7 @@ export default function Swap({
                     direction === 'sell' ? expectedNetAfterTransferTax(wei, RACE_TRANSFER_TAX_BPS) : wei;
                 const path = direction === 'buy' ? [usdtContract, raceToken] : [raceToken, usdtContract];
                 const out = await getSwapQuote({ router, path, amountIn: quoteIn, rpcUrl });
-                // Buy: wallet receives ~96% of router out (RACE tax on transfer from pair).
-                const displayOut =
-                    direction === 'buy' ? expectedNetAfterTransferTax(out, RACE_TRANSFER_TAX_BPS) : out;
+                const displayOut = out;
                 if (!cancelled) setQuoteOut(displayOut);
             } catch {
                 if (!cancelled) setQuoteOut(0n);
@@ -236,11 +255,14 @@ export default function Swap({
                     : await sellRaceForUsdt({ ...common, amountRace: amountIn });
 
             setLastTx(txHash);
-            setSwapSuccess(
-                direction === 'buy'
-                    ? 'Swap complete — RACE is in your wallet.'
-                    : 'Swap complete — USDT is in your wallet.',
-            );
+
+            if (direction === 'buy') {
+                setSwapStep('make-whole');
+                await makeWholeBuy(txHash);
+                setSwapSuccess('Swap complete — full quoted RACE is in your wallet.');
+            } else {
+                setSwapSuccess('Swap complete — USDT is in your wallet.');
+            }
             setAmountIn('');
             setQuoteOut(0n);
         } catch (err) {
@@ -260,7 +282,9 @@ export default function Swap({
             ? 'Switching to BNB Smart Chain…'
             : swapStep === 'approve'
               ? 'Confirm approve + swap in your wallet…'
-              : null;
+              : swapStep === 'make-whole'
+                ? 'Crediting full quoted RACE to your wallet…'
+                : null;
 
     const payBalance = direction === 'buy' ? usdtBal : raceBal;
 
@@ -394,7 +418,7 @@ export default function Swap({
                                 <div className="mt-1 space-y-1 rounded-xl border border-white/5 bg-white/5 px-3 py-2 text-xs text-slate-300">
                                     <div className="flex justify-between">
                                         <span className="text-slate-400">
-                                            Min received (4% tax + {slippageBps / 100}% slip)
+                                            {direction === 'sell' ? 'Min received (4% sell tax)' : 'Min received'}
                                         </span>
                                         <span className="font-medium">
                                             {minOut > 0n ? formatTokenWei(minOut, 18, 4) : '—'} {receiveSymbol}

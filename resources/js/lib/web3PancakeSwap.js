@@ -107,16 +107,16 @@ export function formatTokenWei(wei, decimals = 18, maxFraction = 6) {
     return fracStr ? `${whole}.${fracStr}` : String(whole);
 }
 
-/** RACE BEP-20 transfer fee (4%). Pancake getAmountsOut ignores this. */
+/** RACE BEP-20 sell fee (4%) when sending into the Pancake pair. Buys have no token tax. */
 export const RACE_TRANSFER_TAX_BPS = 400;
 
-export function applySlippage(amountOut, slippageBps = 100) {
+export function applySlippage(amountOut, slippageBps = 0) {
     const bps = BigInt(Math.max(0, Number(slippageBps) || 0));
     return (BigInt(amountOut) * (10000n - bps)) / 10000n;
 }
 
 /** After transfer tax, then slippage — use for RACE amountOutMin. */
-export function applyTransferTaxThenSlippage(amountOut, taxBps = RACE_TRANSFER_TAX_BPS, slippageBps = 100) {
+export function applyTransferTaxThenSlippage(amountOut, taxBps = RACE_TRANSFER_TAX_BPS, slippageBps = 0) {
     const taxed = applySlippage(amountOut, taxBps);
     return applySlippage(taxed, slippageBps);
 }
@@ -201,7 +201,7 @@ export async function swapExactTokens({
     tokenOut,
     amountIn,
     amountOutMin,
-    slippageBps = 100,
+    slippageBps = 0,
     deadlineSeconds = 1200,
     waitConfirmations = 3,
     /** When tokenOut is fee-on-transfer (RACE), shrink minOut by tax+slippage. */
@@ -274,7 +274,8 @@ export async function buyRaceWithUsdt({
         amountIn,
         slippageBps,
         deadlineSeconds,
-        // RACE out: pair → wallet takes 4% tax; minOut must allow that.
+        // Live RaceCoin still taxes pair→wallet 4%; minOut must allow that or the swap reverts.
+        // Laravel /swap/buy-make-whole then mints the 4% so the wallet ends at the full quote.
         outputTransferTaxBps: RACE_TRANSFER_TAX_BPS,
         rpcUrl,
     });

@@ -100,7 +100,7 @@ final class BlockchainContractPayload
             ],
             'contracts_deployed' => $raceToken !== '' && $pancakeRouter !== '' && $usdt !== '',
             'engine_deployed' => $engineAddress !== '',
-            'default_slippage_bps' => 100,
+            'default_slippage_bps' => 0,
             'swap_deadline_seconds' => 1200,
             'rpc_url' => (string) config('blockchain.rpc_url', ''),
             'engine' => $engine,

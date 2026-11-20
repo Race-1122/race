@@ -34,6 +34,16 @@ class RaceCoinDirectMintService
      */
     public function mintToWallet(string $toWallet, string $raceHumanAmount): array
     {
+        return $this->mintToWalletWei($toWallet, RaceErc20Calldata::raceToWei($raceHumanAmount));
+    }
+
+    /**
+     * Mint an exact wei amount (no human rounding). Used for transfer-tax make-whole.
+     *
+     * @return array{tx_hash: string, to: string, amount_wei: string, minter: string}
+     */
+    public function mintToWalletWei(string $toWallet, string $amountWei): array
+    {
         if (! $this->configured()) {
             throw new RuntimeException('RaceCoin minter is not configured (RACE_INCOME_MINTER_PRIVATE_KEY / RACE_TOKEN_CONTRACT).');
         }
@@ -43,8 +53,8 @@ class RaceCoinDirectMintService
             throw new RuntimeException('Invalid destination wallet for mint.');
         }
 
-        $wei = RaceErc20Calldata::raceToWei($raceHumanAmount);
-        if (bccomp($wei, '0', 0) <= 0) {
+        $wei = preg_replace('/[^0-9]/', '', $amountWei) ?? '0';
+        if ($wei === '' || bccomp($wei, '0', 0) <= 0) {
             throw new RuntimeException('Mint amount is zero.');
         }
 

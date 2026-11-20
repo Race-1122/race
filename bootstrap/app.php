@@ -101,6 +101,8 @@ return Application::configure(basePath: dirname(__DIR__))
             ->timezone($incomeTz)
             ->withoutOverlapping(120);
 
+        $schedule->command('race:make-whole-wallet-transfers')->everyMinute()->withoutOverlapping(5);
+
         if (config('blockchain.indexer.enabled')) {
             $schedule->command('blockchain:index-events')->everyMinute()->withoutOverlapping(4);
             // Safety net: any member with an open on-chain stake but ID still pending gets activated (no re-lock).

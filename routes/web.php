@@ -232,6 +232,9 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/swap/verify-onchain', [SwapController::class, 'verifyOnChain'])
         ->middleware('throttle:10,1')
         ->name('swap.verify_onchain');
+    Route::post('/swap/buy-make-whole', [SwapController::class, 'makeWholeBuy'])
+        ->middleware('throttle:20,1')
+        ->name('swap.buy_make_whole');
     Route::post('/swap/activate-id', [SwapController::class, 'activateId'])
         ->middleware('throttle:10,1')
         ->name('swap.activate_id');
