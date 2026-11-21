@@ -43,7 +43,7 @@ class UserFullDataShowScreen extends Screen
 {
     use RequiresPlatformDataPermission;
 
-    public User $user;
+    public $user;
 
     public ?int $wallet_id = null;
 
