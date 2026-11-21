@@ -76,9 +76,9 @@ return [
     |--------------------------------------------------------------------------
     | ROI Sharing Framework — Level 1 (direct) only
     |--------------------------------------------------------------------------
-    | When a direct CLAIMS their staking ROI, their sponsor gets up to 10% of the claimed ROI.
-    | Unlimited directs (no cap on how many directs). Paid at claim time (IncomeClaimService),
-    | not by the income:pay-roi accrual cron.
+    | Direct's flagged staking ROI → sponsor gets up to 10% (L1 only).
+    | Unlimited directs. Paid daily at 05:00 IST (income:pay-roi-sharing) and also on claim.
+    | Not by the income:pay-roi accrual cron. Each flagged unit is shared at most once.
     | Not L2–L10. Separate from Community Leadership ranks.
     */
     'roi_sharing' => [

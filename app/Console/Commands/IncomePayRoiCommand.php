@@ -13,7 +13,7 @@ class IncomePayRoiCommand extends Command
 {
     protected $signature = 'income:pay-roi {--force-due : TESTING — mark all active stakes due now, then pay (allows multiple runs in one day)}';
 
-    protected $description = 'Accrue participation reward rates. Level-1 ROI sharing is paid later, when the direct claims.';
+    protected $description = 'Accrue participation reward rates. Level-1 ROI sharing is paid at 05:00 IST (income:pay-roi-sharing), and also on claim.';
 
     public function handle(LedgerWriter $ledger): int
     {

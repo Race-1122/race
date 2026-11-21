@@ -56,4 +56,12 @@ return [
         'due_every_minutes' => max(5, (int) env('INCOME_AUTO_CLAIM_EVERY_MINUTES', 5)),
     ],
 
+    /*
+    | Daily L1 ROI sharing auto-release (income:pay-roi-sharing).
+    | Runs after 00:15 accrual and 04:00 Engine claim. Does not claim the direct's ROI.
+    */
+    'roi_sharing' => [
+        'release_at' => env('INCOME_ROI_SHARING_AT', '05:00'),
+    ],
+
 ];

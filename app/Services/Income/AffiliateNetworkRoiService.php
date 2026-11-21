@@ -5,17 +5,93 @@ namespace App\Services\Income;
 use App\Models\LedgerEntry;
 use App\Models\User;
 use App\Support\RewardPlan;
+use Illuminate\Support\Facades\Log;
 
 /**
  * ROI Sharing Framework: Level-1 (direct) only — up to 10% of a direct's staking ROI.
- * Unlimited directs. Paid ONLY when the direct claims their ROI (IncomeClaimService),
- * never at accrual time (income:pay-roi).
+ * Unlimited directs. Paid at 05:00 IST (`income:pay-roi-sharing`) and also when the
+ * direct claims. Never at accrual time (`income:pay-roi`). Each flagged unit is shared once.
  */
 class AffiliateNetworkRoiService
 {
     public function __construct(
         protected LedgerWriter $ledger,
     ) {}
+
+    /**
+     * Daily cron: pay unshared flagged ROI to L1 sponsors. Does not claim the direct's ROI.
+     *
+     * @return array{stakes: int, paid: int, fail: int}
+     */
+    public function releaseDueShares(): array
+    {
+        $stakes = 0;
+        $paid = 0;
+        $fail = 0;
+
+        if (! RewardPlan::roiSharingEnabled()) {
+            return compact('stakes', 'paid', 'fail');
+        }
+
+        $groups = LedgerEntry::query()
+            ->where('entry_type', LedgerEntry::TYPE_ROI_ACCRUAL)
+            ->where('reference_type', 'investment')
+            ->get(['user_id', 'reference_id', 'amount_usd', 'meta'])
+            ->groupBy('reference_id');
+
+        foreach ($groups as $investmentId => $rows) {
+            $flagged = '0.0000';
+            $userId = null;
+            foreach ($rows as $row) {
+                $userId = (int) $row->user_id;
+                $meta = is_array($row->meta) ? $row->meta : [];
+                if (! empty($meta['roi_share_on_claim'])) {
+                    $flagged = bcadd($flagged, number_format((float) $row->amount_usd, 4, '.', ''), 4);
+                }
+            }
+
+            if ($userId === null || bccomp($flagged, '0', 4) <= 0) {
+                continue;
+            }
+
+            $user = User::query()->find($userId);
+            if (! $user || $user->is_blocked) {
+                continue;
+            }
+
+            $stakes++;
+            $before = LedgerEntry::query()
+                ->where('entry_type', LedgerEntry::TYPE_AFFILIATE_NETWORK_ROI)
+                ->where('reference_type', 'investment')
+                ->where('reference_id', (int) $investmentId)
+                ->count();
+
+            try {
+                $this->onRoiClaimed($user, $flagged, (int) $investmentId);
+            } catch (\Throwable $e) {
+                $fail++;
+                Log::warning('roi-sharing auto-release failed', [
+                    'user_id' => $user->id,
+                    'investment_id' => (int) $investmentId,
+                    'message' => $e->getMessage(),
+                ]);
+
+                continue;
+            }
+
+            $after = LedgerEntry::query()
+                ->where('entry_type', LedgerEntry::TYPE_AFFILIATE_NETWORK_ROI)
+                ->where('reference_type', 'investment')
+                ->where('reference_id', (int) $investmentId)
+                ->count();
+
+            if ($after > $before) {
+                $paid++;
+            }
+        }
+
+        return compact('stakes', 'paid', 'fail');
+    }
 
     /**
      * After {@see $claimer} claims accrued ROI of one stake, pay their direct sponsor (L1 only).

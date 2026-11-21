@@ -141,6 +141,60 @@ class AffiliateNetworkRoiTest extends TestCase
         $this->assertEqualsWithDelta(0.10, (float) $shares->sum('amount_usd'), 0.0001);
     }
 
+    public function test_five_am_cron_pays_sharing_without_claiming_direct_roi(): void
+    {
+        [$sponsor, $member, $inv] = $this->sponsorMemberStake();
+
+        $this->artisan('income:pay-roi')->assertSuccessful();
+        $accrued = (string) $inv->fresh()->accrued_reward_usd;
+
+        $this->artisan('income:pay-roi-sharing')
+            ->assertSuccessful()
+            ->expectsOutputToContain('paid=1');
+
+        $shares = $this->shareRows($sponsor, $inv->id);
+        $this->assertCount(1, $shares);
+        $this->assertEqualsWithDelta(0.05, (float) $shares->first()->amount_usd, 0.0001);
+        $this->assertSame($accrued, (string) $inv->fresh()->accrued_reward_usd);
+        $this->assertDatabaseMissing('ledger_entries', [
+            'user_id' => $member->id,
+            'entry_type' => LedgerEntry::TYPE_INCOME_CLAIM,
+        ]);
+    }
+
+    public function test_five_am_cron_is_idempotent(): void
+    {
+        [$sponsor, $member, $inv] = $this->sponsorMemberStake();
+
+        $this->artisan('income:pay-roi')->assertSuccessful();
+        $this->artisan('income:pay-roi-sharing')->assertSuccessful();
+        $this->artisan('income:pay-roi-sharing')->assertSuccessful();
+
+        $this->assertCount(1, $this->shareRows($sponsor, $inv->id));
+        $this->assertEqualsWithDelta(0.05, (float) $this->shareRows($sponsor, $inv->id)->sum('amount_usd'), 0.0001);
+    }
+
+    public function test_claim_after_five_am_cron_does_not_double_share(): void
+    {
+        [$sponsor, $member, $inv] = $this->sponsorMemberStake();
+
+        $this->artisan('income:pay-roi')->assertSuccessful();
+        $this->artisan('income:pay-roi-sharing')->assertSuccessful();
+        $this->claim($member);
+
+        $this->assertCount(1, $this->shareRows($sponsor, $inv->id));
+        $this->assertEqualsWithDelta(0.05, (float) $this->shareRows($sponsor, $inv->id)->sum('amount_usd'), 0.0001);
+    }
+
+    public function test_roi_sharing_command_is_scheduled_at_05_00_ist(): void
+    {
+        $this->assertSame('05:00', (string) config('income.roi_sharing.release_at'));
+
+        $this->artisan('schedule:list')
+            ->expectsOutputToContain('income:pay-roi-sharing')
+            ->assertSuccessful();
+    }
+
     public function test_roi_accrued_by_old_cron_is_never_shared_again_on_claim(): void
     {
         [$sponsor, $member, $inv] = $this->sponsorMemberStake();

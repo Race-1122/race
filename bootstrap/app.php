@@ -12,6 +12,7 @@ use App\Console\Commands\IncomeDiagnoseRoiCommand;
 use App\Console\Commands\IncomePayCommunityLeadershipCommand;
 use App\Console\Commands\IncomePayCommunityLeadershipRank11MonthlyCommand;
 use App\Console\Commands\IncomePayRoiCommand;
+use App\Console\Commands\IncomePayRoiSharingCommand;
 use App\Console\Commands\IncomePurgeCronDayCommand;
 use App\Console\Commands\IncomeReleaseStakeEmisCommand;
 use App\Console\Commands\IncomeRolloverHoldingsCommand;
@@ -27,6 +28,7 @@ use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 return Application::configure(basePath: dirname(__DIR__))
     ->withCommands([
         IncomePayRoiCommand::class,
+        IncomePayRoiSharingCommand::class,
         IncomePayCommunityLeadershipCommand::class,
         IncomePayCommunityLeadershipRank11MonthlyCommand::class,
         IncomeReleaseStakeEmisCommand::class,
@@ -78,6 +80,13 @@ return Application::configure(basePath: dirname(__DIR__))
 
             $schedule->command('income:pay-roi')
                 ->dailyAt($payAt)
+                ->timezone($incomeTz)
+                ->withoutOverlapping(30);
+
+            // 05:00 IST — L1 ROI sharing for flagged unshared accruals (conditions in AffiliateNetworkRoiService).
+            $shareAt = (string) config('income.roi_sharing.release_at', '05:00');
+            $schedule->command('income:pay-roi-sharing')
+                ->dailyAt($shareAt)
                 ->timezone($incomeTz)
                 ->withoutOverlapping(30);
         }
