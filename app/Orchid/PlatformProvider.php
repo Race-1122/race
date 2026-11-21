@@ -78,7 +78,7 @@ class PlatformProvider extends OrchidServiceProvider
                 ->route('platform.data.change-sponsor')
                 ->permission('platform.data'),
 
-            Menu::make(__('User Full Data'))
+            Menu::make(__('User janamkundli'))
                 ->icon('bs.person-lines-fill')
                 ->route('platform.data.user-full-data')
                 ->permission('platform.data'),
