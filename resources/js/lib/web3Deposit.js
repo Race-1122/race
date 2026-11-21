@@ -592,6 +592,7 @@ export async function resolveGasLimitHex({
     data,
     fallback = DEFAULT_CONTRACT_GAS,
     minGas = 0,
+    strictEstimate = true,
 } = {}) {
     let gas = Number(fallback) || DEFAULT_CONTRACT_GAS;
     let estimated = false;
@@ -615,7 +616,7 @@ export async function resolveGasLimitHex({
             (/execution reverted:\s*0x$/i.test(raw) ||
                 raw.toLowerCase() === 'execution reverted: 0x' ||
                 raw.toLowerCase() === 'internal json-rpc error.');
-        if ((decoded || isExecutionRevertError(err)) && !isAmbiguous) {
+        if (strictEstimate && (decoded || isExecutionRevertError(err)) && !isAmbiguous) {
             throw new Error(
                 decoded ||
                     'Transaction would revert on-chain. Check allowance, stake plan, balance, and network.',
@@ -1086,6 +1087,9 @@ export async function sendUsdtTransfer({ from, to, usdtContract, amountUsd }) {
                         to: usdtContract,
                         data: encodeTransfer(to, amountWei),
                         fallback: 100_000,
+                        // Plain ERC-20 transfer: some wallets (TokenPocket) return a false revert
+                        // on estimate. Fall back to fixed gas; the wallet/chain still rejects real failures.
+                        strictEstimate: false,
                     }),
                 },
             ],

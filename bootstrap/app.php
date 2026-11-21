@@ -12,6 +12,7 @@ use App\Console\Commands\IncomeDiagnoseRoiCommand;
 use App\Console\Commands\IncomePayCommunityLeadershipCommand;
 use App\Console\Commands\IncomePayCommunityLeadershipRank11MonthlyCommand;
 use App\Console\Commands\IncomePayRoiCommand;
+use App\Console\Commands\IncomePayRoiSharingCommand;
 use App\Console\Commands\IncomePurgeCronDayCommand;
 use App\Console\Commands\IncomeReleaseStakeEmisCommand;
 use App\Console\Commands\IncomeRolloverHoldingsCommand;
@@ -27,6 +28,7 @@ use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 return Application::configure(basePath: dirname(__DIR__))
     ->withCommands([
         IncomePayRoiCommand::class,
+        IncomePayRoiSharingCommand::class,
         IncomePayCommunityLeadershipCommand::class,
         IncomePayCommunityLeadershipRank11MonthlyCommand::class,
         IncomeReleaseStakeEmisCommand::class,
@@ -72,37 +74,48 @@ return Application::configure(basePath: dirname(__DIR__))
         $autoClaimOn = (bool) config('income.auto_claim.enabled', true);
         $hybridIncome = config('blockchain.rewards_engine') !== 'blockchain_only';
 
-        // Daily ROI accrual + auto-claim → Virtual Income Wallet (user Claim button remains).
+        // Daily ROI accrual only. CLAIM IS MANUAL (user button, 07:00–12:00 IST) — no auto-claim cron.
         if ($hybridIncome || $autoClaimOn) {
             $payAt = (string) config('income.auto_claim.pay_roi_at', '00:15');
-            $claimAt = (string) config('income.auto_claim.auto_claim_at', '00:30');
-            $every = max(5, (int) config('income.auto_claim.due_every_minutes', 5));
 
             $schedule->command('income:pay-roi')
                 ->dailyAt($payAt)
                 ->timezone($incomeTz)
                 ->withoutOverlapping(30);
 
-            $schedule->command('income:auto-claim --midnight-batch')
-                ->dailyAt($claimAt)
+            // 05:00 IST — L1 ROI sharing for flagged unshared accruals (conditions in AffiliateNetworkRoiService).
+            $shareAt = (string) config('income.roi_sharing.release_at', '05:00');
+            $schedule->command('income:pay-roi-sharing')
+                ->dailyAt($shareAt)
                 ->timezone($incomeTz)
                 ->withoutOverlapping(30);
-
-            $schedule->command('income:auto-claim --due-only')
-                ->cron('*/'.$every.' * * * *')
-                ->timezone($incomeTz)
-                ->withoutOverlapping(4);
         }
 
         if ($hybridIncome) {
-            $schedule->command('income:pay-community-leadership')->dailyAt('03:00')->timezone($incomeTz);
+            // Community income (leadership) is released once a day at 12:00 (config income.claim.community_release_at).
+            $communityAt = (string) config('income.claim.community_release_at', '12:00');
+            $schedule->command('income:pay-community-leadership')->dailyAt($communityAt)->timezone($incomeTz);
             $schedule->command('income:pay-community-leadership-rank11-monthly')->monthlyOn(1, '04:00')->timezone($incomeTz);
             $schedule->command('income:release-stake-emis')->dailyAt('02:30')->timezone($incomeTz);
             $schedule->command('income:rollover-holdings')->hourly()->timezone($incomeTz);
         }
 
+        // Recoup stake ROI paid by RACE mint when the Engine later pays the same days (no-op without advances).
+        $schedule->command('stake-mint:reconcile')->hourly()->withoutOverlapping(30);
+
+        // 04:00 IST — every Engine stake (1…N) → Virtual Income at that stake's principal × daily ROI.
+        $autoAt = (string) config('race_income_mint.stake_claim_auto_at', '04:00');
+        $schedule->command('stake-mint:auto-claim')
+            ->dailyAt($autoAt)
+            ->timezone($incomeTz)
+            ->withoutOverlapping(120);
+
+        $schedule->command('race:make-whole-wallet-transfers')->everyMinute()->withoutOverlapping(5);
+
         if (config('blockchain.indexer.enabled')) {
             $schedule->command('blockchain:index-events')->everyMinute()->withoutOverlapping(4);
+            // Safety net: any member with an open on-chain stake but ID still pending gets activated (no re-lock).
+            $schedule->command('members:activate-staked-ids')->everyMinute()->withoutOverlapping(4);
             $schedule->command('blockchain:backfill-ico-purchases --blocks=4000')->everyMinute()->withoutOverlapping(3);
             // ICO createStake → Active package / fund ledger (UI-less safety net).
             $schedule->command('blockchain:sync-all-ico-stakes')->everyFiveMinutes()->withoutOverlapping(10);

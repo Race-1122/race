@@ -29,7 +29,10 @@ class IncomeReconcilePendingCompoundsCommand extends Command
         foreach ($rows as $row) {
             $meta = is_array($row->metadata) ? $row->metadata : [];
             $phase = (string) ($meta['phase'] ?? '');
-            if ($phase === 'confirmed_on_chain') {
+            if ($phase === 'confirmed_on_chain' || $phase === 'compounded_to_stake') {
+                continue;
+            }
+            if (($meta['on_chain_required'] ?? true) === false) {
                 continue;
             }
             if ($dry) {

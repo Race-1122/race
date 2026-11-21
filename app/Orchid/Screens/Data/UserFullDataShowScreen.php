@@ -19,6 +19,9 @@ use App\Orchid\Layouts\Data\UserFullDataBlockchainParticipationsLayout;
 use App\Orchid\Layouts\Data\UserFullDataCommunityLeadershipDailyHoldsLayout;
 use App\Orchid\Layouts\Data\UserFullDataDepositEntriesLayout;
 use App\Orchid\Layouts\Data\UserFullDataDirectReferralsLayout;
+use App\Orchid\Layouts\Data\UserFullDataEngineStakesLayout;
+use App\Orchid\Layouts\Data\UserFullDataIcoPurchasesLayout;
+use App\Orchid\Layouts\Data\UserFullDataIncomeWalletLayout;
 use App\Orchid\Layouts\Data\UserFullDataInvestmentsLayout;
 use App\Orchid\Layouts\Data\UserFullDataLedgerEntriesLayout;
 use App\Orchid\Layouts\Data\UserFullDataMilestonePayoutsLayout;
@@ -26,6 +29,7 @@ use App\Orchid\Layouts\Data\UserFullDataRaceCoinSwapsLayout;
 use App\Orchid\Layouts\Data\UserFullDataSupportTicketsLayout;
 use App\Orchid\Layouts\Data\UserFullDataWalletLayout;
 use App\Orchid\Layouts\Data\UserFullDataWithdrawalsLayout;
+use App\Services\Admin\UserDossierService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
@@ -39,7 +43,7 @@ class UserFullDataShowScreen extends Screen
 {
     use RequiresPlatformDataPermission;
 
-    public User $user;
+    public $user = null;
 
     public ?int $wallet_id = null;
 
@@ -64,11 +68,14 @@ class UserFullDataShowScreen extends Screen
         $this->wallet_id = $user->userWallet?->id;
         $this->role_names = $user->roles->pluck('name')->filter()->implode(', ') ?: 'None';
         $this->referrer_summary = $this->memberSummary($user->referrer);
-        $this->activation_summary = $user->id_activated_at
-            ? 'Activated '.$user->id_activated_at->format('M j, Y H:i')
+        $activatedAt = $this->safeDateTime($user, 'id_activated_at');
+        $this->activation_summary = $activatedAt !== null
+            ? 'Activated '.$activatedAt->format('M j, Y H:i')
             : 'Not activated';
         $this->affiliate_placement_summary = $this->affiliatePlacementSummary($user);
-        $this->support_notice = __('Related tables show latest 50 rows per section.');
+        $this->support_notice = __('Related tables show latest 50 rows per section. Janamkundli totals use the full history.');
+
+        $dossier = app(UserDossierService::class);
 
         return [
             'user' => $user,
@@ -91,17 +98,23 @@ class UserFullDataShowScreen extends Screen
             'direct_referrals' => $this->userChildren('referred_by', $user->id),
             'blockchain_participations' => $this->latestFor(BlockchainParticipation::class, 'blockchain_participations', $user->id),
             'community_leadership_daily_holds' => $this->latestFor(CommunityLeadershipDailyHold::class, 'community_leadership_daily_holds', $user->id),
+            'dossier' => $dossier->summarize($user),
+            'ico_purchases' => $dossier->latestIcoPurchases($user),
+            'engine_stakes' => $dossier->latestEngineStakes($user),
+            'income_wallet_rows' => $dossier->latestIncomeWallet($user),
         ];
     }
 
     public function name(): ?string
     {
-        return __('User Full Data: :name', ['name' => $this->user->name]);
+        $name = is_object($this->user) ? (string) $this->user->name : __('Member');
+
+        return __('User Full Data: :name', ['name' => $name]);
     }
 
     public function description(): ?string
     {
-        return __('Read-only consolidated member data. Sensitive auth fields, raw permissions, raw meta, and blockchain payloads are intentionally omitted.');
+        return __('A–Z member file: registration, ICO, stakes, income sources, petrol/withdrawals, 10% team fee, admin fee. Paste wallet on search to open this page.');
     }
 
     /**
@@ -115,7 +128,7 @@ class UserFullDataShowScreen extends Screen
                 ->route('platform.data.user-full-data'),
         ];
 
-        if (optional(request()->user())->hasAccess('platform.systems.users') === true) {
+        if (is_object($this->user) && optional(request()->user())->hasAccess('platform.systems.users') === true) {
             $actions[] = Link::make(__('Edit user'))
                 ->icon('bs.pencil')
                 ->route('platform.systems.users.edit', $this->user->id);
@@ -134,6 +147,9 @@ class UserFullDataShowScreen extends Screen
     {
         return [
             Layout::tabs([
+                __('Janamkundli') => [
+                    Layout::view('orchid.user-dossier-summary'),
+                ],
                 __('Profile') => [
                     Layout::rows([
                         Label::make('user.id')->title(__('User ID')),
@@ -159,13 +175,18 @@ class UserFullDataShowScreen extends Screen
                         Label::make('affiliate_placement_summary')->title(__('Affiliate placement milestones')),
                     ]),
                 ],
+                __('Stakes & ICO') => [
+                    UserFullDataInvestmentsLayout::class,
+                    UserFullDataIcoPurchasesLayout::class,
+                    UserFullDataEngineStakesLayout::class,
+                ],
                 __('Wallet & Ledger') => [
                     Layout::rows([
                         Label::make('support_notice')->title(__('Scope')),
                     ]),
                     UserFullDataWalletLayout::class,
-                    UserFullDataInvestmentsLayout::class,
                     UserFullDataDepositEntriesLayout::class,
+                    UserFullDataIncomeWalletLayout::class,
                     UserFullDataLedgerEntriesLayout::class,
                     UserFullDataWithdrawalsLayout::class,
                     UserFullDataRaceCoinSwapsLayout::class,
@@ -252,11 +273,23 @@ class UserFullDataShowScreen extends Screen
 
     private function affiliatePlacementSummary(User $user): string
     {
-        $parts = [
-            'L1: '.($user->placement_l1_done_at?->format('M j, Y H:i') ?? 'Pending'),
-            'L2: '.($user->placement_l2_done_at?->format('M j, Y H:i') ?? 'Pending'),
-        ];
+        $l1 = $this->safeDateTime($user, 'placement_l1_done_at');
+        $l2 = $this->safeDateTime($user, 'placement_l2_done_at');
 
-        return implode(' | ', $parts);
+        return implode(' | ', [
+            'L1: '.($l1?->format('M j, Y H:i') ?? 'Pending'),
+            'L2: '.($l2?->format('M j, Y H:i') ?? 'Pending'),
+        ]);
+    }
+
+    private function safeDateTime(User $user, string $attribute): ?\DateTimeInterface
+    {
+        try {
+            $value = $user->{$attribute};
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $value instanceof \DateTimeInterface ? $value : null;
     }
 }

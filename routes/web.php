@@ -11,6 +11,7 @@ use App\Http\Controllers\InvestmentController;
 use App\Http\Controllers\IsuController;
 use App\Http\Controllers\LedgerController;
 use App\Http\Controllers\LeadershipController;
+use App\Http\Controllers\SelfHoldController;
 use App\Http\Controllers\RaceTokenController;
 use App\Http\Controllers\RewardsController;
 use App\Http\Controllers\SupportController;
@@ -120,6 +121,7 @@ Route::middleware(['auth'])->group(function () {
 
     Route::get('/leadership', [LeadershipController::class, 'index'])->name('leadership');
     Route::get('/leadership/live-data', [LeadershipController::class, 'liveData'])->name('leadership.live-data');
+    Route::get('/self-hold', [SelfHoldController::class, 'index'])->name('self-hold');
 
     Route::redirect('/bonza', '/dashboard', 301)->name('bonza');
     Route::redirect('/bonza-buster', '/dashboard', 301)->name('bonza-buster');
@@ -166,6 +168,13 @@ Route::middleware(['auth'])->group(function () {
         ->middleware('throttle:30,1')
         ->name('income.claim');
 
+    Route::get('/stake-mint-claim/status', [\App\Http\Controllers\StakeMintClaimController::class, 'status'])
+        ->middleware('throttle:60,1')
+        ->name('stake_mint_claim.status');
+    Route::post('/stake-mint-claim', [\App\Http\Controllers\StakeMintClaimController::class, 'claim'])
+        ->middleware('throttle:20,1')
+        ->name('stake_mint_claim.claim');
+
     Route::get('/virtual-income', [VirtualIncomeWalletController::class, 'index'])->name('virtual_income');
     Route::post('/virtual-income/compound/reserve', [VirtualIncomeCompoundController::class, 'reserve'])
         ->middleware('throttle:20,1')
@@ -173,6 +182,9 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/virtual-income/compound/confirm', [VirtualIncomeCompoundController::class, 'confirm'])
         ->middleware('throttle:20,1')
         ->name('virtual_income.compound.confirm');
+    Route::post('/virtual-income/compound-to-stake', [\App\Http\Controllers\VirtualIncomeStakeCompoundController::class, 'store'])
+        ->middleware('throttle:10,1')
+        ->name('virtual_income.compound_to_stake');
 
     Route::post('/participation/verify-onchain', [ParticipationOnChainController::class, 'verifyOnChain'])
         ->middleware('throttle:10,1')
@@ -220,6 +232,9 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/swap/verify-onchain', [SwapController::class, 'verifyOnChain'])
         ->middleware('throttle:10,1')
         ->name('swap.verify_onchain');
+    Route::post('/swap/buy-make-whole', [SwapController::class, 'makeWholeBuy'])
+        ->middleware('throttle:20,1')
+        ->name('swap.buy_make_whole');
     Route::post('/swap/activate-id', [SwapController::class, 'activateId'])
         ->middleware('throttle:10,1')
         ->name('swap.activate_id');
@@ -241,6 +256,12 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/withdrawals', [WithdrawalController::class, 'store'])
         ->middleware('throttle:10,1')
         ->name('withdrawals.store');
+
+    // Income Payout page hidden — same flow lives on Withdrawal (fee-first RACE mint).
+    Route::redirect('/income-payout', '/withdrawal')->name('income-payout');
+    Route::post('/income-payout', function () {
+        return redirect()->route('withdrawal');
+    })->middleware('throttle:10,1')->name('income-payout.store');
 
     Route::get('/transactions', [LedgerController::class, 'index'])->name('transactions');
 

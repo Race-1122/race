@@ -4,9 +4,11 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Orchid\Screen\AsSource;
 
 class IncomeWalletTransaction extends Model
 {
+    use AsSource;
     public const DIRECTION_CREDIT = 'credit';
 
     public const DIRECTION_DEBIT = 'debit';

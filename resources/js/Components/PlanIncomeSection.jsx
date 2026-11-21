@@ -1,4 +1,5 @@
 import MemberIcon, { iconForIncomeKey } from '@/Components/Member/MemberIcon';
+import { raceEquivLabel } from '@/lib/raceQuote';
 import { motion } from 'framer-motion';
 import { Link, usePage } from '@inertiajs/react';
 import { useMemo } from 'react';
@@ -31,9 +32,106 @@ function LeadershipSnapshot({ snapshot }) {
     return null;
 }
 
-function IncomeTypeSection({ row, payouts, index, hubRow, totalSections, animate = true }) {
+function formatNum(value, digits = 4) {
+    const n = Number(value ?? 0);
+    if (!Number.isFinite(n)) return '0';
+    return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: digits });
+}
+
+/** Daily on-chain claims: coins received + value at today's RACE rate + date (shown inside Staking Reward Rates). */
+function DailyClaimsList({ claims, virtualCompound = null }) {
+    const items = claims?.items ?? [];
+    if (items.length === 0 && !virtualCompound?.can_compound) return null;
+
+    return (
+        <motion.div className="relative mt-4 border-t border-white/80 pt-4">
+            <div className="flex flex-wrap items-end justify-between gap-2">
+                <p className="text-[0.65rem] font-bold uppercase tracking-wider text-slate-500">Daily claims</p>
+                <div className="flex flex-wrap items-center gap-2">
+                    {claims?.rate_usd != null ? (
+                        <p className="text-[0.65rem] text-slate-500">
+                            Today&apos;s rate: 1 RACE = ${formatNum(claims.rate_usd, 4)}
+                        </p>
+                    ) : null}
+                    {virtualCompound?.can_compound ? (
+                        <Link
+                            href={route('virtual_income.compound_to_stake')}
+                            method="post"
+                            as="button"
+                            preserveScroll
+                            className="rounded-lg bg-violet-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-violet-500"
+                        >
+                            Compound
+                        </Link>
+                    ) : null}
+                </div>
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-emerald-200/80 bg-emerald-50/80 px-3 py-2">
+                <span className="text-xs font-semibold text-emerald-800">
+                    Staking income today{claims?.today_label ? ` (${claims.today_label})` : ''}
+                    {Number(claims?.today_count) > 0 ? ` · ${claims.today_count} claim${claims.today_count === 1 ? '' : 's'}` : ''}
+                </span>
+                <span className="text-right">
+                    <span className="block font-mono text-sm font-bold text-emerald-700">
+                        {Number(claims?.today_race) > 0 ? '+' : ''}
+                        {formatNum(claims?.today_race ?? 0, 6)} RACE
+                    </span>
+                    <span className="block font-mono text-[11px] text-emerald-700/80">
+                        ≈ ${formatNum(claims?.today_value_now_usd ?? 0, 4)} today
+                    </span>
+                </span>
+            </div>
+            <ul className="mt-2 space-y-2">
+                {items.map((c) => {
+                    const dateStr = c.claimed_at
+                        ? new Date(c.claimed_at).toLocaleString(undefined, {
+                              day: 'numeric',
+                              month: 'short',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                          })
+                        : '—';
+                    return (
+                        <li
+                            key={c.id}
+                            className="flex items-center justify-between gap-2 rounded-lg border border-sky-100/60 bg-white/70 px-3 py-2"
+                        >
+                            <span className="min-w-0 text-xs text-slate-500">
+                                {dateStr}
+                                <span className="ml-1 text-slate-400">· Stake #{c.stake_index}</span>
+                                <span
+                                    className={`ml-1 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase ${
+                                        c.source === 'mint' ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-600'
+                                    }`}
+                                >
+                                    {c.source === 'mint' ? 'Mint' : 'Engine'}
+                                </span>
+                            </span>
+                            <span className="shrink-0 text-right">
+                                <span className="block font-mono text-sm font-bold text-emerald-600">
+                                    +{formatNum(c.race, 6)} RACE
+                                </span>
+                                <span className="block font-mono text-[11px] text-slate-500">
+                                    ≈ ${formatNum(c.value_now_usd, 4)} today
+                                </span>
+                            </span>
+                        </li>
+                    );
+                })}
+            </ul>
+            <p className="mt-2 text-center text-[0.65rem] text-slate-500">
+                Total claimed: {formatNum(claims.total_race, 6)} RACE ≈ ${formatNum(claims.total_value_now_usd, 2)} at
+                today&apos;s rate
+            </p>
+        </motion.div>
+    );
+}
+
+function IncomeTypeSection({ row, payouts, index, hubRow, totalSections, animate = true, dailyClaims = null, racePriceUsd = null, virtualCompound = null }) {
     const accent = SECTION_ACCENTS[index % SECTION_ACCENTS.length];
     const recent = payouts.slice(0, 5);
+    const raceLine = raceEquivLabel(row.amount_usd, racePriceUsd);
     const motionProps = animate
         ? { initial: { opacity: 0, y: 14 }, animate: { opacity: 1, y: 0 }, transition: { duration: 0.35, delay: index * 0.05 } }
         : {};
@@ -79,8 +177,15 @@ function IncomeTypeSection({ row, payouts, index, hubRow, totalSections, animate
                     >
                         {formatUsd(row.amount_usd)}
                     </p>
+                    {raceLine ? (
+                        <p className="mt-0.5 font-mono text-[11px] font-semibold text-sky-700">{raceLine}</p>
+                    ) : null}
                 </motion.div>
             </motion.div>
+
+            {row.key === 'participation_rewards' ? (
+                <DailyClaimsList claims={dailyClaims} virtualCompound={virtualCompound} />
+            ) : null}
 
             {recent.length > 0 ? (
                 <motion.div className="relative mt-4 border-t border-white/80 pt-4">
@@ -101,8 +206,15 @@ function IncomeTypeSection({ row, payouts, index, hubRow, totalSections, animate
                                     className="flex items-center justify-between gap-2 rounded-lg border border-sky-100/60 bg-white/70 px-3 py-2"
                                 >
                                     <span className="text-xs text-slate-500">{dateStr}</span>
-                                    <span className="font-mono text-sm font-bold text-emerald-600">
-                                        +{formatUsd(p.amount_usd)}
+                                    <span className="text-right">
+                                        <span className="block font-mono text-sm font-bold text-emerald-600">
+                                            +{formatUsd(p.amount_usd)}
+                                        </span>
+                                        {raceEquivLabel(p.amount_usd, racePriceUsd) ? (
+                                            <span className="block font-mono text-[10px] font-semibold text-sky-700">
+                                                {raceEquivLabel(p.amount_usd, racePriceUsd)}
+                                            </span>
+                                        ) : null}
                                     </span>
                                 </li>
                             );
@@ -130,11 +242,13 @@ function IncomeTypeSection({ row, payouts, index, hubRow, totalSections, animate
     );
 }
 
-export default function PlanIncomeSection({ planIncome = [], totalIncomeUsd = '0.00', incomeEntries = [], children = null, animate = true }) {
-    const { incomeHub } = usePage().props;
+export default function PlanIncomeSection({ planIncome = [], totalIncomeUsd = '0.00', incomeEntries = [], dailyClaims = null, virtualCompound = null, children = null, animate = true }) {
+    const { incomeHub, summary } = usePage().props;
+    const racePriceUsd = summary?.race_coin_price_usd ?? null;
     const rows = planIncome?.length ? planIncome : incomeHub?.programs ?? [];
     const total = totalIncomeUsd || incomeHub?.total_income_usd || '0.00';
     const earnedCount = rows.filter((r) => r.has_earned).length;
+    const totalRaceLine = raceEquivLabel(total, racePriceUsd);
 
     const payoutsByLabel = useMemo(() => {
         const map = {};
@@ -164,6 +278,9 @@ export default function PlanIncomeSection({ planIncome = [], totalIncomeUsd = '0
                     <motion.div className="rounded-2xl bg-white/15 px-5 py-3 backdrop-blur-sm">
                         <p className="text-[0.65rem] font-bold uppercase tracking-wider text-white/80">Total received</p>
                         <p className="font-mono text-2xl font-bold text-white sm:text-3xl">{formatUsd(total)}</p>
+                        {totalRaceLine ? (
+                            <p className="mt-0.5 font-mono text-xs font-semibold text-sky-100">{totalRaceLine}</p>
+                        ) : null}
                     </motion.div>
                 </motion.div>
             </motion.div>
@@ -179,6 +296,9 @@ export default function PlanIncomeSection({ planIncome = [], totalIncomeUsd = '0
                             payouts={payoutsByLabel[row.label] ?? []}
                             index={i}
                             totalSections={rows.length}
+                            racePriceUsd={racePriceUsd}
+                            dailyClaims={dailyClaims}
+                            virtualCompound={virtualCompound}
                             animate={animate}
                         />
                     );

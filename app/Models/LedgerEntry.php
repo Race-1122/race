@@ -124,8 +124,19 @@ class LedgerEntry extends Model
     }
 
     /**
-     * Exclude demo / seed ledger rows (not real platform income or wallet activity).
+     * Credits that must not count toward Total Reward / member income displays.
+     * roi_accrual is audit-only until claimed as income_claim; deposits are not income.
+     *
+     * @return list<string>
      */
+    public static function nonTakeHomeCreditTypes(): array
+    {
+        return [
+            self::TYPE_ROI_ACCRUAL,
+            self::TYPE_WALLET_DEPOSIT,
+        ];
+    }
+
     /**
      * Ledger rows that change member withdrawable (virtual) USDT balance.
      *
@@ -163,6 +174,16 @@ class LedgerEntry extends Model
             self::TYPE_BONZA_DIRECT_BONUS,
             self::TYPE_BONZA_BUSTER,
         ];
+    }
+
+    /**
+     * Positive credits that count as member take-home / reported income.
+     */
+    public function scopeTakeHomeCredits(Builder $query): Builder
+    {
+        return $query
+            ->where('amount_usd', '>', 0)
+            ->whereNotIn('entry_type', self::nonTakeHomeCreditTypes());
     }
 
     public function scopeProduction(Builder $query): Builder

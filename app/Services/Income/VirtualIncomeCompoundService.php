@@ -176,7 +176,10 @@ class VirtualIncomeCompoundService
             if (($meta['phase'] ?? '') === 'refunded') {
                 return null;
             }
-            if (($meta['phase'] ?? '') === 'confirmed_on_chain') {
+            if (($meta['phase'] ?? '') === 'confirmed_on_chain' || ($meta['phase'] ?? '') === 'compounded_to_stake') {
+                return null;
+            }
+            if (($meta['on_chain_required'] ?? true) === false) {
                 return null;
             }
 

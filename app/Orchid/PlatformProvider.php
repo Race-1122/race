@@ -62,13 +62,23 @@ class PlatformProvider extends OrchidServiceProvider
                 ->route('platform.data.multisig-funds')
                 ->permission('platform.data'),
 
+            Menu::make(__('RACE fee wallets'))
+                ->icon('bs.wallet2')
+                ->route('platform.data.race-fee-wallets')
+                ->permission('platform.data'),
+
             Menu::make(__('Team structure'))
                 ->icon('bs.diagram-3')
                 ->route('platform.data.team')
                 ->permission('platform.data')
                 ->title(__('Members')),
 
-            Menu::make(__('User Full Data'))
+            Menu::make(__('Change team structure'))
+                ->icon('bs.arrow-left-right')
+                ->route('platform.data.change-sponsor')
+                ->permission('platform.data'),
+
+            Menu::make(__('User janamkundli'))
                 ->icon('bs.person-lines-fill')
                 ->route('platform.data.user-full-data')
                 ->permission('platform.data'),
@@ -83,9 +93,19 @@ class PlatformProvider extends OrchidServiceProvider
                 ->route('platform.data.admin-deposit')
                 ->permission('platform.data'),
 
-            Menu::make(__('Member withdrawals'))
+            Menu::make(__('Global withdrawals'))
                 ->icon('bs.slash-circle')
                 ->route('platform.data.member-withdrawals')
+                ->permission('platform.data'),
+
+            Menu::make(__('Settle income as RACE'))
+                ->icon('bs.currency-exchange')
+                ->route('platform.data.income-race-settle')
+                ->permission('platform.data'),
+
+            Menu::make(__('Income minter (Multisig)'))
+                ->icon('bs.shield-lock')
+                ->route('platform.data.income-minter-multisig')
                 ->permission('platform.data'),
 
             Menu::make(__('Withdrawals'))

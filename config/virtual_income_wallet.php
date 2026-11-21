@@ -48,4 +48,25 @@ return [
 
     'compound_reserve_ttl_hours' => (int) env('COMPOUND_RESERVE_TTL_HOURS', 24),
 
+    /*
+    | Income buckets for member UI + withdraw (one fee per withdraw, no Virtual/On-chain split).
+    | daily_claim = staking ROI credited via auto/manual claim into Virtual Income.
+    | other       = referrals, leadership, team, bonuses — withdraw anytime.
+    */
+    'buckets' => [
+        'daily_claim' => [
+            \App\Models\IncomeWalletTransaction::TYPE_INCOME_CLAIM,
+            \App\Models\IncomeWalletTransaction::TYPE_DAILY_REWARD,
+        ],
+        'other' => [
+            \App\Models\IncomeWalletTransaction::TYPE_LEVEL_INCOME,
+            \App\Models\IncomeWalletTransaction::TYPE_TEAM_INCOME,
+            \App\Models\IncomeWalletTransaction::TYPE_REFERRAL_INCOME,
+            \App\Models\IncomeWalletTransaction::TYPE_OTHER_INCOME,
+            \App\Models\IncomeWalletTransaction::TYPE_STAKE_UNLOCK_EMI,
+            \App\Models\IncomeWalletTransaction::TYPE_COMPOUND_REFUND,
+            \App\Models\IncomeWalletTransaction::TYPE_ADJUSTMENT,
+        ],
+    ],
+
 ];

@@ -21,6 +21,13 @@ class ClaimVirtualIncomeWithdrawalPolicyTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // These tests cover fees, not the 07:00–12:00 IST claim window (covered separately).
+        config(['income.claim.window_enabled' => false]);
+    }
+
     private function seedMemberWithBalance(string $deposit = '1000.00'): User
     {
         $member = User::factory()->create(['participation_activated_at' => now()]);
@@ -112,8 +119,8 @@ class ClaimVirtualIncomeWithdrawalPolicyTest extends TestCase
         $cases = [
             ['50', '1.00'],
             ['99', '1.00'],
-            ['100', '1.00'],
-            ['500', '5.00'],
+            ['100', '2.00'],
+            ['500', '10.00'],
         ];
 
         foreach ($cases as [$gross, $admin]) {
@@ -139,8 +146,8 @@ class ClaimVirtualIncomeWithdrawalPolicyTest extends TestCase
             '500',
             '0x1234567890123456789012345678901234567890',
         );
-        $this->assertSame('5.00', number_format((float) $w500->admin_fee_usd, 2, '.', ''));
-        $this->assertSame('445.00', number_format((float) $w500->net_usd, 2, '.', ''));
+        $this->assertSame('10.00', number_format((float) $w500->admin_fee_usd, 2, '.', ''));
+        $this->assertSame('440.00', number_format((float) $w500->net_usd, 2, '.', ''));
     }
 
     public function test_admin_fee_charged_only_once_per_withdrawal(): void
@@ -170,6 +177,8 @@ class ClaimVirtualIncomeWithdrawalPolicyTest extends TestCase
         $response = $this->actingAs($member)->post(route('withdrawals.store'), [
             'amount_usd' => '500',
             'destination_address' => '0x1234567890123456789012345678901234567890',
+            'income_bucket' => 'other',
+            // Client-forged fee fields must be ignored; server recalculates.
             'admin_fee_usd' => '0.01',
             'net_usd' => '999.00',
             'team_reward_usd' => '0.00',
@@ -178,8 +187,9 @@ class ClaimVirtualIncomeWithdrawalPolicyTest extends TestCase
         $response->assertRedirect();
         $withdrawal = Withdrawal::query()->where('user_id', $member->id)->latest('id')->first();
         $this->assertNotNull($withdrawal);
-        $this->assertSame('5.00', number_format((float) $withdrawal->admin_fee_usd, 2, '.', ''));
-        $this->assertSame('445.00', number_format((float) $withdrawal->net_usd, 2, '.', ''));
+        $this->assertSame('10.00', number_format((float) $withdrawal->admin_fee_usd, 2, '.', ''));
+        // Pending (no mint) path: net = gross − team − admin = 500 − 50 − 10 = 440.
+        $this->assertSame('440.00', number_format((float) $withdrawal->net_usd, 2, '.', ''));
     }
 
     public function test_claim_has_zero_admin_fee_even_when_user_posts_fake_fee(): void

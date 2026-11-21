@@ -200,6 +200,15 @@ class User extends OrchidUser
 
     public function canRequestWithdrawal(): bool
     {
+        if (SiteSetting::withdrawalsGloballyBlocked()) {
+            return false;
+        }
+
+        // Testing override: ignore personal OFF + 24h stake lock (global admin OFF still wins above).
+        if ((bool) config('income.withdrawal_ignore_personal_locks', false)) {
+            return true;
+        }
+
         if ((bool) $this->withdrawals_disabled) {
             return false;
         }
@@ -212,10 +221,27 @@ class User extends OrchidUser
     }
 
     /**
-     * Human-readable reason when withdrawals are blocked (admin flag or 24h stake lock).
+     * Human-readable reason when withdrawals are blocked (global admin lock, per-user flag, or 24h stake lock).
      */
     public function withdrawalLockMessage(): ?string
     {
+        if (SiteSetting::withdrawalsGloballyDisabled()) {
+            return 'Withdrawals are temporarily disabled for all members. Please try again later.';
+        }
+
+        $globalUntil = SiteSetting::withdrawalsGloballyLockedUntil();
+        if ($globalUntil !== null) {
+            $when = $globalUntil
+                ->timezone(config('app.timezone'))
+                ->format('d M Y, h:i A');
+
+            return 'Withdrawals are locked for all members until '.$when.'.';
+        }
+
+        if ((bool) config('income.withdrawal_ignore_personal_locks', false)) {
+            return null;
+        }
+
         if ((bool) $this->withdrawals_disabled) {
             return 'Withdrawals are temporarily disabled for your account. Please contact support.';
         }
@@ -232,7 +258,7 @@ class User extends OrchidUser
     }
 
     /**
-     * After ICO createStake / Engine ICO stake: activate Member ID and lock withdrawals 24h.
+     * After ICO createStake / wallet RACE StakeOpened / Engine stake: activate Member ID and lock withdrawals 24h.
      */
     public function activateIdAndLockWithdrawalsAfterStake(): void
     {
@@ -248,6 +274,26 @@ class User extends OrchidUser
         $until = now()->addHours(24);
         if ($this->withdrawals_locked_until === null || $this->withdrawals_locked_until->lt($until)) {
             $patch['withdrawals_locked_until'] = $until;
+        }
+
+        if ($patch !== []) {
+            $this->forceFill($patch)->save();
+        }
+    }
+
+    /**
+     * Activate Member ID + participation for an existing on-chain stake without touching
+     * withdrawals_locked_until (repair path for old stakes).
+     */
+    public function activateIdWithoutLock(): void
+    {
+        $patch = [];
+
+        if ($this->id_activated_at === null) {
+            $patch['id_activated_at'] = now();
+        }
+        if ($this->participation_activated_at === null) {
+            $patch['participation_activated_at'] = now();
         }
 
         if ($patch !== []) {

@@ -37,6 +37,21 @@ class BlockchainWalletIndexerSyncService
                 ->where('wallet_address', $wallet)
                 ->whereNull('user_id')
                 ->update(['user_id' => $user->id]);
+
+            // Member already staked from this wallet (before linking it) → ID must be active now.
+            if (($user->id_activated_at === null || $user->participation_activated_at === null)
+                && BlockchainEngineStake::query()
+                    ->where('user_id', $user->id)
+                    ->where(function ($q) {
+                        $q->where('withdrawn', false)->orWhereNull('withdrawn');
+                    })
+                    ->where(function ($q) {
+                        $q->whereNull('status')
+                            ->orWhere('status', '!=', BlockchainEngineStake::STATUS_WITHDRAWN);
+                    })
+                    ->exists()) {
+                $user->activateIdAndLockWithdrawalsAfterStake();
+            }
         }
     }
 

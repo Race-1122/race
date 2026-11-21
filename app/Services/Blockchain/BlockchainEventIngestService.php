@@ -80,6 +80,63 @@ class BlockchainEventIngestService
     }
 
     /**
+     * Stake tx → activate the signed-in member's ID right away, independent of the cron indexer
+     * and of the blockchain_events cache (which can already hold the event with user_id = null).
+     *
+     * Only counts when the stake event's wallet equals the member's linked wallet.
+     * Idempotent: no-op when ID + participation are already active.
+     */
+    public function activateUserFromStakeTx(User $user, string $txHash): bool
+    {
+        $wallet = strtolower(trim((string) $user->wallet_address));
+        if (! preg_match('/^0x[a-f0-9]{40}$/', $wallet)) {
+            return false;
+        }
+
+        if ($user->id_activated_at !== null && $user->participation_activated_at !== null) {
+            return true;
+        }
+
+        $receipt = BscJsonRpcClient::fromConfig()->call('eth_getTransactionReceipt', [strtolower(trim($txHash))]);
+        if (! is_array($receipt) || strtolower((string) ($receipt['status'] ?? '')) !== '0x1') {
+            return false;
+        }
+
+        $allowed = $this->allowedContracts();
+        $stakeEvents = ['StakeOpened', 'ICOStakeCreated', 'ICOHoldStakeCreated', 'RaceMintedToStaking'];
+
+        foreach ($receipt['logs'] ?? [] as $log) {
+            if (! is_array($log)) {
+                continue;
+            }
+            $contract = strtolower((string) ($log['address'] ?? ''));
+            if ($contract === '' || ($allowed !== [] && ! isset($allowed[$contract]))) {
+                continue;
+            }
+
+            $topics = $log['topics'] ?? [];
+            $name = $this->resolveEventName($topics[0] ?? null);
+            if (! in_array($name, $stakeEvents, true)) {
+                continue;
+            }
+
+            $walletTopicIndex = $name === 'RaceMintedToStaking' ? 2 : 1;
+            $eventWallet = isset($topics[$walletTopicIndex])
+                ? '0x'.strtolower(substr((string) $topics[$walletTopicIndex], 26))
+                : '';
+            if ($eventWallet !== $wallet) {
+                continue;
+            }
+
+            $user->activateIdAndLockWithdrawalsAfterStake();
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
      * @return array<string, true>
      */
     public function allowedContracts(): array
@@ -143,6 +200,23 @@ class BlockchainEventIngestService
             ->exists();
 
         if ($alreadyStored) {
+            // The event row was saved earlier but its engine row may have failed then: rewrite it
+            // (idempotent, no activation, no lock).
+            if ($eventName === 'StakeOpened') {
+                try {
+                    app(BlockchainEngineStakeIndexer::class)->upsertWalletRaceStakeRow(
+                        $topics,
+                        (string) ($log['data'] ?? ''),
+                        $txHash,
+                        $blockNumber,
+                        $contract,
+                        null,
+                    );
+                } catch (\Throwable $e) {
+                    Log::error('StakeOpened engine row rewrite failed', ['tx' => $txHash, 'error' => $e->getMessage()]);
+                }
+            }
+
             if ($eventName === 'ICOPurchased' || $eventName === 'ICOPurchase') {
                 $walletTopicIndex = $eventName === 'ICOPurchased' ? 2 : 1;
                 $wallet = isset($topics[$walletTopicIndex])
@@ -213,14 +287,28 @@ class BlockchainEventIngestService
             );
         }
         if ($eventName === 'StakeOpened') {
-            $stakeIndexer->storeWalletRaceStakeOpened(
-                $topics,
-                (string) ($log['data'] ?? ''),
-                $txHash,
-                $blockNumber,
-                $contract,
-                $userId,
-            );
+            // Event row is already saved above. A failure here must be logged, not silently
+            // skipped forever; repairMissingWalletStakeRows() retries it every minute.
+            try {
+                $stakeIndexer->storeWalletRaceStakeOpened(
+                    $topics,
+                    (string) ($log['data'] ?? ''),
+                    $txHash,
+                    $blockNumber,
+                    $contract,
+                    $userId,
+                );
+            } catch (\Throwable $e) {
+                Log::error('StakeOpened engine write failed', ['tx' => $txHash, 'error' => $e->getMessage()]);
+                // The stake is on-chain: activate the member ID anyway.
+                try {
+                    if ($userId && ($stakeUser = User::query()->find((int) $userId))) {
+                        $stakeUser->activateIdAndLockWithdrawalsAfterStake();
+                    }
+                } catch (\Throwable $e2) {
+                    Log::error('StakeOpened fallback activation failed', ['tx' => $txHash, 'error' => $e2->getMessage()]);
+                }
+            }
         }
         // Engine ParticipationPurchased (ICO openIcoStake / participate): mirror into investments
         // via UI-less path when the wallet is already linked to a user.
@@ -422,9 +510,7 @@ class BlockchainEventIngestService
             return '0';
         }
 
-        return function_exists('gmp_init')
-            ? gmp_strval(gmp_init($hex, 16), 10)
-            : (string) hexdec($hex);
+        return \App\Support\Hex::wordToDecimal($hex);
     }
 
     private function weiToToken(string $wei): string

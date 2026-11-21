@@ -2,7 +2,6 @@ import MemberPageHero, { MemberHeroLink } from '@/Components/Member/MemberPageHe
 import MemberPageShell from '@/Components/Member/MemberPageShell';
 import MemberTableScroll from '@/Components/Member/MemberTableScroll';
 import PanelCard from '@/Components/PanelCard';
-import PrimaryButton from '@/Components/PrimaryButton';
 import Web3NetworkBanner from '@/Components/Web3NetworkBanner';
 import RacePdfPanel from '@/Components/Member/RacePdfPanel';
 import RacePdfSectionHeader from '@/Components/Member/RacePdfSectionHeader';
@@ -15,9 +14,10 @@ import {
     withdrawOnChainStake,
 } from '@/lib/web3Engine';
 import { notifyError, notifySuccess } from '@/lib/appNotify';
-import { syncBlockchainTx } from '@/lib/web3Deposit';
+import { syncBlockchainTx, waitForConfirmations } from '@/lib/web3Deposit';
 import { syncParticipationTx } from '@/lib/web3Participation';
 import { durationTiersForDays } from '@/lib/durationTiers';
+import { raceEquivLabel } from '@/lib/raceQuote';
 import { readErc20Balance, formatTokenWei, readRaceUsdtPrice } from '@/lib/web3PancakeSwap';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import { useEffect, useMemo, useState } from 'react';
@@ -96,6 +96,12 @@ export default function Investment({
         can_claim: false,
         next_claim_at: null,
         claim_interval_hours: 24,
+        claim_window: {
+            enabled: true,
+            open_now: false,
+            label: '07:00 AM – 12:00 PM (Asia/Kolkata)',
+            community_release_at: '12:00',
+        },
     },
     race_coin_balance = '0.0000',
     race_coin_price_usd = '0.10',
@@ -139,7 +145,6 @@ export default function Investment({
     );
     const [unlockBusyId, setUnlockBusyId] = useState(null);
     const [compoundBusyId, setCompoundBusyId] = useState(null);
-    const [claimBusy, setClaimBusy] = useState(false);
     const idActive = Boolean(auth?.user?.id_activated_at);
     const stakeUnlock = builtForGrowth?.stake_unlock ?? {
         admin_fee_percent: '10.00',
@@ -175,20 +180,6 @@ export default function Investment({
         );
     };
 
-    const requestIncomeClaim = () => {
-        if (claimBusy || onChain || !income_policy?.can_claim) {
-            return;
-        }
-        setClaimBusy(true);
-        router.post(
-            route('income.claim'),
-            {},
-            {
-                preserveScroll: true,
-                onFinish: () => setClaimBusy(false),
-            },
-        );
-    };
     const durationTiers = useMemo(() => {
         if (onChain && engineConfig?.lock_tiers?.length) {
             return engineConfig.lock_tiers;
@@ -361,8 +352,26 @@ export default function Investment({
                           sponsorWallet: on_chain_sponsor_wallet,
                           rpcUrl: engineConfig.rpc_url || blockchain?.rpc_url || '',
                       });
+            // Wait until the stake tx is mined, otherwise the server cannot see it yet and the
+            // Member ID activation would be left to the background indexer.
             try {
-                await syncBlockchainTx({ txHash });
+                await waitForConfirmations(txHash, {
+                    minConfirmations: 1,
+                    rpcUrl: engineConfig.rpc_url || blockchain?.rpc_url || '',
+                });
+            } catch (confirmErr) {
+                console.warn('stake confirmation wait:', confirmErr?.message || confirmErr);
+            }
+            try {
+                await syncBlockchainTx({ txHash, attempts: 6 });
+            } catch (syncErr) {
+                console.warn('stake sync:', syncErr?.message || syncErr);
+                notifyError(
+                    'Stake is confirmed on-chain. Your ID activation is still syncing — it will complete automatically within a minute.',
+                    'Stake',
+                );
+            }
+            try {
                 await syncParticipationTx({
                     txHash,
                     verifyUrl: '/participation/verify-onchain',
@@ -378,7 +387,7 @@ export default function Investment({
             );
             router.reload({ only: ['investments', 'blockchainParticipations', 'communityEngineStakes', 'memberActivation', 'web3Engine'] });
         } catch (err) {
-            const msg = err?.message || 'On-chain participation failed.';
+            const msg = err?.message || 'Participation failed.';
             if (/stakeRace|function selector|execution reverted/i.test(msg)) {
                 notifyError(
                     walletRaceStakeContract
@@ -448,19 +457,19 @@ export default function Investment({
                 >
                     <>
                         Stake from <strong className="text-white">$1</strong> — jitna marzi (temporary).
-                        {onChain ? ' Live PancakeSwap price.' : ''}
+                        {onChain ? ' Live market price.' : ''}
                     </>
                 </MemberPageHero>
 
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {onChain ? (
-                        <PanelCard title="Live Pancake price" icon="swap" className="border-fintech-line !p-4">
+                        <PanelCard title="Live market price" icon="swap" className="border-fintech-line !p-4">
                             <p className="mt-1 text-2xl font-bold text-fintech-ink">
                                 {pancakePrice > 0 ? formatRacePriceUsd(pancakePrice) : '—'}{' '}
                                 <span className="text-sm font-semibold text-fintech-muted">USDT / RACE</span>
                             </p>
                             <p className="mt-1 text-[11px] text-fintech-muted">
-                                PancakeSwap RACE→USDT · Min stake ≈{' '}
+                                Live RACE→USDT · Min stake ≈{' '}
                                 {minRaceForOneUsd != null ? `${minRaceForOneUsd} RACE` : '—'} (after 4% fee ≥ $1)
                             </p>
                         </PanelCard>
@@ -469,41 +478,33 @@ export default function Investment({
                         <p className="mt-1 text-2xl font-bold text-fintech-ink">
                             {formatUsd(income_policy?.accrued_reward_usd ?? 0)}
                         </p>
+                        {raceEquivLabel(income_policy?.accrued_reward_usd ?? 0, race_coin_price_usd) ? (
+                            <p className="mt-0.5 font-mono text-sm font-semibold text-sky-700">
+                                {raceEquivLabel(income_policy?.accrued_reward_usd ?? 0, race_coin_price_usd)}
+                            </p>
+                        ) : null}
                         <p className="mt-1 text-[11px] text-fintech-muted">
-                            Daily cron accrues ROI — midnight auto-claim moves it to income wallet
+                            Daily ROI accrues here — claim it manually to move it to your income wallet
                         </p>
                     </PanelCard>
-                    <PanelCard title="Virtual Income Wallet" icon="wallet" className="border-fintech-line !p-4">
+                    <PanelCard title="Income wallet" icon="wallet" className="border-fintech-line !p-4">
                         <p className="mt-1 text-2xl font-bold text-fintech-ink">
                             {formatUsd(income_policy?.virtual_income_usd ?? wallet_balance_usd ?? 0)}
                         </p>
-                        <p className="mt-1 text-[11px] text-fintech-muted">
-                            Auto-claimed by cron · you can still Claim manually anytime due
-                        </p>
-                    </PanelCard>
-                    <PanelCard title="Claim income" icon="payout" className="border-fintech-line !p-4">
-                        <p className="mt-1 text-xs text-fintech-muted">
-                            Optional manual claim. Nightly cron also credits this wallet automatically.
-                        </p>
-                        {income_policy?.next_claim_at ? (
-                            <p className="mt-2 text-[11px] text-amber-800">
-                                Next claim after{' '}
-                                {new Date(income_policy.next_claim_at).toLocaleString(undefined, {
-                                    month: 'short',
-                                    day: 'numeric',
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                })}
+                        {raceEquivLabel(
+                            income_policy?.virtual_income_usd ?? wallet_balance_usd ?? 0,
+                            race_coin_price_usd,
+                        ) ? (
+                            <p className="mt-0.5 font-mono text-sm font-semibold text-sky-700">
+                                {raceEquivLabel(
+                                    income_policy?.virtual_income_usd ?? wallet_balance_usd ?? 0,
+                                    race_coin_price_usd,
+                                )}
                             </p>
                         ) : null}
-                        <PrimaryButton
-                            type="button"
-                            className="mt-3 w-full justify-center"
-                            disabled={!income_policy?.can_claim || claimBusy}
-                            onClick={requestIncomeClaim}
-                        >
-                            {claimBusy ? 'Claiming…' : 'Claim to virtual income'}
-                        </PrimaryButton>
+                        <p className="mt-1 text-[11px] text-fintech-muted">
+                            Claimed income lands here · withdraw anytime
+                        </p>
                     </PanelCard>
                 </div>
 
@@ -559,7 +560,7 @@ export default function Investment({
                                 showWhenConnected={Boolean(walletAddress)}
                             />
                             <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs text-sky-950">
-                                Min {formatUsd(onChainParticipation.min_usdt ?? '1')} USDT · Live Pancake{' '}
+                                Min {formatUsd(onChainParticipation.min_usdt ?? '1')} USDT · Live price{' '}
                                 {pancakePrice > 0 ? formatRacePriceUsd(pancakePrice) : '—'} / RACE · Choose USDT or
                                 wallet RACE below, then lock period.
                             </div>
@@ -585,7 +586,7 @@ export default function Investment({
                                         />
                                         <p className="text-sm font-bold text-fintech-ink">Wallet USDT</p>
                                         <p className="mt-1 text-xs text-fintech-muted">
-                                            Swap USDT → RACE on Pancake inside Engine, then stake
+                                            Swap USDT → RACE inside Engine, then stake
                                         </p>
                                     </label>
                                     <label
@@ -777,7 +778,7 @@ export default function Investment({
                                 </p>
                                 {stakeWithWalletRace ? (
                                     <p className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
-                                        Payment: <strong>{amountRace} RACE</strong> · Pancake{' '}
+                                        Payment: <strong>{amountRace} RACE</strong> · Price{' '}
                                         <strong>{pancakePrice > 0 ? formatRacePriceUsd(pancakePrice) : '—'}</strong> ·
                                         Est. after fee ≈ <strong>{formatUsd(racePrincipalUsdEst)}</strong>
                                         {racePrincipalUsdEst > 0 && racePrincipalUsdEst < 1 ? (
@@ -821,8 +822,8 @@ export default function Investment({
                                 ? onChainBusy
                                     ? 'Confirm in wallet…'
                                     : stakeWithWalletRace
-                                      ? `Stake ${amountRace} RACE on-chain`
-                                      : `Stake ${formatUsd(data.amount_usd)} USDT on-chain`
+                                      ? `Stake ${amountRace} RACE`
+                                      : `Stake ${formatUsd(data.amount_usd)} USDT`
                                 : processing
                                   ? 'Saving…'
                                   : payWithRaceCoin
@@ -838,7 +839,7 @@ export default function Investment({
                         title="Your participations"
                         subtitle={
                             onChain
-                                ? 'Indexed on-chain stakes (rewards paid by contract)'
+                                ? 'Indexed stakes (rewards paid by contract)'
                                 : 'Compound daily ROI · Flexible 10+ days = no unlock fee · fixed lock: unlock within 24h of completion or auto-rollover'
                         }
                     />

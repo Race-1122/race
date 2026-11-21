@@ -13,6 +13,7 @@ return [
             'short_label' => 'Staking',
             'types' => [
                 LedgerEntry::TYPE_ROI_DAILY,
+                LedgerEntry::TYPE_INCOME_CLAIM,
                 LedgerEntry::TYPE_STAKE_UNLOCK_EMI,
                 LedgerEntry::TYPE_COMPOUND_REINVEST,
             ],
@@ -33,7 +34,7 @@ return [
             'short_label' => 'ROI Share',
             'types' => [LedgerEntry::TYPE_AFFILIATE_NETWORK_ROI],
             'route' => 'transactions',
-            'trigger' => 'Level 1 (direct) only · up to 10% ROI-on-ROI from each direct’s daily staking ROI · unlimited directs · paid with income:pay-roi cron.',
+            'trigger' => 'Level 1 (direct) only · up to 10% ROI-on-ROI from each direct’s daily staking ROI · unlimited directs · paid daily at 05:00 IST (income:pay-roi-sharing) and also when the direct claims.',
         ],
         [
             'key' => 'community_leadership',

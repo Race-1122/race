@@ -1,5 +1,4 @@
 import PrimaryButton from '@/Components/PrimaryButton';
-import Web3NetworkBanner from '@/Components/Web3NetworkBanner';
 import PanelCard from '@/Components/PanelCard';
 import TextInput from '@/Components/TextInput';
 import MemberPageHero from '@/Components/Member/MemberPageHero';
@@ -57,8 +56,6 @@ export default function Deposit({
         networkError: networkSwitchError,
         switchNetwork,
         connectWallet: connectWalletOnNetwork,
-        connectedLabel,
-        switchButtonLabel,
     } = useWalletNetwork({ expectedChainId: depositAddress?.chain_id ?? blockchain?.chain_id });
 
     const [connecting, setConnecting] = useState(false);
@@ -79,12 +76,14 @@ export default function Deposit({
     } catch {
         officialUsdtConfigured = false;
     }
-    const canDeposit =
-        Boolean(wallet) &&
-        Boolean(treasuryAddress) &&
-        officialUsdtConfigured &&
-        Number(amountUsd) >= 1 &&
-        !depositStep;
+    const canDeposit = !wallet
+        ? !connecting && !networkSwitching
+        : Boolean(treasuryAddress) &&
+          officialUsdtConfigured &&
+          Number(amountUsd) >= 1 &&
+          !depositStep &&
+          !connecting &&
+          !networkSwitching;
 
     const connectWallet = async () => {
         setWalletError(null);
@@ -111,7 +110,7 @@ export default function Deposit({
         setDepositSuccess(null);
 
         if (!wallet) {
-            setDepositError('Connect your crypto wallet first.');
+            await connectWallet();
             return;
         }
         if (!treasuryAddress || !officialUsdtConfigured) {
@@ -191,42 +190,8 @@ export default function Deposit({
                     </div>
                 )}
 
-                <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
-                    <PanelCard title="1 · Connect crypto wallet" icon="wallet">
-                        <p className="mb-4 text-sm text-fintech-muted">
-                            Connect any crypto wallet on BNB Smart Chain. We store your public
-                            address for deposit verification and withdrawals.
-                        </p>
-                        {wallet ? (
-                            <div className="space-y-3">
-                                <Web3NetworkBanner
-                                    chainOk={chainOk}
-                                    connectedLabel={connectedLabel}
-                                    switchButtonLabel={switchButtonLabel}
-                                    switching={networkSwitching}
-                                    networkError={networkSwitchError}
-                                    onSwitch={switchNetwork}
-                                />
-                                <p className="break-all font-mono text-sm font-medium text-fintech-ink">
-                                    {wallet}
-                                </p>
-                            </div>
-                        ) : (
-                            <PrimaryButton
-                                type="button"
-                                className="w-full justify-center py-3 normal-case"
-                                disabled={connecting || networkSwitching}
-                                onClick={connectWallet}
-                            >
-                                {connecting || networkSwitching ? 'Opening wallet…' : 'Connect wallet'}
-                            </PrimaryButton>
-                        )}
-                        {walletError && (
-                            <p className="mt-3 text-sm text-red-400">{walletError}</p>
-                        )}
-                    </PanelCard>
-
-                    <PanelCard title="2 · Deposit USDT from wallet" icon="deposit">
+                <div>
+                    <PanelCard title="Deposit USDT from wallet" icon="deposit">
                         {!treasuryAddress || !officialUsdtConfigured ? (
                             <p className="text-sm text-amber-600">
                                 Deposit is not available — treasury address or official USDT contract is not
@@ -254,31 +219,25 @@ export default function Deposit({
                                     </p>
                                 </div>
 
-                                <div className="rounded-xl border-2 border-amber-400/70 bg-amber-950/50 px-3 py-3 shadow-sm">
-                                    <p className="text-[10px] font-bold uppercase tracking-wide text-amber-200">
-                                        Sending to
-                                    </p>
-                                    <p className="mt-1 break-all rounded-lg border border-amber-400/40 bg-[#0a1838]/80 px-2 py-1.5 font-mono text-[13px] font-bold text-amber-100">
-                                        {treasuryAddress}
-                                    </p>
-                                </div>
-
                                 <PrimaryButton
                                     type="submit"
                                     className="w-full justify-center border-emerald-500 bg-emerald-600 py-3 text-white hover:bg-emerald-500 focus:ring-emerald-400"
                                     disabled={!canDeposit}
                                 >
-                                    {depositStep ? depositStepLabel : 'Deposit USDT from wallet'}
+                                    {connecting || networkSwitching
+                                        ? 'Opening wallet…'
+                                        : depositStep
+                                          ? depositStepLabel
+                                          : !wallet
+                                            ? 'Connect wallet to deposit'
+                                            : 'Deposit USDT from wallet'}
                                 </PrimaryButton>
-
-                                {!wallet && (
-                                    <p className="text-xs text-fintech-muted">
-                                        Connect your wallet in step 1 before depositing.
-                                    </p>
-                                )}
                             </form>
                         )}
 
+                        {(walletError || networkSwitchError) && (
+                            <p className="mt-3 text-sm text-red-400">{walletError || networkSwitchError}</p>
+                        )}
                         {depositError && (
                             <p className="mt-3 text-sm text-red-500">{depositError}</p>
                         )}

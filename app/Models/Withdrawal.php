@@ -45,6 +45,10 @@ class Withdrawal extends Model
         'team_reward_usd',
         'admin_fee_usd',
         'net_usd',
+        'race_amount',
+        'race_price_usd',
+        'race_tx_hash',
+        'admin_fee_tx_hash',
         'destination_address',
         'status',
     ];
@@ -57,6 +61,8 @@ class Withdrawal extends Model
             'team_reward_usd' => 'decimal:2',
             'admin_fee_usd' => 'decimal:2',
             'net_usd' => 'decimal:2',
+            'race_amount' => 'decimal:8',
+            'race_price_usd' => 'decimal:8',
         ];
     }
 

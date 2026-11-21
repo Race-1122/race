@@ -15,6 +15,9 @@ class SiteSetting extends Model
 
     public const KEY_BONZA_BUSTER_ENABLED = 'bonza_buster_enabled';
 
+    /** Admin "Go live" switch for claim-by-mint (remaining stakes). Falls back to config when unset. */
+    public const KEY_STAKE_MINT_CLAIM_ENABLED = 'stake_mint_claim_enabled';
+
     public const KEY_MEMBER_POPUP_ENABLED = 'member_popup_enabled';
 
     public const KEY_MEMBER_POPUP_TITLE = 'member_popup_title';
@@ -28,6 +31,12 @@ class SiteSetting extends Model
     public const KEY_ICO_ADMIN_WALLET = 'ico_admin_wallet';
 
     public const KEY_INCOME_HOLD = 'income_hold';
+
+    /** Global: when "1", no member can request withdrawals. */
+    public const KEY_WITHDRAWALS_GLOBALLY_DISABLED = 'withdrawals_globally_disabled';
+
+    /** Global: ISO datetime — withdrawals locked for everyone until this time. */
+    public const KEY_WITHDRAWALS_GLOBALLY_LOCKED_UNTIL = 'withdrawals_globally_locked_until';
 
     protected $table = 'site_settings';
 
@@ -177,6 +186,49 @@ class SiteSetting extends Model
         }
 
         return (bool) config('reward_plan.bonza_buster.enabled', true);
+    }
+
+    public static function stakeMintClaimEnabled(): bool
+    {
+        $fromDb = static::get(static::KEY_STAKE_MINT_CLAIM_ENABLED);
+
+        if ($fromDb !== null) {
+            return in_array(strtolower($fromDb), ['1', 'true', 'yes', 'on'], true);
+        }
+
+        return (bool) config('race_income_mint.stake_claim_enabled', false);
+    }
+
+    public static function withdrawalsGloballyDisabled(): bool
+    {
+        $fromDb = static::get(static::KEY_WITHDRAWALS_GLOBALLY_DISABLED, '0');
+
+        return in_array(strtolower((string) $fromDb), ['1', 'true', 'yes', 'on'], true);
+    }
+
+    /**
+     * Future lock end for all members, or null if unlocked / past.
+     */
+    public static function withdrawalsGloballyLockedUntil(): ?\Carbon\Carbon
+    {
+        $raw = static::get(static::KEY_WITHDRAWALS_GLOBALLY_LOCKED_UNTIL);
+        if ($raw === null || trim($raw) === '') {
+            return null;
+        }
+
+        try {
+            $until = \Carbon\Carbon::parse($raw);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $until->isFuture() ? $until : null;
+    }
+
+    public static function withdrawalsGloballyBlocked(): bool
+    {
+        return static::withdrawalsGloballyDisabled()
+            || static::withdrawalsGloballyLockedUntil() !== null;
     }
 
     public static function bonzaBusterDirectPercent(): float

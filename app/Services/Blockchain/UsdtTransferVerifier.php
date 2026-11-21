@@ -205,8 +205,9 @@ class UsdtTransferVerifier
                 continue;
             }
 
-            $from = '0x'.substr(strtolower((string) $topics[1]), 24);
-            $to = '0x'.substr(strtolower((string) $topics[2]), 24);
+            // Topics are 0x + 64 hex; address is the last 40 hex chars (skip 0x + 24 pad zeros → offset 26).
+            $from = '0x'.substr(strtolower((string) $topics[1]), 26);
+            $to = '0x'.substr(strtolower((string) $topics[2]), 26);
             if ($from !== $fromAddress || $to !== $adminAddress) {
                 continue;
             }
@@ -241,9 +242,7 @@ class UsdtTransferVerifier
             return '0';
         }
 
-        return function_exists('gmp_init')
-            ? gmp_strval(gmp_init($hex, 16), 10)
-            : (string) hexdec($hex);
+        return \App\Support\Hex::wordToDecimal($hex);
     }
 
     /**

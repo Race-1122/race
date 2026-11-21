@@ -4,12 +4,14 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Orchid\Screen\AsSource;
 
 /**
  * Indexed on-chain ICO purchase. Blockchain is source of truth for RACE ownership.
  */
 class IcoPurchase extends Model
 {
+    use AsSource;
     protected $fillable = [
         'purchase_id',
         'user_id',

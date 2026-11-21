@@ -1,9 +1,10 @@
 import PlanIncomeSection from '@/Components/PlanIncomeSection';
-import IncomeHoldWithdrawCard from '@/Components/IncomeHoldWithdrawCard';
+import LiveIncomeTicker from '@/Components/Member/LiveIncomeTicker';
 import MemberPageHero from '@/Components/Member/MemberPageHero';
 import MemberPageShell from '@/Components/Member/MemberPageShell';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { formatMemberCode } from '@/lib/memberCode';
+import { raceEquivLabel } from '@/lib/raceQuote';
 import { chainIdMatches, readChainIdHex, readEngineMemberState } from '@/lib/web3Engine';
 import { getWalletProvider, walletRequest } from '@/lib/web3Wallet';
 import { Head, Link, usePage, usePoll } from '@inertiajs/react';
@@ -44,6 +45,13 @@ function formatRacePriceUsd(value) {
 
 const defaultSummary = {
     balance_usd: '0.00',
+    income_buckets: {
+        total_usd: '0.00',
+        daily_claim_usd: '0.00',
+        other_usd: '0.00',
+        daily_claim_earned_usd: '0.00',
+        other_earned_usd: '0.00',
+    },
     race_coin_balance: '0.0000',
     race_coin_price_usd: '0.10',
     lifetime_credits_usd: '0.00',
@@ -51,8 +59,22 @@ const defaultSummary = {
     today_income_usd: '0.00',
     today_income_count: 0,
     today_label: '',
+    daily_claims: {
+        items: [],
+        count: 0,
+        total_race: '0',
+        total_value_now_usd: '0',
+        total_value_claim_usd: '0',
+        rate_usd: '0',
+        today_count: 0,
+        today_race: '0',
+        today_value_now_usd: '0',
+        today_value_claim_usd: '0',
+        today_label: '',
+    },
     principal_invested_usd: '0.00',
     active_principal_usd: '0.00',
+    active_package_locked: true,
     roi_paid_usd: '0.00',
     active_investments: 0,
     income_by_type: {},
@@ -91,8 +113,19 @@ function DpCard({ className = '', children, hover = true }) {
     );
 }
 
-function DailyEarningCard({ amountUsd, count, dateLabel }) {
+function formatRace(value, digits = 6) {
+    const n = Number(value ?? 0);
+    if (!Number.isFinite(n)) return '0';
+    return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: digits });
+}
+
+function DailyEarningCard({ amountUsd, count, dateLabel, dailyClaims, racePriceUsd, virtualCompound = null }) {
     const hasEarnings = Number(amountUsd) > 0;
+    const claims = dailyClaims ?? {};
+    const todayRace = Number(claims.today_race ?? 0);
+    const todayClaimCount = Number(claims.today_count ?? 0);
+    const hasStakingToday = todayRace > 0 || todayClaimCount > 0;
+    const raceLine = raceEquivLabel(amountUsd, racePriceUsd);
 
     return (
         <DpCard className="border-emerald-200/80 bg-gradient-to-br from-emerald-50/90 via-white/80 to-sky-50/50 p-5 sm:p-6">
@@ -104,16 +137,44 @@ function DailyEarningCard({ amountUsd, count, dateLabel }) {
                     </p>
                     <p
                         className={`mt-3 font-mono text-3xl font-extrabold tracking-tight sm:text-4xl ${
-                            hasEarnings ? 'text-emerald-600' : 'text-slate-400'
+                            hasEarnings || hasStakingToday ? 'text-emerald-600' : 'text-slate-400'
                         }`}
                     >
                         {formatUsd(amountUsd)}
                     </p>
+                    {raceLine ? (
+                        <p className="mt-0.5 font-mono text-sm font-semibold text-sky-700">{raceLine}</p>
+                    ) : null}
                     <p className="mt-1 text-xs text-slate-500">
                         {count > 0
                             ? `${count} credit${count === 1 ? '' : 's'} today (all reward types, excl. deposits)`
                             : 'No reward credits yet today — ROI and team payouts appear here when paid'}
                     </p>
+
+                    <div className="mt-4 rounded-xl border border-emerald-200/70 bg-white/80 px-3 py-3">
+                        <p className="text-[0.65rem] font-bold uppercase tracking-wider text-emerald-800">
+                            Staking RACE received today
+                        </p>
+                        <p
+                            className={`mt-1 font-mono text-xl font-extrabold ${
+                                hasStakingToday ? 'text-emerald-700' : 'text-slate-400'
+                            }`}
+                        >
+                            {hasStakingToday ? '+' : ''}
+                            {formatRace(claims.today_race ?? 0)} RACE
+                        </p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                            {todayClaimCount > 0
+                                ? `${todayClaimCount} staking claim${todayClaimCount === 1 ? '' : 's'} · ≈ $${formatRace(claims.today_value_claim_usd ?? 0, 4)} at claim · ≈ $${formatRace(claims.today_value_now_usd ?? 0, 4)} at today's rate`
+                                : 'No staking claim yet today — appears after you claim or mint'}
+                        </p>
+                        {Number(claims.total_race ?? 0) > 0 ? (
+                            <p className="mt-2 border-t border-emerald-100 pt-2 text-[11px] text-slate-500">
+                                Total staking claims recorded: {formatRace(claims.total_race)} RACE (
+                                {claims.count} claim{claims.count === 1 ? '' : 's'})
+                            </p>
+                        ) : null}
+                    </div>
                 </div>
                 <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
                     <div className="flex h-14 w-14 items-center justify-center self-start rounded-2xl border border-emerald-200/80 bg-white/90 text-emerald-600 shadow-sm sm:self-auto">
@@ -125,6 +186,17 @@ function DailyEarningCard({ amountUsd, count, dateLabel }) {
                             />
                         </svg>
                     </div>
+                    {virtualCompound?.can_compound ? (
+                        <Link
+                            href={route('virtual_income.compound_to_stake')}
+                            method="post"
+                            as="button"
+                            preserveScroll
+                            className="inline-flex items-center justify-center rounded-xl border border-violet-300 bg-violet-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-violet-500"
+                        >
+                            Compound {formatUsdt(virtualCompound.available_usd)}
+                        </Link>
+                    ) : null}
                     <Link
                         href={route('transactions')}
                         className="inline-flex items-center justify-center rounded-xl border border-emerald-200/80 bg-white/90 px-4 py-2 text-xs font-bold text-emerald-800 shadow-sm transition hover:bg-emerald-50"
@@ -137,7 +209,7 @@ function DailyEarningCard({ amountUsd, count, dateLabel }) {
     );
 }
 
-function GlassMetricCard({ title, value, sub, icon, tintClass }) {
+function GlassMetricCard({ title, value, raceLine, sub, icon, tintClass }) {
     return (
         <DpCard className="p-4 sm:p-5">
             <div className="relative flex items-start justify-between gap-2">
@@ -146,6 +218,9 @@ function GlassMetricCard({ title, value, sub, icon, tintClass }) {
                     <p className="mt-2 break-words font-mono text-lg font-bold tracking-tight text-[#0F172A] sm:text-xl">
                         {value}
                     </p>
+                    {raceLine ? (
+                        <p className="mt-0.5 font-mono text-[11px] font-semibold text-sky-700">{raceLine}</p>
+                    ) : null}
                     {sub ? <p className="mt-1 text-xs font-semibold text-emerald-600">{sub}</p> : null}
                 </div>
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-sky-200/50 bg-gradient-to-br from-sky-50 to-white text-[#2563EB] shadow-[0_0_20px_rgba(56,189,248,0.25)]">
@@ -473,7 +548,7 @@ function useDashboardActivation(serverActivation) {
                 id_status_label: 'Loading…',
                 participation_status: 'loading',
                 participation_status_label: 'Loading…',
-                income_eligibility_label: 'Confirming on-chain status…',
+                income_eligibility_label: 'Confirming wallet status…',
                 next_step: 'none',
             };
         }
@@ -495,12 +570,19 @@ function useDashboardActivation(serverActivation) {
                 id_status_label: '—',
                 participation_status: 'unknown',
                 participation_status_label: '—',
-                income_eligibility_label: 'Could not confirm on-chain status. Try again shortly.',
+                income_eligibility_label: 'Could not confirm wallet status. Try again shortly.',
                 next_step: 'none',
             };
         }
 
-        if (chain.participationActive) {
+        // Engine.participate sets on-chain participationActive. Wallet/Pancake RACE stakes
+        // do not — Laravel activates those on StakeOpened. Trust server when already active.
+        const serverActive =
+            base.id_status === 'active' ||
+            base.participation_status === 'active' ||
+            base.member_status === 'active';
+
+        if (chain.participationActive || serverActive) {
             return {
                 ...base,
                 loading: false,
@@ -552,77 +634,82 @@ function MemberActivationStatusCard({ activation, memberNumber, isTestnet = fals
             : 'border-amber-400/70 bg-amber-950/50 text-amber-100';
     };
 
+    const chip = (ok, label, value) => (
+        <span
+            className={`inline-flex min-w-0 items-center gap-1.5 rounded-lg border px-2 py-1 ${statusClass(ok)}`}
+            title={`${label}: ${value}`}
+        >
+            <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide opacity-80">{label}</span>
+            <span className="truncate text-xs font-bold">{value}</span>
+        </span>
+    );
+
     return (
-        <DpCard className="!p-4 sm:!p-5 ring-2 ring-[#2563EB]/40 ring-offset-2 !bg-gradient-to-br !from-sky-50 !to-white shadow-[0_8px_24px_-10px_rgba(37,99,235,0.28)]" hover={false}>
-            <span className="inline-flex items-center rounded-full bg-[#2563EB] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white shadow-sm">
-                Account activation
-            </span>
-            <p className="mt-2 text-xs font-medium text-slate-700 sm:text-sm">
-                Register to access the dashboard. Staking ($50+) unlocks the full rewards program.
-            </p>
+        <DpCard
+            className="!p-2.5 sm:!p-3 ring-1 ring-[#2563EB]/30 !bg-gradient-to-br !from-sky-50/80 !to-white shadow-sm"
+            hover={false}
+        >
+            <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center rounded-full bg-[#2563EB] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
+                    Activation
+                </span>
+                {chip(a.member_status === 'active', 'Member', a.member_status_label ?? '—')}
+                {chip(a.participation_status === 'active', 'Staking', a.participation_status_label ?? '—')}
+                {chip(
+                    idActive,
+                    'ID',
+                    `${memberLabel} · ${a.id_status_label ?? (idActive ? 'Activated' : 'Pending')}`,
+                )}
+                <span className="text-[11px] text-slate-500">
+                    {loading
+                        ? 'Confirming…'
+                        : idActive
+                          ? a.income_eligibility_label
+                          : 'Stake $50+ to activate ID'}
+                </span>
+                {a.next_step === 'participation' && !loading ? (
+                    <Link
+                        href={route('investment')}
+                        className="ml-auto inline-flex items-center rounded-lg bg-emerald-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700"
+                    >
+                        Stake $50+
+                    </Link>
+                ) : null}
+            </div>
 
             {a.banner === 'connect' ? (
-                <p className="mt-3 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-semibold text-sky-900">
-                    Connect any crypto wallet to confirm on-chain status.
-                </p>
+                <p className="mt-1.5 text-[11px] font-semibold text-sky-800">Connect wallet to confirm status.</p>
             ) : null}
             {a.banner === 'network' ? (
-                <p className="mt-3 rounded-xl border border-amber-400/60 bg-amber-950/50 px-3 py-2 text-xs font-semibold text-amber-100">
-                    {isTestnet ? 'Switch to BSC Testnet (Chain ID 97)' : 'Switch to BNB Smart Chain'}
+                <p className="mt-1.5 text-[11px] font-semibold text-amber-800">
+                    {isTestnet ? 'Switch to BSC Testnet (97)' : 'Switch to BNB Smart Chain'}
                 </p>
             ) : null}
             {a.banner === 'rpc' || a.banner === 'rpc-soft' ? (
-                <p className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
-                    Network is slow. Status will refresh automatically.
-                </p>
-            ) : null}
-
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                <div className={`rounded-xl border px-4 py-3 ${statusClass(a.member_status === 'active')}`}>
-                    <p className="text-[10px] font-bold uppercase tracking-wide opacity-90">Member status</p>
-                    <p className="mt-1 text-sm font-bold">{a.member_status_label ?? '—'}</p>
-                </div>
-                <div className={`rounded-xl border px-4 py-3 ${statusClass(a.participation_status === 'active')}`}>
-                    <p className="text-[10px] font-bold uppercase tracking-wide opacity-90">Staking</p>
-                    <p className="mt-1 text-sm font-bold">{a.participation_status_label ?? '—'}</p>
-                </div>
-                <div className={`rounded-xl border px-4 py-3 ${statusClass(idActive)}`}>
-                    <p className="text-[10px] font-bold uppercase tracking-wide opacity-90">Member ID</p>
-                    <p className="mt-1 truncate text-sm font-bold">
-                        {memberLabel} · {a.id_status_label ?? (idActive ? 'Activated' : 'Pending')}
-                    </p>
-                </div>
-            </div>
-            <p className="mt-3 text-xs text-slate-600">
-                {loading
-                    ? 'Confirming on-chain status…'
-                    : idActive
-                      ? a.income_eligibility_label
-                      : 'Start Staking ($50+) to activate your member ID.'}
-            </p>
-            {a.next_step === 'participation' && !loading ? (
-                <Link
-                    href={route('investment')}
-                    className="mt-4 inline-flex items-center justify-center rounded-xl border border-emerald-300 bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
-                >
-                    Start Staking ($50+)
-                </Link>
+                <p className="mt-1.5 text-[11px] font-semibold text-slate-600">Network slow — status will refresh.</p>
             ) : null}
         </DpCard>
     );
 }
 
-export default function Dashboard({ summary: summaryProp = {}, memberActivation: memberActivationProp }) {
+export default function Dashboard({
+    summary: summaryProp = {},
+    memberActivation: memberActivationProp,
+    stake_auto_claim_live = false,
+    virtual_compound = { available_usd: '0.00', can_compound: false, stake_index: null },
+    held_ico = { count: 0, race: '0.0000' },
+}) {
     const page = usePage();
     const { user } = page.props.auth;
     const isTestnet = Boolean(page.props.blockchain?.is_testnet);
     const memberActivation = useDashboardActivation(memberActivationProp ?? page.props.memberActivation ?? {});
     const summary = { ...defaultSummary, ...summaryProp };
     const displayName = user?.name?.trim() || 'Member';
+    const buckets = { ...defaultSummary.income_buckets, ...(summary.income_buckets || {}) };
 
     usePoll(
         120000,
-        { only: ['summary'] },
+        { only: ['summary', 'stake_auto_claim_live', 'virtual_compound'] },
         { preserveScroll: true, preserveState: true },
     );
 
@@ -630,7 +717,8 @@ export default function Dashboard({ summary: summaryProp = {}, memberActivation:
         {
             title: 'Total balance',
             value: formatUsdt(summary.balance_usd),
-            sub: summary.income_pct?.total ?? '+0.00% vs prior',
+            raceLine: raceEquivLabel(summary.balance_usd, summary.race_coin_price_usd),
+            sub: `Daily claim ${formatUsdt(buckets.daily_claim_usd)} · Other ${formatUsdt(buckets.other_usd)}`,
             tintClass: 'bg-blue-400/30',
             icon: (
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
@@ -660,6 +748,7 @@ export default function Dashboard({ summary: summaryProp = {}, memberActivation:
         {
             title: 'Total reward earned',
             value: formatUsd(summary.total_income_usd ?? summary.lifetime_credits_usd),
+            raceLine: raceEquivLabel(summary.total_income_usd ?? summary.lifetime_credits_usd, summary.race_coin_price_usd),
             sub: summary.income_payout_count
                 ? `${summary.income_payout_count} payout(s) · ROI ${summary.income_pct?.roi ?? '+0.00%'}`
                 : (summary.income_pct?.roi ?? '+0.00% ROI window'),
@@ -675,8 +764,10 @@ export default function Dashboard({ summary: summaryProp = {}, memberActivation:
             value: formatUsd(summary.active_principal_usd ?? summary.principal_invested_usd),
             sub:
                 summary.active_investments > 0
-                    ? `${summary.active_investments} active position${summary.active_investments === 1 ? '' : 's'}`
-                    : null,
+                    ? `${summary.active_investments} active position${summary.active_investments === 1 ? '' : 's'} · stake-time value`
+                    : summary.active_package_locked
+                      ? 'Stake-time locked value'
+                      : null,
             tintClass: 'bg-sky-400/30',
             icon: (
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
@@ -720,6 +811,8 @@ export default function Dashboard({ summary: summaryProp = {}, memberActivation:
         },
     ], [
         summary.balance_usd,
+        buckets.daily_claim_usd,
+        buckets.other_usd,
         summary.income_pct?.total,
         summary.income_pct?.roi,
         summary.race_coin_balance,
@@ -728,6 +821,7 @@ export default function Dashboard({ summary: summaryProp = {}, memberActivation:
         summary.lifetime_credits_usd,
         summary.income_payout_count,
         summary.active_principal_usd,
+        summary.active_package_locked,
         summary.principal_invested_usd,
         summary.active_investments,
         summary.team_size,
@@ -740,9 +834,8 @@ export default function Dashboard({ summary: summaryProp = {}, memberActivation:
             <Head title="Dashboard" />
 
             <MemberPageShell particles={false}>
-                    <MemberPageHero kicker="Member dashboard" title={`Welcome back, ${displayName}`} variant="pdf" icon="dashboard">
-                        Track balances, daily earnings, team growth, and all income programs in one place.
-                    </MemberPageHero>
+                    <LiveIncomeTicker />
+                    <MemberPageHero kicker="Member dashboard" title={`Welcome back, ${displayName}`} variant="pdf" icon="dashboard" />
 
                     <MemberActivationStatusCard
                         activation={memberActivation}
@@ -750,14 +843,65 @@ export default function Dashboard({ summary: summaryProp = {}, memberActivation:
                         isTestnet={isTestnet}
                     />
 
+                    {Number(held_ico?.count) > 0 ? (
+                        <div className="rounded-2xl border border-amber-400/40 bg-amber-50/90 p-4 ring-1 ring-amber-300/50 sm:p-5">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                                ICO stake pending
+                            </p>
+                            <p className="mt-1 text-sm text-slate-800">
+                                You bought {held_ico.race} RACE in ICO ({held_ico.count} purchase
+                                {Number(held_ico.count) === 1 ? '' : 's'}) but have not created the on-chain stake yet.
+                            </p>
+                            <Link
+                                href={route('ico')}
+                                className="mt-3 inline-flex min-h-[2.75rem] items-center justify-center rounded-xl bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
+                            >
+                                Open ICO — Create Your Stake
+                            </Link>
+                        </div>
+                    ) : null}
+
                     <div className="mx-auto w-full min-w-0 max-w-lg">
-                        <IncomeHoldWithdrawCard compact />
+                        <DpCard className="bg-gradient-to-br from-sky-50/80 to-white p-4 ring-1 ring-[#2563EB]/30 sm:p-5" hover={false}>
+                            <p className="text-xs font-semibold uppercase tracking-wide text-fintech-primary">
+                                Daily claim hold
+                            </p>
+                            <p className="mt-1 text-2xl font-bold text-fintech-ink">
+                                {formatUsdt(buckets.daily_claim_usd)}
+                            </p>
+                            {raceEquivLabel(buckets.daily_claim_usd, summary.race_coin_price_usd) ? (
+                                <p className="mt-0.5 font-mono text-sm font-semibold text-sky-700">
+                                    {raceEquivLabel(buckets.daily_claim_usd, summary.race_coin_price_usd)}
+                                </p>
+                            ) : null}
+                            <p className="mt-1 text-[11px] text-fintech-muted">
+                                From daily claims to date, {formatUsdt(buckets.daily_claim_usd)} is on hold
+                                {Number(buckets.daily_claim_earned_usd) > 0
+                                    ? ` (lifetime credited ${formatUsdt(buckets.daily_claim_earned_usd)})`
+                                    : ''}
+                                . Team Reward + Admin Fee apply on withdraw. Other income:{' '}
+                                {formatUsdt(buckets.other_usd)}
+                                {raceEquivLabel(buckets.other_usd, summary.race_coin_price_usd)
+                                    ? ` (${raceEquivLabel(buckets.other_usd, summary.race_coin_price_usd)})`
+                                    : ''}{' '}
+                                — withdraw anytime.
+                            </p>
+                            <Link
+                                href={route('withdrawal')}
+                                className="mt-2 inline-flex text-xs font-semibold text-[#2563EB] underline"
+                            >
+                                Open Income wallet
+                            </Link>
+                        </DpCard>
                     </div>
 
                     <DailyEarningCard
                         amountUsd={summary.today_income_usd}
                         count={summary.today_income_count ?? 0}
                         dateLabel={summary.today_label}
+                        dailyClaims={summary.daily_claims}
+                        racePriceUsd={summary.race_coin_price_usd}
+                        virtualCompound={virtual_compound}
                     />
 
                     <div className="member-stat-grid gap-3 lg:grid lg:grid-cols-4 lg:gap-4">
@@ -772,6 +916,8 @@ export default function Dashboard({ summary: summaryProp = {}, memberActivation:
                         planIncome={summary.plan_income}
                         totalIncomeUsd={summary.total_income_usd}
                         incomeEntries={summary.income_entries}
+                        dailyClaims={summary.daily_claims}
+                        virtualCompound={virtual_compound}
                         animate={false}
                     >
                         <RoyaltyAchievementShowcase />

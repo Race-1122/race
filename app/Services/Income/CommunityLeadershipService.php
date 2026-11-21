@@ -396,13 +396,25 @@ class CommunityLeadershipService
         $directs = $this->qualifiedDirectCount($user->id);
         $current = $this->qualifyingRankRow($user->id, $self);
         $ranks = RewardPlan::communityLeadershipRanks();
-        $payoutContext = $this->buildPayoutContext();
-        $estimatedPayout = $this->calculateLeaderDailyPayout($user->id, $payoutContext);
+        // Do NOT call buildPayoutContext() here — full-network walk times out on live UI.
+        // Cron payout still uses the full context; member pages use a simple ROI × % estimate.
         $rank11 = RewardPlan::communityLeadershipRank11RequiredRank();
         $isRank11 = $current !== null && (int) ($current['level'] ?? 0) >= $rank11;
-        $hasTeamRank11 = $isRank11 && $this->hasQualifiedRank11Partner($user->id, $payoutContext);
-        $dailyBlockedByTeamRank11 = $hasTeamRank11
-            && RewardPlan::communityLeadershipRank11StopDailyWhenTeamHasRank11();
+        // Full network Rank-11 partner scan needs buildPayoutContext — skip on member UI.
+        $hasTeamRank11 = false;
+        $dailyBlockedByTeamRank11 = false;
+
+        $simpleEstimate = '0.00';
+        if ($current !== null) {
+            $pct = (float) ($current['reward_percent'] ?? 0);
+            if ($pct > 0) {
+                $simpleEstimate = bcmul(
+                    number_format((float) $teamDailyRoi, 8, '.', ''),
+                    number_format($pct / 100, 8, '.', ''),
+                    2,
+                );
+            }
+        }
 
         $ladder = [];
         foreach ($ranks as $row) {
@@ -413,6 +425,7 @@ class CommunityLeadershipService
             $teamMet = bccomp($team, number_format($needTeam, 2, '.', ''), 2) >= 0;
             $directMet = $directs >= $needDirect;
             $qualified = $selfMet && $teamMet && $directMet && $this->leadershipActivated($user->id);
+            $isCurrent = $current && (int) ($row['level'] ?? 0) === (int) ($current['level'] ?? 0);
 
             $ladder[] = [
                 'level' => (int) ($row['level'] ?? 0),
@@ -425,10 +438,8 @@ class CommunityLeadershipService
                 'live_team_daily_roi_usd' => (float) $teamDailyRoi,
                 'live_directs' => $directs,
                 'qualified' => $qualified,
-                'estimated_daily_pay_usd' => (float) ($qualified && $current && (int) ($row['level'] ?? 0) === (int) ($current['level'] ?? 0)
-                    ? $estimatedPayout['total']
-                    : '0.00'),
-                'is_current' => $current && (int) ($row['level'] ?? 0) === (int) ($current['level'] ?? 0),
+                'estimated_daily_pay_usd' => (float) ($qualified && $isCurrent ? $simpleEstimate : '0.00'),
+                'is_current' => $isCurrent,
             ];
         }
 
@@ -452,11 +463,11 @@ class CommunityLeadershipService
             'min_directs_required' => RewardPlan::communityLeadershipMinDirects(),
             'distribution_cycle_hours' => RewardPlan::communityLeadershipCycleHours(),
             'current_rank' => $current,
-            'estimated_daily_pay_usd' => (float) $estimatedPayout['total'],
-            'estimated_generation_gap_usd' => (float) $estimatedPayout['generation_gap_usd'],
-            'estimated_compression_usd' => (float) $estimatedPayout['compression_usd'],
-            'estimated_same_rank_usd' => (float) $estimatedPayout['same_rank_usd'],
-            'estimated_skip_level_usd' => (float) ($estimatedPayout['skip_level_usd'] ?? 0),
+            'estimated_daily_pay_usd' => (float) $simpleEstimate,
+            'estimated_generation_gap_usd' => 0.0,
+            'estimated_compression_usd' => 0.0,
+            'estimated_same_rank_usd' => 0.0,
+            'estimated_skip_level_usd' => 0.0,
             'ladder' => $ladder,
             'rank_11_monthly_bonus' => [
                 'enabled' => RewardPlan::communityLeadershipRank11MonthlyBonusEnabled(),
@@ -493,22 +504,54 @@ class CommunityLeadershipService
     /**
      * Flattened live ledger for /leadership/live-data (not nested under `live`).
      *
+     * Intentionally does NOT call buildPayoutContext() — that walks every user and
+     * times out on live (blank/black page). Estimates use simple team ROI × rank %.
+     *
      * @return array<string, mixed>
      */
     public function liveDataPagePropsFor(User $user): array
     {
-        $p = $this->pagePropsFor($user);
-        $ladder = is_array($p['ladder'] ?? null) ? $p['ladder'] : [];
+        $self = $this->selfActiveHoldUsd($user->id);
+        $team = $this->downlineTeamVolumeUsd($user->id);
+        $teamDailyRoi = $this->downlineTeamDailyRoiUsd($user->id);
+        $directs = $this->qualifiedDirectCount($user->id);
+        $current = $this->qualifyingRankRow($user->id, $self);
+        $activated = $this->leadershipActivated($user->id);
+        $ranks = RewardPlan::communityLeadershipRanks();
+
+        $last = LedgerEntry::query()
+            ->production()
+            ->where('user_id', $user->id)
+            ->whereIn('entry_type', [
+                LedgerEntry::TYPE_COMMUNITY_LEADERSHIP,
+                LedgerEntry::TYPE_COMMUNITY_LEADERSHIP_SKIP,
+            ])
+            ->latest('id')
+            ->first(['amount_usd', 'created_at', 'meta']);
 
         $rows = [];
-        foreach ($ladder as $row) {
-            $needSelf = (float) ($row['required_self_hold_usd'] ?? 0);
-            $needTeam = (float) ($row['required_team_volume_usd'] ?? 0);
-            $liveSelf = (float) ($row['live_self_hold_usd'] ?? $p['self_hold_usd'] ?? 0);
-            $liveTeam = (float) ($row['live_team_volume_usd'] ?? $p['team_volume_usd'] ?? 0);
-            $needDirects = (int) ($row['required_directs'] ?? 0);
-            $liveDirects = (int) ($row['live_directs'] ?? $p['qualified_directs'] ?? 0);
+        foreach ($ranks as $row) {
+            $needSelf = (float) ($row['self_hold_usd'] ?? 0);
+            $needTeam = (float) ($row['team_volume_usd'] ?? 0);
+            $needDirects = (int) ($row['direct_required'] ?? 0);
+            $rewardPct = (float) ($row['reward_percent'] ?? 0);
             $level = (int) ($row['level'] ?? 0);
+            $liveSelf = (float) $self;
+            $liveTeam = (float) $team;
+            $selfMet = bccomp($self, number_format($needSelf, 2, '.', ''), 2) >= 0;
+            $teamMet = bccomp($team, number_format($needTeam, 2, '.', ''), 2) >= 0;
+            $directsMet = $directs >= $needDirects;
+            $qualified = $selfMet && $teamMet && $directsMet && $activated;
+            $isCurrent = $current !== null && (int) ($current['level'] ?? 0) === $level;
+
+            $estimated = '0.00';
+            if ($qualified && $isCurrent && $rewardPct > 0) {
+                $estimated = bcmul(
+                    number_format((float) $teamDailyRoi, 8, '.', ''),
+                    number_format($rewardPct / 100, 8, '.', ''),
+                    2,
+                );
+            }
 
             $rows[] = [
                 'rank_code' => 'L'.$level,
@@ -518,28 +561,29 @@ class CommunityLeadershipService
                 'required_team_volume_usd' => $needTeam,
                 'live_team_volume_usd' => $liveTeam,
                 'required_directs' => $needDirects,
-                'live_directs' => $liveDirects,
-                'team_volume_percent' => (float) ($row['reward_percent'] ?? 0),
-                'estimated_earned_usd' => (float) ($row['estimated_daily_pay_usd'] ?? 0),
-                'self_hold_met' => $liveSelf >= $needSelf,
-                'team_volume_met' => $liveTeam >= $needTeam,
-                'directs_met' => $liveDirects >= $needDirects,
-                'qualified' => (bool) ($row['qualified'] ?? false),
-                'is_current' => (bool) ($row['is_current'] ?? false),
+                'live_directs' => $directs,
+                'team_volume_percent' => $rewardPct,
+                'estimated_earned_usd' => (float) $estimated,
+                'self_hold_met' => $selfMet,
+                'team_volume_met' => $teamMet,
+                'directs_met' => $directsMet,
+                'qualified' => $qualified,
+                'is_current' => $isCurrent,
             ];
         }
 
         return [
-            'program_name' => (string) ($p['program_name'] ?? 'Community Leadership'),
-            'live_self_hold_usd' => $p['self_hold_usd'] ?? '0.00',
-            'team_volume_usd' => $p['team_volume_usd'] ?? '0.00',
-            'team_daily_roi_usd' => $p['team_daily_roi_usd'] ?? '0.00',
-            'qualified_directs' => (int) ($p['qualified_directs'] ?? 0),
+            'program_name' => 'Community Leadership',
+            'live_self_hold_usd' => $self,
+            'team_volume_usd' => $team,
+            'team_daily_roi_usd' => $teamDailyRoi,
+            'qualified_directs' => $directs,
             'rows' => $rows,
             'closing' => [
                 'current_period' => $this->currentPeriodKey(),
-                'payout_period' => is_array($p['last_payout'] ?? null) ? ($p['last_payout']['period'] ?? null) : null,
-                'closing_note' => (string) ($p['payout_note'] ?? ''),
+                'payout_period' => is_array($last?->meta) ? ($last->meta['period'] ?? null) : null,
+                'closing_note' => 'Live ledger: self hold, team volume and directs per rank. '
+                    .'Estimated daily ≈ team daily ROI × rank % (simplified; full generation-gap runs on payout cron).',
                 'self_hold_lapsed' => false,
                 'lapse_message' => null,
             ],

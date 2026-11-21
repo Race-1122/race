@@ -50,7 +50,9 @@ final class CommunityEngineRpcReader
 
             $raw = \App\Support\Hex::stripPrefix($hex);
             $words = [];
-            for ($i = 0; $i < 8; $i++) {
+            // stakeAt returns 9 words (rewardPriceUsdt is the 9th); older deployments return 8.
+            $wordCount = strlen($hex) >= 578 ? 9 : 8;
+            for ($i = 0; $i < $wordCount; $i++) {
                 $slice = substr($raw, $i * 64, 64);
                 if ($slice === false || strlen($slice) !== 64 || ! ctype_xdigit($slice)) {
                     return null;
@@ -64,9 +66,57 @@ final class CommunityEngineRpcReader
                 'lock_seconds' => (int) $words[2],
                 'started_at' => (int) $words[3],
                 'unlock_at' => (int) $words[4],
+                'last_reward_at' => (int) $words[5],
                 'daily_rate_bps' => (int) $words[6],
                 'withdrawn' => (int) $words[7] === 1,
+                'reward_price_usdt' => isset($words[8]) ? $this->weiToToken($words[8]) : '0',
             ];
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /** Number of stakes the wallet has in the Engine; null on RPC failure. */
+    public function readStakeCount(string $walletAddress): ?int
+    {
+        try {
+            $wallet = strtolower(trim($walletAddress));
+            if (! preg_match('/^0x[a-f0-9]{40}$/', $wallet)) {
+                return null;
+            }
+            $hex = $this->rpc->call('eth_call', [[
+                'to' => $this->engineAddress,
+                'data' => '0x33060d90'.str_pad(substr($wallet, 2), 64, '0', STR_PAD_LEFT),
+            ], 'latest']);
+            if (! is_string($hex) || strlen($hex) < 66) {
+                return null;
+            }
+
+            return (int) $this->hexWordToDecimal(substr(\App\Support\Hex::stripPrefix($hex), 0, 64));
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Unix time when the wallet may call claimReward again (0 = never claimed / no cooldown); null on RPC failure.
+     */
+    public function readNextAllowedClaimAt(string $walletAddress): ?int
+    {
+        try {
+            $wallet = strtolower(trim($walletAddress));
+            if (! preg_match('/^0x[a-f0-9]{40}$/', $wallet)) {
+                return null;
+            }
+            $hex = $this->rpc->call('eth_call', [[
+                'to' => $this->engineAddress,
+                'data' => '0xa461c2dc'.str_pad(substr($wallet, 2), 64, '0', STR_PAD_LEFT),
+            ], 'latest']);
+            if (! is_string($hex) || strlen($hex) < 66) {
+                return null;
+            }
+
+            return (int) $this->hexWordToDecimal(substr(\App\Support\Hex::stripPrefix($hex), 0, 64));
         } catch (\Throwable) {
             return null;
         }
