@@ -135,7 +135,9 @@ Route::screen('data/change-sponsor', AdminChangeSponsorScreen::class)->name('pla
 
 Route::screen('data/team', TeamStructureListScreen::class)->name('platform.data.team');
 
-Route::screen('data/user-full-data/{user}', UserFullDataShowScreen::class)->name('platform.data.user-full-data.show');
+Route::screen('data/user-full-data/{user}', UserFullDataShowScreen::class)
+    ->name('platform.data.user-full-data.show')
+    ->where(['user' => '[0-9]+']);
 Route::screen('data/user-full-data', UserFullDataListScreen::class)->name('platform.data.user-full-data');
 
 Route::screen('data/income', IncomeSettingsScreen::class)->name('platform.data.income');

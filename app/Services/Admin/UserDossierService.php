@@ -42,10 +42,10 @@ class UserDossierService
         $teamFeePaid = (float) $withdrawalTotals['team_reward_usd'] > 0.009;
 
         return [
-            'registered_at' => optional($user->created_at)?->format('Y-m-d H:i:s') ?? '—',
-            'activated_at' => optional($user->id_activated_at)?->format('Y-m-d H:i:s') ?? 'Not activated',
-            'participation_at' => optional($user->participation_activated_at)?->format('Y-m-d H:i:s') ?? '—',
-            'last_income_claim_at' => optional($user->last_income_claim_at)?->format('Y-m-d H:i:s') ?? 'Never',
+            'registered_at' => $this->formatWhen($user->created_at),
+            'activated_at' => $this->formatWhen($user->id_activated_at, 'Not activated'),
+            'participation_at' => $this->formatWhen($user->participation_activated_at),
+            'last_income_claim_at' => $this->formatWhen($user->last_income_claim_at, 'Never'),
             'wallet_address' => (string) ($user->wallet_address ?? ''),
             'member_code' => (string) $user->member_code,
             'blocked' => (bool) $user->is_blocked,
@@ -112,8 +112,8 @@ class UserDossierService
             'total_usd' => number_format($total, 2, '.', ''),
             'active_usd' => number_format($active, 2, '.', ''),
             'count' => $rows->count(),
-            'first_at' => optional($rows->min('created_at'))?->format('Y-m-d H:i:s') ?? '—',
-            'last_at' => optional($rows->max('created_at'))?->format('Y-m-d H:i:s') ?? '—',
+            'first_at' => $this->formatWhen($rows->min('created_at')),
+            'last_at' => $this->formatWhen($rows->max('created_at')),
         ];
     }
 
@@ -355,6 +355,23 @@ class UserDossierService
             'by_type' => $byTypeList,
             'from' => $from,
         ];
+    }
+
+    private function formatWhen(mixed $value, string $empty = '—'): string
+    {
+        if ($value === null || $value === '') {
+            return $empty;
+        }
+
+        if ($value instanceof \DateTimeInterface) {
+            return $value->format('Y-m-d H:i:s');
+        }
+
+        try {
+            return \Illuminate\Support\Carbon::parse((string) $value)->format('Y-m-d H:i:s');
+        } catch (\Throwable) {
+            return $empty;
+        }
     }
 
     /**
