@@ -43,7 +43,7 @@ class UserFullDataShowScreen extends Screen
 {
     use RequiresPlatformDataPermission;
 
-    public $user;
+    public $user = null;
 
     public ?int $wallet_id = null;
 
@@ -68,8 +68,9 @@ class UserFullDataShowScreen extends Screen
         $this->wallet_id = $user->userWallet?->id;
         $this->role_names = $user->roles->pluck('name')->filter()->implode(', ') ?: 'None';
         $this->referrer_summary = $this->memberSummary($user->referrer);
-        $this->activation_summary = $user->id_activated_at
-            ? 'Activated '.$user->id_activated_at->format('M j, Y H:i')
+        $activatedAt = $this->safeDateTime($user, 'id_activated_at');
+        $this->activation_summary = $activatedAt !== null
+            ? 'Activated '.$activatedAt->format('M j, Y H:i')
             : 'Not activated';
         $this->affiliate_placement_summary = $this->affiliatePlacementSummary($user);
         $this->support_notice = __('Related tables show latest 50 rows per section. Janamkundli totals use the full history.');
@@ -106,7 +107,9 @@ class UserFullDataShowScreen extends Screen
 
     public function name(): ?string
     {
-        return __('User Full Data: :name', ['name' => $this->user->name]);
+        $name = is_object($this->user) ? (string) $this->user->name : __('Member');
+
+        return __('User Full Data: :name', ['name' => $name]);
     }
 
     public function description(): ?string
@@ -125,7 +128,7 @@ class UserFullDataShowScreen extends Screen
                 ->route('platform.data.user-full-data'),
         ];
 
-        if (optional(request()->user())->hasAccess('platform.systems.users') === true) {
+        if (is_object($this->user) && optional(request()->user())->hasAccess('platform.systems.users') === true) {
             $actions[] = Link::make(__('Edit user'))
                 ->icon('bs.pencil')
                 ->route('platform.systems.users.edit', $this->user->id);
@@ -270,11 +273,23 @@ class UserFullDataShowScreen extends Screen
 
     private function affiliatePlacementSummary(User $user): string
     {
-        $parts = [
-            'L1: '.($user->placement_l1_done_at?->format('M j, Y H:i') ?? 'Pending'),
-            'L2: '.($user->placement_l2_done_at?->format('M j, Y H:i') ?? 'Pending'),
-        ];
+        $l1 = $this->safeDateTime($user, 'placement_l1_done_at');
+        $l2 = $this->safeDateTime($user, 'placement_l2_done_at');
 
-        return implode(' | ', $parts);
+        return implode(' | ', [
+            'L1: '.($l1?->format('M j, Y H:i') ?? 'Pending'),
+            'L2: '.($l2?->format('M j, Y H:i') ?? 'Pending'),
+        ]);
+    }
+
+    private function safeDateTime(User $user, string $attribute): ?\DateTimeInterface
+    {
+        try {
+            $value = $user->{$attribute};
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $value instanceof \DateTimeInterface ? $value : null;
     }
 }

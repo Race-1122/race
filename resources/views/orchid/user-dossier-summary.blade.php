@@ -11,7 +11,7 @@
                 <tr><th>{{ __('Member ID activated') }}</th><td>{{ $d['activated_at'] ?? '—' }}</td></tr>
                 <tr><th>{{ __('Participation activated') }}</th><td>{{ $d['participation_at'] ?? '—' }}</td></tr>
                 <tr><th>{{ __('Last platform claim') }}</th><td>{{ $d['last_income_claim_at'] ?? '—' }}</td></tr>
-                <tr><th>{{ __('Wallet') }}</th><td><code>{{ $d['wallet_address'] ?: '—' }}</code></td></tr>
+                <tr><th>{{ __('Wallet') }}</th><td><code>{{ ($d['wallet_address'] ?? '') !== '' ? $d['wallet_address'] : '—' }}</code></td></tr>
                 <tr><th>{{ __('Laravel stakes') }}</th>
                     <td>{{ $d['laravel_stake_count'] ?? 0 }} · {{ __('invested') }} ${{ $d['laravel_invested_usd'] ?? '0.00' }} · {{ __('active') }} ${{ $d['laravel_active_usd'] ?? '0.00' }}
                         <br><small>{{ __('First') }}: {{ $d['laravel_first_stake_at'] ?? '—' }} · {{ __('Last') }}: {{ $d['laravel_last_stake_at'] ?? '—' }}</small>

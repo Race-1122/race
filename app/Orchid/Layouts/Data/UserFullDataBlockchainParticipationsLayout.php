@@ -30,8 +30,10 @@ class UserFullDataBlockchainParticipationsLayout extends AdminVipTable
                 ->render(fn (BlockchainParticipation $participation) => AdminTable::money($participation->principal_usdt, 'USDT ')),
             TD::make('lock_seconds', __('Lock days'))->align(TD::ALIGN_CENTER)
                 ->render(fn (BlockchainParticipation $participation) => (string) floor(((int) $participation->lock_seconds) / 86400)),
-            TD::make('daily_rate_bps', __('Daily bps'))->align(TD::ALIGN_CENTER),
-            TD::make('stake_index', __('Stake'))->align(TD::ALIGN_CENTER),
+            TD::make('daily_rate_bps', __('Daily bps'))->align(TD::ALIGN_CENTER)
+                ->render(fn (BlockchainParticipation $participation) => AdminTable::text((string) (int) $participation->daily_rate_bps)),
+            TD::make('stake_index', __('Stake'))->align(TD::ALIGN_CENTER)
+                ->render(fn (BlockchainParticipation $participation) => AdminTable::text((string) (int) $participation->stake_index)),
             TD::make('tx_hash', __('Tx hash'))
                 ->render(fn (BlockchainParticipation $participation) => $this->shortCode($participation->tx_hash)),
             TD::make('contract_address', __('Contract'))

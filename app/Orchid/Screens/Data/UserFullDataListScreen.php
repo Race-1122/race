@@ -87,7 +87,11 @@ class UserFullDataListScreen extends Screen
 
     public function search(Request $request): RedirectResponse
     {
-        $search = trim((string) $request->input('search', ''));
+        $raw = $request->input('search', '');
+        if (is_array($raw)) {
+            $raw = $raw['search'] ?? reset($raw) ?: '';
+        }
+        $search = trim((string) $raw);
 
         if (preg_match('/^0x[a-fA-F0-9]{40}$/', $search) === 1) {
             $wallet = strtolower($search);

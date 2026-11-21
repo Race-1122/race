@@ -28,7 +28,8 @@ class UserFullDataCommunityLeadershipDailyHoldsLayout extends AdminVipTable
                 ->render(fn (CommunityLeadershipDailyHold $hold) => AdminTable::money($hold->team_volume_usd)),
             TD::make('self_hold_usd', __('Self hold'))->align(TD::ALIGN_RIGHT)
                 ->render(fn (CommunityLeadershipDailyHold $hold) => AdminTable::money($hold->self_hold_usd)),
-            TD::make('qualified_directs', __('Qualified directs'))->align(TD::ALIGN_CENTER),
+            TD::make('qualified_directs', __('Qualified directs'))->align(TD::ALIGN_CENTER)
+                ->render(fn (CommunityLeadershipDailyHold $hold) => AdminTable::text((string) (int) $hold->qualified_directs)),
             TD::make('created_at', __('Recorded'))
                 ->render(fn (CommunityLeadershipDailyHold $hold) => AdminTable::dateTime($hold->created_at)),
         ];

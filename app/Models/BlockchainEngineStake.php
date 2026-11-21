@@ -4,12 +4,14 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Orchid\Screen\AsSource;
 
 /**
  * Indexed RaceCommunityEngine stake (read model). On-chain Engine is source of truth.
  */
 class BlockchainEngineStake extends Model
 {
+    use AsSource;
     public const SOURCE_ICO = 'ico';
 
     public const SOURCE_PARTICIPATION = 'participation';
