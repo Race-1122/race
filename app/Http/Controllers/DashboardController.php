@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Support\MemberCode;
 use App\Models\BlockchainEngineStake;
 use App\Models\BlockchainEvent;
+use App\Models\IcoPurchase;
 use App\Models\Investment;
 use App\Models\LedgerEntry;
 use App\Models\User;
@@ -442,8 +443,28 @@ class DashboardController extends Controller
             + (float) ($incomeByType[LedgerEntry::TYPE_COMMUNITY_LEADERSHIP_RANK11_MONTHLY] ?? 0)
             + (float) ($incomeByType[LedgerEntry::TYPE_COMMUNITY_REFERRAL] ?? 0);
 
+        $heldIcoCount = 0;
+        $heldIcoRace = '0.0000';
+        if (Schema::hasTable('ico_purchases')) {
+            $wallet = strtolower(trim((string) $user->wallet_address));
+            $heldQuery = IcoPurchase::query()
+                ->where(function ($inner) use ($uid, $wallet) {
+                    $inner->where('user_id', $uid);
+                    if ($wallet !== '') {
+                        $inner->orWhere('wallet_address', $wallet);
+                    }
+                })
+                ->where('status', 'held');
+            $heldIcoCount = (int) (clone $heldQuery)->count();
+            $heldIcoRace = number_format((float) (clone $heldQuery)->sum('race_amount'), 4, '.', '');
+        }
+
         return Inertia::render('Dashboard', [
             'stake_auto_claim_live' => $stakeAutoClaimLive,
+            'held_ico' => [
+                'count' => $heldIcoCount,
+                'race' => $heldIcoRace,
+            ],
             'virtual_compound' => [
                 'available_usd' => $compoundUsd,
                 'can_compound' => bccomp($compoundUsd, '0.01', 4) >= 0 && $compoundStake !== null,

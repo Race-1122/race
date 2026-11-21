@@ -697,6 +697,7 @@ export default function Dashboard({
     memberActivation: memberActivationProp,
     stake_auto_claim_live = false,
     virtual_compound = { available_usd: '0.00', can_compound: false, stake_index: null },
+    held_ico = { count: 0, race: '0.0000' },
 }) {
     const page = usePage();
     const { user } = page.props.auth;
@@ -841,6 +842,24 @@ export default function Dashboard({
                         memberNumber={user?.member_number}
                         isTestnet={isTestnet}
                     />
+
+                    {Number(held_ico?.count) > 0 ? (
+                        <div className="rounded-2xl border border-amber-400/40 bg-amber-50/90 p-4 ring-1 ring-amber-300/50 sm:p-5">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                                ICO stake pending
+                            </p>
+                            <p className="mt-1 text-sm text-slate-800">
+                                You bought {held_ico.race} RACE in ICO ({held_ico.count} purchase
+                                {Number(held_ico.count) === 1 ? '' : 's'}) but have not created the on-chain stake yet.
+                            </p>
+                            <Link
+                                href={route('ico')}
+                                className="mt-3 inline-flex min-h-[2.75rem] items-center justify-center rounded-xl bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
+                            >
+                                Open ICO — Create Your Stake
+                            </Link>
+                        </div>
+                    ) : null}
 
                     <div className="mx-auto w-full min-w-0 max-w-lg">
                         <DpCard className="bg-gradient-to-br from-sky-50/80 to-white p-4 ring-1 ring-[#2563EB]/30 sm:p-5" hover={false}>

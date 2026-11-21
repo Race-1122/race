@@ -1,3 +1,4 @@
+import IcoPhaseProgress from '@/Components/Ico/IcoPhaseProgress';
 import PanelCard from '@/Components/PanelCard';
 import MemberPageHero from '@/Components/Member/MemberPageHero';
 import MemberPageShell from '@/Components/Member/MemberPageShell';
@@ -525,6 +526,21 @@ export default function Isu({
         return () => clearInterval(timer);
     }, [contractsReady, refreshPhaseState]);
 
+    const scrollToBuy = useCallback(() => {
+        setBuyMoreOpen(true);
+        requestAnimationFrame(() => {
+            const target =
+                document.getElementById('ico-buy-more') || document.getElementById('ico-buy');
+            target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+    }, []);
+
+    const scrollToCreateStake = useCallback(() => {
+        requestAnimationFrame(() => {
+            document.getElementById('ico-create-stake')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+    }, []);
+
     useEffect(() => {
         let cancelled = false;
         async function runQuote() {
@@ -1042,6 +1058,26 @@ export default function Isu({
                     bannerSrc={RACE_BANNER_STAKING}
                 />
 
+                <IcoPhaseProgress
+                    phases={phases}
+                    currentPhaseId={currentPhaseId}
+                    icoCompleted={icoCompleted}
+                    totalSold={totalSold}
+                    loading={loadingChain}
+                    canBuyNow={contractsReady && !icoCompleted}
+                    onBuy={scrollToBuy}
+                    hasHeldUnstaked={hasHeldPosition}
+                    onCreateStake={
+                        icoCompleted && hasHeldPosition
+                            ? () => {
+                                  scrollToCreateStake();
+                                  onCreateStake(null);
+                              }
+                            : scrollToCreateStake
+                    }
+                    createStakeBusy={busy === 'create-all' || busy === 'register'}
+                />
+
                 <div id="ico-buy" className="mt-6 grid scroll-mt-24 gap-6 lg:grid-cols-2">
                     <PanelCard title="Buy RACE">
                         <div className="space-y-4">
@@ -1103,7 +1139,10 @@ export default function Isu({
                                         </div>
                                     ) : null}
 
-                                    <div className="rounded-xl border border-amber-400/30 bg-amber-950/20 p-3">
+                                    <div
+                                        id="ico-create-stake"
+                                        className="scroll-mt-24 rounded-xl border border-amber-400/30 bg-amber-950/20 p-3"
+                                    >
                                         <p className="text-xs font-bold uppercase tracking-wide text-amber-200">
                                             Activate stake after ICO
                                         </p>

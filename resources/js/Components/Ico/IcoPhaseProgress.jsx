@@ -211,6 +211,9 @@ export default function IcoPhaseProgress({
     loading = false,
     canBuyNow = true,
     onBuy,
+    hasHeldUnstaked = false,
+    onCreateStake,
+    createStakeBusy = false,
 }) {
     const statuses = [1, 2, 3].map((id) =>
         phaseStatus(
@@ -310,6 +313,30 @@ export default function IcoPhaseProgress({
                     </div>
                 ))}
             </div>
+
+            {hasHeldUnstaked ? (
+                <div className="rounded-2xl border border-amber-400/30 bg-amber-950/25 p-4 sm:p-5">
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-200">
+                        ICO purchase held — stake not created
+                    </p>
+                    <p className="mt-2 text-sm text-slate-200">
+                        You already bought ICO RACE. It is still held in the ICO contract until you Create Your Stake
+                        on-chain.
+                    </p>
+                    <button
+                        type="button"
+                        onClick={onCreateStake}
+                        disabled={!onCreateStake || (icoCompleted && createStakeBusy)}
+                        className="mt-4 w-full rounded-xl bg-brand px-4 py-2.5 text-sm font-bold text-slate-950 hover:bg-brand-glow disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                    >
+                        {createStakeBusy
+                            ? 'Creating stake…'
+                            : icoCompleted
+                              ? 'Create Your Stake'
+                              : 'Open Create Stake'}
+                    </button>
+                </div>
+            ) : null}
 
             <p className="text-xs text-slate-500">
                 Phase state is read live from the RaceICO contract. A phase opens only when the previous phase&apos;s
