@@ -41,13 +41,10 @@ import {
 } from '@/lib/web3RaceICO';
 import {
     claimOnChainMaturityEmi,
-    claimOnChainReward,
-    claimPolicyMessage,
     compoundOnChainReward,
     friendlyEngineError,
     matureOnChainStake,
     readAllOnChainStakes,
-    readClaimPolicyState,
     withdrawOnChainStake,
 } from '@/lib/web3Engine';
 import { syncParticipationTx } from '@/lib/web3Participation';
@@ -286,29 +283,6 @@ export default function Isu({
     const [liveStakePrice, setLiveStakePrice] = useState(0n);
     const [stakes, setStakes] = useState([]);
     const [loadingChain, setLoadingChain] = useState(false);
-    const [claimEnabledOnChain, setClaimEnabledOnChain] = useState(false);
-    const [canClaimRewards, setCanClaimRewards] = useState(false);
-    const [nextAllowedClaimAt, setNextAllowedClaimAt] = useState(0);
-    const [claimPolicySupported, setClaimPolicySupported] = useState(false);
-    const [claimTick, setClaimTick] = useState(0);
-
-    useEffect(() => {
-        const timer = setInterval(() => setClaimTick((t) => t + 1), 1000);
-        return () => clearInterval(timer);
-    }, []);
-
-    const claimStatusMessage = useMemo(
-        () =>
-            claimPolicyMessage({
-                icoCompleted,
-                claimEnabled: claimEnabledOnChain,
-                canClaim: canClaimRewards,
-                nextAllowedAt: nextAllowedClaimAt,
-                supported: claimPolicySupported,
-            }),
-        [icoCompleted, claimEnabledOnChain, canClaimRewards, nextAllowedClaimAt, claimPolicySupported, claimTick],
-    );
-
     const selectedPlan = useMemo(
         () =>
             stakePlans.find((p) => String(p.id ?? p.days) === String(planId)) ||
@@ -426,22 +400,6 @@ export default function Isu({
                     setPurchases(history.slice().reverse());
                 } catch (historyErr) {
                     console.warn('ICO purchase history:', historyErr?.message || historyErr);
-                }
-                try {
-                    const policy = await readClaimPolicyState({
-                        walletAddress,
-                        engineContract,
-                        rpcUrl,
-                    });
-                    setClaimPolicySupported(Boolean(policy.supported));
-                    setClaimEnabledOnChain(Boolean(policy.claimEnabled));
-                    setCanClaimRewards(Boolean(policy.canClaim));
-                    setNextAllowedClaimAt(Number(policy.nextAllowedAt) || 0);
-                } catch {
-                    setClaimPolicySupported(false);
-                    setClaimEnabledOnChain(false);
-                    setCanClaimRewards(false);
-                    setNextAllowedClaimAt(0);
                 }
                 if (engineContract) {
                     let onChainStakes = [];
@@ -1205,12 +1163,6 @@ export default function Isu({
                     </PanelCard>
 
                     <PanelCard title="Your staking positions">
-                        <p className="mb-3 text-xs text-slate-500">
-                            Claimed income stays in hold. Open Income wallet to bring it to your wallet.
-                        </p>
-                        <p className="mb-3 rounded-lg border border-slate-700/80 bg-slate-900/40 px-3 py-2 text-xs text-slate-200">
-                            {claimStatusMessage}
-                        </p>
                         {!engineContract ? (
                             <p className="text-sm text-amber-200">
                                 CommunityEngine not loaded — check mainnet config (
@@ -1246,14 +1198,6 @@ export default function Isu({
                                           : 'Locked';
                                     const dailyPct = (Number(stake.dailyRateBps || 0) / 100).toFixed(2);
                                     const stakeBusy = busy === `stake-${stake.index}`;
-                                    const claimableReward = stake.pendingRewardRace || 0n;
-                                    const claimAllowed =
-                                        !withdrawn &&
-                                        icoCompleted &&
-                                        claimableReward > 0n &&
-                                        (claimPolicySupported
-                                            ? claimEnabledOnChain && canClaimRewards
-                                            : true);
 
                                     return (
                                         <div
@@ -1289,44 +1233,7 @@ export default function Isu({
                                                 }
                                             />
                                             <InfoRow label="Lock" value={lockDisplay} />
-                                            <InfoRow
-                                                label="Claimable → income hold"
-                                                value={`${formatTokenWei(stake.pendingRewardRace || 0n, 18, 6)} RACE`}
-                                            />
                                             <div className="mt-3 flex flex-wrap gap-2">
-                                                <PrimaryButton
-                                                    type="button"
-                                                    disabled={
-                                                        !claimAllowed || stakeBusy || busy !== ''
-                                                    }
-                                                    onClick={async () => {
-                                                        setBusy(`stake-${stake.index}`);
-                                                        setError('');
-                                                        try {
-                                                            const txHash = await claimOnChainReward({
-                                                                walletAddress,
-                                                                engineContract,
-                                                                stakeIndex: stake.index,
-                                                            });
-                                                            try {
-                                                                await syncBlockchainTx({ txHash });
-                                                            } catch (syncErr) {
-                                                                console.warn(
-                                                                    'claim sync-tx:',
-                                                                    syncErr?.message || syncErr,
-                                                                );
-                                                            }
-                                                            await refreshChainState();
-                                                        } catch (err) {
-                                                            setError(friendlyEngineError(err));
-                                                            notifyError(friendlyEngineError(err), 'Stake');
-                                                        } finally {
-                                                            setBusy('');
-                                                        }
-                                                    }}
-                                                >
-                                                    Claim
-                                                </PrimaryButton>
                                                 <Link
                                                     href={route('withdrawal')}
                                                     className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-700"
