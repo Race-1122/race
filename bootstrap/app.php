@@ -6,6 +6,7 @@ use App\Console\Commands\IncomeReconcileOnchainCommand;
 use App\Console\Commands\IndexIncomeVaultEventsCommand;
 use App\Console\Commands\IncomeRepairIndexCommand;
 use App\Console\Commands\IncomeReconcilePendingCompoundsCommand;
+use App\Console\Commands\IncomeRefundFailedVirtualCompoundsCommand;
 use App\Console\Commands\IncomeReconcileWalletsCommand;
 use App\Console\Commands\IncomeDiagnoseNetworkRoiCommand;
 use App\Console\Commands\IncomeDiagnoseRoiCommand;
@@ -39,6 +40,7 @@ return Application::configure(basePath: dirname(__DIR__))
         IndexBlockchainEventsCommand::class,
         IncomeReconcileWalletsCommand::class,
         IncomeReconcilePendingCompoundsCommand::class,
+        IncomeRefundFailedVirtualCompoundsCommand::class,
         IncomeReconcileOnchainCommand::class,
         IncomeMigrationReportCommand::class,
         IndexIncomeVaultEventsCommand::class,

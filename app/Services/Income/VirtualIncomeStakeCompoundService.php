@@ -7,20 +7,24 @@ use App\Models\IncomeWalletTransaction;
 use App\Models\User;
 use App\Models\VirtualStakeCompound;
 use App\Services\Blockchain\CommunityEngineRpcReader;
+use App\Services\Blockchain\RaceCoinDirectMintService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Reinvest Virtual Income into the member's Engine stake principal (Laravel overlay).
- * Daily cron then pays ROI on Engine principal + compounded USDT. Withdraw path is unchanged.
+ * Compound virtual income: mint RACE to the member wallet, then the member
+ * stakes those coins on-chain (same lock as their last stake). No Engine redeploy.
  */
 class VirtualIncomeStakeCompoundService
 {
     public function __construct(
         protected VirtualIncomeWalletService $virtualWallet,
         protected WalletBalanceService $wallets,
+        protected RaceCoinService $raceCoin,
+        protected RaceCoinDirectMintService $mint,
     ) {}
 
     public function availableUsd(User $user): string
@@ -30,6 +34,9 @@ class VirtualIncomeStakeCompoundService
 
     public function extraPrincipalUsd(User $user, int $stakeIndex): string
     {
+        if (! Schema::hasTable('virtual_stake_compounds')) {
+            return '0.00000000';
+        }
         $sum = VirtualStakeCompound::query()
             ->where('user_id', $user->id)
             ->where('stake_index', $stakeIndex)
@@ -39,7 +46,19 @@ class VirtualIncomeStakeCompoundService
     }
 
     /**
-     * @return array{usdt: string, race: string, stake_index: int}
+     * Mint RACE first, then debit virtual. Overlay-only (old) path is gone.
+     *
+     * @return array{
+     *     usdt: string,
+     *     race: string,
+     *     stake_index: int,
+     *     lock_seconds: int,
+     *     mint_tx_hash: string,
+     *     transaction_id: int,
+     *     stake_contract: string,
+     *     race_token: string,
+     *     wallet_address: string
+     * }
      */
     public function compoundAll(User $user): array
     {
@@ -50,6 +69,13 @@ class VirtualIncomeStakeCompoundService
             ]);
         }
 
+        $wallet = strtolower(trim((string) ($user->wallet_address ?? '')));
+        if (! preg_match('/^0x[a-f0-9]{40}$/', $wallet)) {
+            throw ValidationException::withMessages([
+                'compound' => __('Connect a BEP-20 wallet before compounding.'),
+            ]);
+        }
+
         $target = $this->bestActiveStake($user);
         if ($target === null) {
             throw ValidationException::withMessages([
@@ -57,10 +83,30 @@ class VirtualIncomeStakeCompoundService
             ]);
         }
 
-        $price = $target['price'];
-        $race = bccomp($price, '0', 18) > 0 ? bcdiv($amount, $price, 8) : '0';
+        if (! $this->mint->configured()) {
+            throw ValidationException::withMessages([
+                'compound' => __('On-chain mint is not configured. Try again later.'),
+            ]);
+        }
 
-        $lock = Cache::lock('virtual-stake-compound:'.$user->id, 30);
+        $price = number_format((float) $this->raceCoin->priceUsd(), 8, '.', '');
+        if (bccomp($price, '0', 8) <= 0) {
+            $price = (string) ($target['price'] ?? '0');
+        }
+        if (bccomp($price, '0', 8) <= 0) {
+            throw ValidationException::withMessages([
+                'compound' => __('Live RACE price is unavailable. Try again in a moment.'),
+            ]);
+        }
+
+        $race = bcdiv($amount, $price, 8);
+        if (bccomp($race, '0', 8) <= 0) {
+            throw ValidationException::withMessages([
+                'compound' => __('Compound amount is too small to mint.'),
+            ]);
+        }
+
+        $lock = Cache::lock('virtual-stake-compound:'.$user->id, 120);
         if (! $lock->get()) {
             throw ValidationException::withMessages([
                 'compound' => __('A compound is already in progress. Please wait.'),
@@ -68,9 +114,25 @@ class VirtualIncomeStakeCompoundService
         }
 
         try {
-            return DB::transaction(function () use ($user, $amount, $target, $price, $race) {
+            try {
+                $minted = $this->mint->mintToWallet($wallet, $race);
+            } catch (\Throwable $e) {
+                throw ValidationException::withMessages([
+                    'compound' => __('RACE mint failed: :msg', ['msg' => $e->getMessage()]),
+                ]);
+            }
+
+            $mintTx = strtolower((string) ($minted['tx_hash'] ?? ''));
+            if (! preg_match('/^0x[a-f0-9]{64}$/', $mintTx)) {
+                throw ValidationException::withMessages([
+                    'compound' => __('Mint succeeded but no transaction hash was returned.'),
+                ]);
+            }
+
+            $row = DB::transaction(function () use ($user, $amount, $target, $price, $race, $mintTx) {
                 $key = 'virtual_stake_compound:'.$user->id.':'.Str::uuid()->toString();
-                $row = $this->virtualWallet->debit(
+
+                return $this->virtualWallet->debit(
                     $user,
                     IncomeWalletTransaction::TYPE_COMPOUND,
                     $amount,
@@ -79,51 +141,184 @@ class VirtualIncomeStakeCompoundService
                     [
                         'bucket' => VirtualIncomeWalletService::BUCKET_DAILY_CLAIM,
                         'stake_index' => $target['index'],
-                        'phase' => 'compounded_to_stake',
-                        'on_chain_required' => false,
+                        'lock_seconds' => $target['lock_seconds'],
+                        'source_type' => $target['source_type'],
+                        'phase' => 'minted_awaiting_stake',
+                        'on_chain_required' => true,
                         'race_amount' => $race,
                         'race_price_usdt' => $price,
+                        'mint_tx_hash' => $mintTx,
                     ],
                 );
-
-                VirtualStakeCompound::query()->create([
-                    'user_id' => $user->id,
-                    'stake_index' => $target['index'],
-                    'usdt_amount' => $amount,
-                    'race_amount' => $race,
-                    'race_price_usdt' => $price,
-                    'income_wallet_transaction_id' => $row->id,
-                ]);
-
-                return [
-                    'usdt' => $amount,
-                    'race' => $race,
-                    'stake_index' => $target['index'],
-                ];
             });
+
+            return [
+                'usdt' => $amount,
+                'race' => $race,
+                'stake_index' => $target['index'],
+                'lock_seconds' => $target['lock_seconds'],
+                'mint_tx_hash' => $mintTx,
+                'transaction_id' => $row->id,
+                'stake_contract' => $target['stake_contract'],
+                'race_token' => strtolower(trim((string) config('blockchain.contracts.race_token', ''))),
+                'wallet_address' => $wallet,
+            ];
         } finally {
             $lock->release();
         }
     }
 
+    public function confirmStakeTx(User $user, int $transactionId, string $txHash): IncomeWalletTransaction
+    {
+        $txHash = strtolower(trim($txHash));
+        if (! preg_match('/^0x[a-f0-9]{64}$/', $txHash)) {
+            throw ValidationException::withMessages([
+                'tx_hash' => __('Invalid transaction hash.'),
+            ]);
+        }
+
+        return DB::transaction(function () use ($user, $transactionId, $txHash) {
+            $row = IncomeWalletTransaction::query()
+                ->where('user_id', $user->id)
+                ->where('id', $transactionId)
+                ->where('type', IncomeWalletTransaction::TYPE_COMPOUND)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $meta = is_array($row->metadata) ? $row->metadata : [];
+            if (($meta['phase'] ?? '') === 'confirmed_on_chain' && ($meta['stake_tx_hash'] ?? '') === $txHash) {
+                return $row;
+            }
+
+            $meta['stake_tx_hash'] = $txHash;
+            $meta['phase'] = 'confirmed_on_chain';
+            $row->forceFill(['metadata' => $meta])->save();
+
+            return $row;
+        });
+    }
+
     /**
-     * @return array{index: int, price: string}|null
+     * Silent refund: overlay compounds that never minted / never staked on-chain.
+     *
+     * @return array{refunded: int, skipped: int, usd: string}
+     */
+    public function refundFailedOverlays(bool $dryRun = false): array
+    {
+        $rows = IncomeWalletTransaction::query()
+            ->where('type', IncomeWalletTransaction::TYPE_COMPOUND)
+            ->where('direction', IncomeWalletTransaction::DIRECTION_DEBIT)
+            ->where('status', IncomeWalletTransaction::STATUS_POSTED)
+            ->orderBy('id')
+            ->get();
+
+        $refunded = 0;
+        $skipped = 0;
+        $usd = '0.0000';
+
+        foreach ($rows as $row) {
+            $meta = is_array($row->metadata) ? $row->metadata : [];
+            $phase = (string) ($meta['phase'] ?? '');
+            $onChainRequired = $meta['on_chain_required'] ?? true;
+            $mintHash = strtolower(trim((string) ($meta['mint_tx_hash'] ?? '')));
+
+            $isOverlayOnly = $phase === 'compounded_to_stake'
+                && ($onChainRequired === false || $onChainRequired === 'false' || $onChainRequired === 0)
+                && $mintHash === '';
+
+            if (! $isOverlayOnly) {
+                $skipped++;
+
+                continue;
+            }
+
+            $refundKey = 'failed_overlay_refund:iwt:'.$row->id;
+            $existing = IncomeWalletTransaction::query()
+                ->where('user_id', $row->user_id)
+                ->where('idempotency_key', $refundKey)
+                ->first();
+            if ($existing || $phase === 'refunded') {
+                $skipped++;
+
+                continue;
+            }
+
+            if ($dryRun) {
+                $refunded++;
+                $usd = bcadd($usd, (string) $row->amount, 4);
+
+                continue;
+            }
+
+            $user = User::query()->find($row->user_id);
+            if (! $user) {
+                $skipped++;
+
+                continue;
+            }
+
+            $this->virtualWallet->credit(
+                $user,
+                IncomeWalletTransaction::TYPE_COMPOUND_REFUND,
+                (string) $row->amount,
+                $row->source_reference,
+                $refundKey,
+                [
+                    'compound_debit_id' => $row->id,
+                    'refund_reason' => 'overlay_without_onchain_mint',
+                    'silent' => true,
+                ],
+            );
+
+            $meta['phase'] = 'refunded';
+            $meta['refund_reason'] = 'overlay_without_onchain_mint';
+            $row->forceFill(['metadata' => $meta])->save();
+
+            if (Schema::hasTable('virtual_stake_compounds')) {
+                VirtualStakeCompound::query()
+                    ->where('income_wallet_transaction_id', $row->id)
+                    ->delete();
+            }
+
+            $refunded++;
+            $usd = bcadd($usd, (string) $row->amount, 4);
+        }
+
+        return [
+            'refunded' => $refunded,
+            'skipped' => $skipped,
+            'usd' => $usd,
+        ];
+    }
+
+    /**
+     * Last active stake (most recently opened), not the largest principal.
+     *
+     * @return array{index: int, price: string, lock_seconds: int, source_type: string, stake_contract: string}|null
      */
     public function bestActiveStake(User $user): ?array
     {
         $row = BlockchainEngineStake::query()
             ->where('user_id', $user->id)
             ->where('withdrawn', false)
-            ->orderByDesc('principal_usdt')
-            ->orderBy('stake_index')
+            ->orderByDesc('started_at')
+            ->orderByDesc('stake_index')
             ->first();
 
         if ($row) {
             $price = (string) ($row->stake_price_usdt ?: '0');
+            $source = (string) ($row->source_type ?: BlockchainEngineStake::SOURCE_ICO);
+            $contract = strtolower(trim((string) ($row->contract_address ?: '')));
+            if ($contract === '') {
+                $contract = $this->contractForSource($source);
+            }
 
             return [
                 'index' => (int) $row->stake_index,
                 'price' => bccomp($price, '0', 18) > 0 ? $price : '0',
+                'lock_seconds' => (int) ($row->lock_seconds ?? 0),
+                'source_type' => $source,
+                'stake_contract' => $contract,
             ];
         }
 
@@ -137,23 +332,26 @@ class VirtualIncomeStakeCompoundService
             return null;
         }
 
-        $best = null;
-        $bestPrincipal = '0';
-        for ($i = 0; $i < $count; $i++) {
-            $stake = $reader->readStakeAt($wallet, $i);
-            if ($stake === null || ! empty($stake['withdrawn'])) {
-                continue;
-            }
-            $principal = (string) ($stake['principal_usdt'] ?? '0');
-            if ($best === null || bccomp($principal, $bestPrincipal, 18) > 0) {
-                $best = [
-                    'index' => $i,
-                    'price' => (string) ($stake['reward_price_usdt'] ?? '0'),
-                ];
-                $bestPrincipal = $principal;
-            }
+        $last = $reader->readStakeAt($wallet, $count - 1);
+        if ($last === null || ! empty($last['withdrawn'])) {
+            return null;
         }
 
-        return $best;
+        return [
+            'index' => $count - 1,
+            'price' => (string) ($last['reward_price_usdt'] ?? '0'),
+            'lock_seconds' => (int) ($last['lock_seconds'] ?? 0),
+            'source_type' => BlockchainEngineStake::SOURCE_PARTICIPATION,
+            'stake_contract' => $this->contractForSource(BlockchainEngineStake::SOURCE_PARTICIPATION),
+        ];
+    }
+
+    private function contractForSource(string $source): string
+    {
+        if ($source === BlockchainEngineStake::SOURCE_WALLET_RACE) {
+            return strtolower(trim((string) config('blockchain.contracts.wallet_race_stake', '')));
+        }
+
+        return strtolower(trim((string) config('blockchain.contracts.community_engine', '')));
     }
 }

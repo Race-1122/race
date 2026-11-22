@@ -1,3 +1,4 @@
+import CompoundToStakeButton from '@/Components/CompoundToStakeButton';
 import MemberIcon, { iconForIncomeKey } from '@/Components/Member/MemberIcon';
 import { raceEquivLabel } from '@/lib/raceQuote';
 import { motion } from 'framer-motion';
@@ -55,15 +56,10 @@ function DailyClaimsList({ claims, virtualCompound = null }) {
                         </p>
                     ) : null}
                     {virtualCompound?.can_compound ? (
-                        <Link
-                            href={route('virtual_income.compound_to_stake')}
-                            method="post"
-                            as="button"
-                            preserveScroll
-                            className="rounded-lg bg-violet-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-violet-500"
-                        >
-                            Compound
-                        </Link>
+                        <CompoundToStakeButton
+                            availableUsd={virtualCompound.available_usd}
+                            className="rounded-lg bg-violet-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-violet-500 disabled:opacity-60"
+                        />
                     ) : null}
                 </div>
             </div>

@@ -7,6 +7,7 @@ import { formatMemberCode } from '@/lib/memberCode';
 import { raceEquivLabel } from '@/lib/raceQuote';
 import { chainIdMatches, readChainIdHex, readEngineMemberState } from '@/lib/web3Engine';
 import { getWalletProvider, walletRequest } from '@/lib/web3Wallet';
+import CompoundToStakeButton from '@/Components/CompoundToStakeButton';
 import { Head, Link, usePage, usePoll } from '@inertiajs/react';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -188,15 +189,10 @@ function DailyEarningCard({ amountUsd, count, dateLabel, dailyClaims, racePriceU
                         </svg>
                     </div>
                     {virtualCompound?.can_compound ? (
-                        <Link
-                            href={route('virtual_income.compound_to_stake')}
-                            method="post"
-                            as="button"
-                            preserveScroll
-                            className="inline-flex items-center justify-center rounded-xl border border-violet-300 bg-violet-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-violet-500"
-                        >
-                            Compound {formatUsdt(virtualCompound.available_usd)}
-                        </Link>
+                        <CompoundToStakeButton
+                            availableUsd={virtualCompound.available_usd}
+                            className="inline-flex items-center justify-center rounded-xl border border-violet-300 bg-violet-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-violet-500 disabled:opacity-60"
+                        />
                     ) : null}
                     <Link
                         href={route('transactions')}

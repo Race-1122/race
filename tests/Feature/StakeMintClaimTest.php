@@ -404,9 +404,13 @@ class StakeMintClaimTest extends TestCase
             'contract_address' => '0x'.str_repeat('d', 40),
         ]);
 
-        $result = app(\App\Services\Income\VirtualIncomeStakeCompoundService::class)->compoundAll($user);
-        $this->assertSame(0, $result['stake_index']);
-        $this->assertSame(0, bccomp(app(WalletBalanceService::class)->virtualIncomeBalance($user), '0', 4));
+        \App\Models\VirtualStakeCompound::query()->create([
+            'user_id' => $user->id,
+            'stake_index' => 0,
+            'usdt_amount' => '50.00',
+            'race_amount' => '100',
+            'race_price_usdt' => '0.5',
+        ]);
 
         $service = $this->service();
         $service->stakes = [0 => $this->stake(1)];
@@ -445,16 +449,38 @@ class StakeMintClaimTest extends TestCase
             'contract_address' => '0x'.str_repeat('f', 40),
         ]);
 
+        $mint = Mockery::mock(RaceCoinDirectMintService::class);
+        $mint->shouldReceive('configured')->andReturn(true);
+        $mint->shouldReceive('mintToWallet')->once()->andReturn([
+            'tx_hash' => '0x'.str_repeat('a', 64),
+            'to' => self::WALLET,
+            'amount_wei' => '25000000000000000000',
+            'minter' => '0x'.str_repeat('b', 40),
+        ]);
+        $this->app->instance(RaceCoinDirectMintService::class, $mint);
+
+        $price = Mockery::mock(\App\Services\Income\RaceCoinService::class);
+        $price->shouldReceive('priceUsd')->andReturn(0.5);
+        $this->app->instance(\App\Services\Income\RaceCoinService::class, $price);
+
         $this->actingAs($user)
             ->from(route('dashboard'))
             ->post(route('virtual_income.compound_to_stake'))
             ->assertRedirect(route('dashboard'));
 
         $this->assertSame(0, bccomp(app(WalletBalanceService::class)->virtualIncomeBalance($user->fresh()), '0', 4));
-        $this->assertSame(1, \App\Models\VirtualStakeCompound::query()->where('user_id', $user->id)->count());
+        $this->assertSame(0, \App\Models\VirtualStakeCompound::query()->where('user_id', $user->id)->count());
+        $compound = IncomeWalletTransaction::query()
+            ->where('user_id', $user->id)
+            ->where('type', IncomeWalletTransaction::TYPE_COMPOUND)
+            ->first();
+        $this->assertNotNull($compound);
+        $this->assertSame('minted_awaiting_stake', $compound->metadata['phase'] ?? null);
+        $this->assertSame('0x'.str_repeat('a', 64), $compound->metadata['mint_tx_hash'] ?? null);
 
         $this->travel(25)->hours();
         $this->artisan('income:reconcile-pending-compounds')->assertSuccessful();
+        $this->artisan('income:refund-failed-virtual-compounds')->assertSuccessful();
         $this->assertSame(0, bccomp(app(WalletBalanceService::class)->virtualIncomeBalance($user->fresh()), '0', 4));
         $this->assertSame(0, IncomeWalletTransaction::query()
             ->where('user_id', $user->id)
