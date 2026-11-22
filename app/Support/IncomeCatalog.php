@@ -56,6 +56,8 @@ class IncomeCatalog
             LedgerEntry::TYPE_STAKE_UNLOCK_ADMIN_FEE => 'Stake unlock admin fee',
             LedgerEntry::TYPE_STAKE_UNLOCK_EMI => 'Stake unlock EMI',
             LedgerEntry::TYPE_COMPOUND_REINVEST => 'Daily compound',
+            'compound' => 'Compound',
+            'compound_refund' => 'Compound refund',
             LedgerEntry::TYPE_INVESTMENT_DEBIT => 'Investment',
             LedgerEntry::TYPE_ROI_ACCRUAL => 'Staking ROI accrual',
             LedgerEntry::TYPE_INCOME_CLAIM => 'Staking reward claim',

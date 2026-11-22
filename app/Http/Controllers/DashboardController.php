@@ -10,6 +10,7 @@ use App\Models\Investment;
 use App\Models\LedgerEntry;
 use App\Models\User;
 use Illuminate\Support\Facades\Schema;
+use App\Services\Income\CompoundTransactionRows;
 use App\Services\Income\RaceCoinService;
 use App\Services\Income\ReferralTree;
 use App\Services\Income\WalletBalanceService;
@@ -166,8 +167,12 @@ class DashboardController extends Controller
             return $it;
         }, $todayItems);
 
+        [$todayStart, $todayEnd] = $this->todayWindowInClaimTz();
+        $compounds = app(CompoundTransactionRows::class)->dashboardItems($user, $todayStart, $todayEnd);
+
         return [
             'items' => array_values($items),
+            'compounds' => $compounds,
             'count' => $lifetimeCount,
             'total_race' => $totalRace,
             'total_value_now_usd' => bcmul($totalRace, $rate, 4),

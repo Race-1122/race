@@ -26,12 +26,6 @@ function formatUsdt(value) {
     return s === '—' ? '—' : `${s} USDT`;
 }
 
-function formatRaceCoins(value) {
-    const n = Number(value);
-    if (Number.isNaN(n)) return '—';
-    return `${new Intl.NumberFormat(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 }).format(n)} RC`;
-}
-
 function formatRacePriceUsd(value) {
     const n = Number(value);
     if (Number.isNaN(n)) return '—';
@@ -61,6 +55,7 @@ const defaultSummary = {
     today_label: '',
     daily_claims: {
         items: [],
+        compounds: [],
         count: 0,
         total_race: '0',
         total_value_now_usd: '0',
@@ -174,6 +169,12 @@ function DailyEarningCard({ amountUsd, count, dateLabel, dailyClaims, racePriceU
                                 {claims.count} claim{claims.count === 1 ? '' : 's'})
                             </p>
                         ) : null}
+                        {(claims.compounds ?? []).length > 0 ? (
+                            <p className="mt-2 border-t border-violet-100 pt-2 text-[11px] font-semibold text-violet-800">
+                                {(claims.compounds ?? []).length} compound
+                                {(claims.compounds ?? []).length === 1 ? '' : 's'} today — listed under Staking
+                            </p>
+                        ) : null}
                     </div>
                 </div>
                 <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
@@ -209,13 +210,13 @@ function DailyEarningCard({ amountUsd, count, dateLabel, dailyClaims, racePriceU
     );
 }
 
-function GlassMetricCard({ title, value, raceLine, sub, icon, tintClass }) {
+function GlassMetricCard({ title, value, valueClassName = 'text-[#0F172A]', raceLine, sub, icon, tintClass }) {
     return (
         <DpCard className="p-4 sm:p-5">
             <div className="relative flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                     <p className="text-[0.65rem] font-bold uppercase tracking-wider text-slate-500">{title}</p>
-                    <p className="mt-2 break-words font-mono text-lg font-bold tracking-tight text-[#0F172A] sm:text-xl">
+                    <p className={`mt-2 break-words font-mono text-lg font-bold tracking-tight sm:text-xl ${valueClassName}`}>
                         {value}
                     </p>
                     {raceLine ? (
@@ -732,8 +733,8 @@ export default function Dashboard({
         },
         {
             title: 'Race Coin',
-            value: formatRaceCoins(summary.race_coin_balance),
-            sub: `@ ${formatRacePriceUsd(summary.race_coin_price_usd)} per coin`,
+            value: formatRacePriceUsd(summary.race_coin_price_usd),
+            valueClassName: 'text-emerald-600',
             tintClass: 'bg-violet-400/30',
             icon: (
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
@@ -815,7 +816,6 @@ export default function Dashboard({
         buckets.other_usd,
         summary.income_pct?.total,
         summary.income_pct?.roi,
-        summary.race_coin_balance,
         summary.race_coin_price_usd,
         summary.total_income_usd,
         summary.lifetime_credits_usd,

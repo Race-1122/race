@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\LedgerEntry;
 use App\Services\Blockchain\OnChainLevelIncomeRows;
+use App\Services\Income\CompoundTransactionRows;
 use App\Support\IncomeCatalog;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -70,18 +71,28 @@ class LedgerController extends Controller
                 ]),
         );
 
+        $entries = collect($entries);
+
         $onChainLevel = app(OnChainLevelIncomeRows::class);
         $includeOnChainLevel = $incomeKey === null || $incomeKey === 'community_referrals';
         $raceIncome = ['race' => '0.0000', 'usdt' => '0.00'];
         if ($includeOnChainLevel) {
-            $entries = collect($entries)
-                ->concat($onChainLevel->forUser($user, $showAllDates ? null : $filterDate))
-                ->sortByDesc(static fn (array $row) => (string) $row['created_at'])
-                ->take(200)
-                ->values()
-                ->all();
+            $entries = $entries->concat($onChainLevel->forUser($user, $showAllDates ? null : $filterDate));
             $raceIncome = $onChainLevel->totalsForUser($user);
         }
+
+        $includeCompounds = $incomeKey === null || $incomeKey === 'participation_rewards';
+        if ($includeCompounds) {
+            $entries = $entries->concat(
+                app(CompoundTransactionRows::class)->forUser($user, $showAllDates ? null : $filterDate),
+            );
+        }
+
+        $entries = $entries
+            ->sortByDesc(static fn (array $row) => (string) $row['created_at'])
+            ->take(200)
+            ->values()
+            ->all();
 
         $filterLabel = null;
         if ($incomeKey) {

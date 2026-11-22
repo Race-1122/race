@@ -456,7 +456,7 @@ export default function Investment({
                     }
                 >
                     <>
-                        Stake from <strong className="text-white">$1</strong> — jitna marzi (temporary).
+                        Stake from <strong className="text-white">$1</strong> — any amount (temporary).
                         {onChain ? ' Live market price.' : ''}
                     </>
                 </MemberPageHero>

@@ -41,7 +41,8 @@ function formatNum(value, digits = 4) {
 /** Daily on-chain claims: coins received + value at today's RACE rate + date (shown inside Staking Reward Rates). */
 function DailyClaimsList({ claims, virtualCompound = null }) {
     const items = claims?.items ?? [];
-    if (items.length === 0 && !virtualCompound?.can_compound) return null;
+    const compounds = claims?.compounds ?? [];
+    if (items.length === 0 && compounds.length === 0 && !virtualCompound?.can_compound) return null;
 
     return (
         <motion.div className="relative mt-4 border-t border-white/80 pt-4">
@@ -81,6 +82,7 @@ function DailyClaimsList({ claims, virtualCompound = null }) {
                     </span>
                 </span>
             </div>
+            {items.length > 0 ? (
             <ul className="mt-2 space-y-2">
                 {items.map((c) => {
                     const dateStr = c.claimed_at
@@ -120,6 +122,57 @@ function DailyClaimsList({ claims, virtualCompound = null }) {
                     );
                 })}
             </ul>
+            ) : null}
+            {compounds.length > 0 ? (
+                <>
+                    <p className="mt-3 text-[0.65rem] font-bold uppercase tracking-wider text-violet-600">Compounds</p>
+                    <ul className="mt-2 space-y-2">
+                        {compounds.map((c) => {
+                            const dateStr = c.claimed_at
+                                ? new Date(c.claimed_at).toLocaleString(undefined, {
+                                      day: 'numeric',
+                                      month: 'short',
+                                      year: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                  })
+                                : '—';
+                            const usd = Number(c.amount_usd);
+                            const isRefund = c.type === 'compound_refund';
+                            return (
+                                <li
+                                    key={c.id}
+                                    className="flex items-center justify-between gap-2 rounded-lg border border-violet-100/80 bg-violet-50/60 px-3 py-2"
+                                >
+                                    <span className="min-w-0 text-xs text-slate-500">
+                                        {dateStr}
+                                        {c.stake_index ? (
+                                            <span className="ml-1 text-slate-400">· Stake #{c.stake_index}</span>
+                                        ) : null}
+                                        <span className="ml-1 rounded bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-violet-800">
+                                            {isRefund ? 'Refund' : 'Compound'}
+                                        </span>
+                                    </span>
+                                    <span className="shrink-0 text-right">
+                                        <span
+                                            className={`block font-mono text-sm font-bold ${
+                                                usd < 0 ? 'text-rose-600' : 'text-emerald-600'
+                                            }`}
+                                        >
+                                            {formatUsd(c.amount_usd)}
+                                        </span>
+                                        {c.race ? (
+                                            <span className="block font-mono text-[11px] text-slate-500">
+                                                ≈ {formatNum(c.race, 6)} RACE
+                                            </span>
+                                        ) : null}
+                                    </span>
+                                </li>
+                            );
+                        })}
+                    </ul>
+                </>
+            ) : null}
             <p className="mt-2 text-center text-[0.65rem] text-slate-500">
                 Today only · full history is on the program page
             </p>
