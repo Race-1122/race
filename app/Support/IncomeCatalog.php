@@ -251,13 +251,13 @@ class IncomeCatalog
         $mapped = array_map(static function (array $row) use ($userId) {
             $routeName = $row['route'] ?? 'dashboard';
             $href = $routeName === 'transactions'
-                ? route('transactions', ['income' => $row['key']])
+                ? route('transactions', ['income' => $row['key'], 'date' => 'all'])
                 : route($routeName);
 
             $enriched = [
                 ...$row,
                 'href' => $href,
-                'ledger_href' => route('transactions', ['income' => $row['key']]),
+                'ledger_href' => route('transactions', ['income' => $row['key'], 'date' => 'all']),
             ];
 
             return $enriched;

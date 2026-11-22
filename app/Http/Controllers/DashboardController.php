@@ -144,28 +144,31 @@ class DashboardController extends Controller
 
         usort($items, static fn (array $a, array $b): int => $b['_ts'] <=> $a['_ts']);
 
-        // "Today" in the claim timezone (IST): staking income received today, on-chain + minted.
-        $tz = (string) config('income.claim.timezone', 'Asia/Kolkata');
+        // Dashboard list = IST today only. Lifetime totals stay on dedicated pages / header.
+        $tz = $this->claimTimezone();
         $todayKey = now($tz)->toDateString();
         $todayRace = '0';
         $todayClaimUsd = '0';
         $todayCount = 0;
+        $todayItems = [];
         foreach ($items as $it) {
-            if ($it['_ts'] > 0 && \Illuminate\Support\Carbon::createFromTimestamp($it['_ts'], $tz)->toDateString() === $todayKey) {
+            if ($it['_ts'] > 0 && Carbon::createFromTimestamp($it['_ts'], $tz)->toDateString() === $todayKey) {
                 $todayRace = bcadd($todayRace, $it['race'], 6);
                 $todayClaimUsd = bcadd($todayClaimUsd, $it['value_at_claim_usd'], 6);
                 $todayCount++;
+                $todayItems[] = $it;
             }
         }
+        $lifetimeCount = count($items);
         $items = array_map(static function (array $it): array {
             unset($it['_ts']);
 
             return $it;
-        }, $items);
+        }, $todayItems);
 
         return [
-            'items' => array_slice($items, 0, 15),
-            'count' => count($items),
+            'items' => array_values($items),
+            'count' => $lifetimeCount,
             'total_race' => $totalRace,
             'total_value_now_usd' => bcmul($totalRace, $rate, 4),
             'total_value_claim_usd' => $totalClaimUsd,
@@ -175,6 +178,27 @@ class DashboardController extends Controller
             'today_race' => $todayRace,
             'today_value_now_usd' => bcmul($todayRace, $rate, 4),
             'today_value_claim_usd' => $todayClaimUsd,
+        ];
+    }
+
+    private function claimTimezone(): string
+    {
+        return (string) config('income.claim.timezone', 'Asia/Kolkata');
+    }
+
+    /**
+     * Inclusive IST calendar day, converted to app timezone for TIMESTAMP queries.
+     *
+     * @return array{0: Carbon, 1: Carbon}
+     */
+    private function todayWindowInClaimTz(): array
+    {
+        $tz = $this->claimTimezone();
+        $appTz = (string) config('app.timezone', 'UTC');
+
+        return [
+            now($tz)->startOfDay()->timezone($appTz),
+            now($tz)->endOfDay()->timezone($appTz),
         ];
     }
 
@@ -219,12 +243,13 @@ class DashboardController extends Controller
 
         $planIncome = IncomeCatalog::summarizeForUser($uid);
 
+        [$todayStart, $todayEnd] = $this->todayWindowInClaimTz();
         $incomeEntries = LedgerEntry::query()
             ->production()
             ->where('user_id', $uid)
             ->takeHomeCredits()
+            ->whereBetween('created_at', [$todayStart, $todayEnd])
             ->latest('id')
-            ->limit(40)
             ->get([
                 'id',
                 'entry_type',

@@ -121,8 +121,7 @@ function DailyClaimsList({ claims, virtualCompound = null }) {
                 })}
             </ul>
             <p className="mt-2 text-center text-[0.65rem] text-slate-500">
-                Total claimed: {formatNum(claims.total_race, 6)} RACE ≈ ${formatNum(claims.total_value_now_usd, 2)} at
-                today&apos;s rate
+                Today only · full history is on the program page
             </p>
         </motion.div>
     );
@@ -189,7 +188,7 @@ function IncomeTypeSection({ row, payouts, index, hubRow, totalSections, animate
 
             {recent.length > 0 ? (
                 <motion.div className="relative mt-4 border-t border-white/80 pt-4">
-                    <p className="text-[0.65rem] font-bold uppercase tracking-wider text-slate-500">Recent credits</p>
+                    <p className="text-[0.65rem] font-bold uppercase tracking-wider text-slate-500">Today&apos;s credits</p>
                     <ul className="mt-2 space-y-2">
                         {recent.map((p) => {
                             const dateStr = p.created_at

@@ -444,11 +444,11 @@ export default function Investment({
                     actions={
                         onChain ? null : (
                             <>
-                                <MemberHeroLink href={route('transactions', { income: 'community_referrals' })}>
+                                <MemberHeroLink href={route('transactions', { income: 'community_referrals', date: 'all' })}>
                                     Community Referrals →
                                 </MemberHeroLink>
                                 <MemberHeroLink href={route('leadership')}>Leadership →</MemberHeroLink>
-                                <MemberHeroLink href={route('transactions', { income: 'participation_rewards' })}>
+                                <MemberHeroLink href={route('transactions', { income: 'participation_rewards', date: 'all' })}>
                                     ROI ledger →
                                 </MemberHeroLink>
                             </>

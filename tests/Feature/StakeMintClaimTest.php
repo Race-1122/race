@@ -299,6 +299,20 @@ class StakeMintClaimTest extends TestCase
             'race_price_usdt' => '1',
             'status' => StakeMintClaim::STATUS_FAILED, // failed claims never show
         ]);
+        $old = StakeMintClaim::query()->create([
+            'user_id' => $user->id,
+            'stake_index' => 3,
+            'wallet_address' => self::WALLET,
+            'days' => 1,
+            'usdt_amount' => '2',
+            'race_amount' => '4',
+            'race_price_usdt' => '0.5',
+            'status' => StakeMintClaim::STATUS_COMPLETED,
+            'tx_hash' => '0x'.str_repeat('c', 64),
+        ]);
+        $old->forceFill([
+            'created_at' => Carbon::parse('2026-11-17 04:00:00', 'Asia/Kolkata'),
+        ])->save();
 
         $coin = Mockery::mock(\App\Services\Income\RaceCoinService::class);
         $coin->shouldReceive('priceUsd')->andReturn(0.5);
@@ -308,8 +322,10 @@ class StakeMintClaimTest extends TestCase
         $method->setAccessible(true);
         $result = $method->invoke($controller, $user, $coin);
 
-        $this->assertSame(1, $result['count']);
+        $this->assertSame(2, $result['count']);
+        $this->assertCount(1, $result['items']);
         $this->assertSame('mint', $result['items'][0]['source']);
+        $this->assertSame(1, $result['items'][0]['stake_index']);
         $this->assertSame(1, $result['today_count']);
         $this->assertSame(0, bccomp($result['today_race'], '3', 6));
         $this->assertSame(0, bccomp($result['today_value_claim_usd'], '1.5', 6));

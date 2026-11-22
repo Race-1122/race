@@ -31,19 +31,17 @@ class LedgerController extends Controller
         }
 
         $dateParam = $request->string('date')->toString();
-        $showAllDates = $dateParam === 'all';
+        $showAllDates = $dateParam === 'all' || $dateParam === '';
         $filterDate = null;
         if (! $showAllDates) {
-            if ($dateParam === '') {
-                $filterDate = Carbon::today();
-            } else {
-                try {
-                    $filterDate = Carbon::parse($dateParam)->startOfDay();
-                } catch (\Throwable) {
-                    $filterDate = Carbon::today();
-                }
+            try {
+                $filterDate = Carbon::parse($dateParam)->startOfDay();
+            } catch (\Throwable) {
+                $showAllDates = true;
             }
-            $query->whereDate('created_at', $filterDate);
+            if (! $showAllDates && $filterDate) {
+                $query->whereDate('created_at', $filterDate);
+            }
         }
 
         $dayTotalUsd = null;
