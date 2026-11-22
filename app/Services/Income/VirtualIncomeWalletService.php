@@ -5,6 +5,7 @@ namespace App\Services\Income;
 use App\Models\IncomeWalletTransaction;
 use App\Models\LedgerEntry;
 use App\Models\User;
+use App\Models\UserWallet;
 use App\Support\IncomeVaultFinancialAuthority;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -351,6 +352,15 @@ class VirtualIncomeWalletService
             }
 
             User::query()->whereKey($user->id)->lockForUpdate()->firstOrFail();
+            UserWallet::query()->firstOrCreate(
+                ['user_id' => $user->id],
+                [
+                    'balance_usd' => $user->balance_usd ?? 0,
+                    'virtual_balance_usd' => '0.0000',
+                ],
+            );
+            /** @var UserWallet $wallet */
+            $wallet = UserWallet::query()->where('user_id', $user->id)->lockForUpdate()->firstOrFail();
 
             if ($idempotencyKey !== null && $idempotencyKey !== '') {
                 $existing = IncomeWalletTransaction::query()
@@ -362,27 +372,36 @@ class VirtualIncomeWalletService
                 }
             }
 
+            $before = number_format((float) ($wallet->virtual_balance_usd ?? 0), 4, '.', '');
             if ($direction === IncomeWalletTransaction::DIRECTION_DEBIT) {
-                $available = $this->sumBalance((int) $user->id);
-                if (bccomp($available, $amount, 4) < 0) {
+                if (bccomp($before, $amount, 4) < 0) {
                     throw ValidationException::withMessages([
                         'amount' => __('Insufficient Virtual Income Wallet balance.'),
                     ]);
                 }
+                $after = bcsub($before, $amount, 4);
+            } else {
+                $after = bcadd($before, $amount, 4);
             }
 
-            return IncomeWalletTransaction::query()->create([
+            $row = IncomeWalletTransaction::query()->create([
                 'user_id' => $user->id,
                 'wallet_address' => $user->wallet_address,
                 'type' => $type,
                 'source_reference' => $sourceReference,
                 'amount' => $amount,
+                'balance_before_usd' => $before,
+                'balance_after_usd' => $after,
                 'asset' => config('virtual_income_wallet.asset_default', 'USDT'),
                 'direction' => $direction,
                 'status' => IncomeWalletTransaction::STATUS_POSTED,
                 'idempotency_key' => $idempotencyKey,
                 'metadata' => $metadata,
             ]);
+
+            $wallet->forceFill(['virtual_balance_usd' => $after])->save();
+
+            return $row;
         });
     }
 }

@@ -170,6 +170,32 @@ class VirtualIncomeWalletArchitectureTest extends TestCase
         $this->assertSame('2.0000', $summary['available_balance_usd']);
     }
 
+    public function test_virtual_balance_column_and_transaction_before_after(): void
+    {
+        $user = User::factory()->create();
+        $wallet = app(VirtualIncomeWalletService::class);
+
+        $first = $wallet->credit($user, IncomeWalletTransaction::TYPE_INCOME_CLAIM, '4.8537', 'stake:1', 'c1');
+        $this->assertSame('0.0000', number_format((float) $first->balance_before_usd, 4, '.', ''));
+        $this->assertSame('4.8537', number_format((float) $first->balance_after_usd, 4, '.', ''));
+
+        $second = $wallet->credit($user, IncomeWalletTransaction::TYPE_INCOME_CLAIM, '4.8537', 'stake:2', 'c2');
+        $this->assertSame('4.8537', number_format((float) $second->balance_before_usd, 4, '.', ''));
+        $this->assertSame('9.7074', number_format((float) $second->balance_after_usd, 4, '.', ''));
+
+        $this->assertSame('9.7074', number_format((float) \App\Models\UserWallet::query()
+            ->where('user_id', $user->id)
+            ->value('virtual_balance_usd'), 4, '.', ''));
+        $this->assertSame('9.7074', $wallet->availableBalance($user));
+
+        $debit = $wallet->debit($user, IncomeWalletTransaction::TYPE_WITHDRAWAL, '1.0000', 'wd:1', 'd1');
+        $this->assertSame('9.7074', number_format((float) $debit->balance_before_usd, 4, '.', ''));
+        $this->assertSame('8.7074', number_format((float) $debit->balance_after_usd, 4, '.', ''));
+        $this->assertSame('8.7074', number_format((float) \App\Models\UserWallet::query()
+            ->where('user_id', $user->id)
+            ->value('virtual_balance_usd'), 4, '.', ''));
+    }
+
     public function test_income_history_preserves_source_type(): void
     {
         $user = User::factory()->create();

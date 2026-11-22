@@ -36,6 +36,8 @@ class UserWalletEditScreen extends Screen
 
     public string $current_race_coin_balance = '0.0000';
 
+    public string $current_virtual_balance_usd = '0.0000';
+
     public function query(WalletBalanceService $wallets): iterable
     {
         $userWallet = $this->routeOrNew('user_wallet', UserWallet::class);
@@ -45,15 +47,18 @@ class UserWalletEditScreen extends Screen
 
         $currentBalance = '0.00';
         $currentRaceCoin = '0.0000';
+        $currentVirtual = '0.0000';
         if ($userWallet->exists && $userWallet->user) {
             $currentBalance = $wallets->currentBalance($userWallet->user);
             $currentRaceCoin = number_format((float) ($userWallet->race_coin_balance ?? 0), 4, '.', '');
+            $currentVirtual = number_format((float) ($userWallet->virtual_balance_usd ?? 0), 4, '.', '');
         }
 
         return [
             'user_wallet' => $userWallet,
             'current_balance_usd' => $currentBalance,
             'current_race_coin_balance' => $currentRaceCoin,
+            'current_virtual_balance_usd' => $currentVirtual,
         ];
     }
 
@@ -91,6 +96,9 @@ class UserWalletEditScreen extends Screen
                 Label::make('current_balance_usd')
                     ->title(__('Current balance (USD)'))
                     ->value('$'.$this->current_balance_usd),
+                Label::make('current_virtual_balance_usd')
+                    ->title(__('Virtual income wallet'))
+                    ->value('$'.$this->current_virtual_balance_usd),
                 Label::make('current_race_coin_balance')
                     ->title(__('Race Coin balance'))
                     ->value($this->current_race_coin_balance.' RC'),

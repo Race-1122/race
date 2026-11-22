@@ -117,7 +117,9 @@ export default function VirtualIncomeWallet({
                                         <th className="px-3 py-2 font-semibold">When</th>
                                         <th className="px-3 py-2 font-semibold">Type</th>
                                         <th className="px-3 py-2 font-semibold">Direction</th>
+                                        <th className="px-3 py-2 font-semibold text-right">Before</th>
                                         <th className="px-3 py-2 font-semibold text-right">Amount</th>
+                                        <th className="px-3 py-2 font-semibold text-right">After</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -130,6 +132,9 @@ export default function VirtualIncomeWallet({
                                             </td>
                                             <td className="px-3 py-2">{row.type_label ?? row.type}</td>
                                             <td className="px-3 py-2 uppercase">{row.direction}</td>
+                                            <td className="px-3 py-2 text-right font-mono text-slate-500">
+                                                {row.balance_before_usd != null ? formatUsd(row.balance_before_usd) : '—'}
+                                            </td>
                                             <td className="px-3 py-2 text-right font-mono">
                                                 <span className="block">{formatUsd(row.amount)}</span>
                                                 {raceEquivLabel(row.amount, race_price_usd) ? (
@@ -137,6 +142,9 @@ export default function VirtualIncomeWallet({
                                                         {raceEquivLabel(row.amount, race_price_usd)}
                                                     </span>
                                                 ) : null}
+                                            </td>
+                                            <td className="px-3 py-2 text-right font-mono font-semibold">
+                                                {row.balance_after_usd != null ? formatUsd(row.balance_after_usd) : '—'}
                                             </td>
                                         </tr>
                                     ))}

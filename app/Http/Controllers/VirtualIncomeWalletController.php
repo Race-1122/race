@@ -27,6 +27,12 @@ class VirtualIncomeWalletController extends Controller
                 'type_label' => self::labelForType($row->type),
                 'direction' => $row->direction,
                 'amount' => number_format((float) $row->amount, 4, '.', ''),
+                'balance_before_usd' => $row->balance_before_usd !== null
+                    ? number_format((float) $row->balance_before_usd, 4, '.', '')
+                    : null,
+                'balance_after_usd' => $row->balance_after_usd !== null
+                    ? number_format((float) $row->balance_after_usd, 4, '.', '')
+                    : null,
                 'asset' => $row->asset,
                 'status' => $row->status,
                 'source_reference' => $row->source_reference,

@@ -24,8 +24,12 @@ class UserFullDataIncomeWalletLayout extends AdminVipTable
                 ->render(fn (IncomeWalletTransaction $row) => AdminTable::badge((string) $row->type, 'vip')),
             TD::make('direction', __('Dir'))
                 ->render(fn (IncomeWalletTransaction $row) => AdminTable::badge((string) $row->direction, $row->direction === 'credit' ? 'success' : 'danger')),
+            TD::make('balance_before_usd', __('Before'))->align(TD::ALIGN_RIGHT)
+                ->render(fn (IncomeWalletTransaction $row) => AdminTable::money($row->balance_before_usd ?? 0)),
             TD::make('amount', __('Amount'))->align(TD::ALIGN_RIGHT)
                 ->render(fn (IncomeWalletTransaction $row) => AdminTable::money($row->amount)),
+            TD::make('balance_after_usd', __('After'))->align(TD::ALIGN_RIGHT)
+                ->render(fn (IncomeWalletTransaction $row) => AdminTable::money($row->balance_after_usd ?? 0)),
             TD::make('status', __('Status'))
                 ->render(fn (IncomeWalletTransaction $row) => AdminTable::text($row->status)),
             TD::make('created_at', __('Date'))
