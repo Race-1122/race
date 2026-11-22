@@ -499,6 +499,14 @@ class DashboardController extends Controller
                 'available_usd' => $compoundUsd,
                 'can_compound' => bccomp($compoundUsd, '0.01', 4) >= 0 && $compoundStake !== null,
                 'stake_index' => $compoundStake['index'] ?? null,
+                'last_stake' => $compoundStake === null ? null : [
+                    'index' => $compoundStake['index'],
+                    'principal_usd' => $compoundStake['principal_usd'] ?? '0.00',
+                    'lock_seconds' => $compoundStake['lock_seconds'] ?? 0,
+                    'lock_label' => $compoundStake['lock_label'] ?? 'Flexible',
+                    'source_type' => $compoundStake['source_type'] ?? '',
+                    'source_label' => $compoundStake['source_label'] ?? 'Stake',
+                ],
             ],
             'summary' => [
                 'balance_usd' => number_format($walletBalanceUsd, 2, '.', ''),

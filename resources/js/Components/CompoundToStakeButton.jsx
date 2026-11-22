@@ -2,7 +2,7 @@ import { csrfHeaders } from '@/lib/csrf';
 import { stakeRaceFromWallet } from '@/lib/web3Engine';
 import { forceHideWalletPending, notifyError, notifySuccess, showWalletPending } from '@/lib/appNotify';
 import { router, usePage } from '@inertiajs/react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 function formatUsdt(value) {
     const n = Number(value);
@@ -34,21 +34,33 @@ async function postJson(url, body = {}) {
     return data;
 }
 
-export default function CompoundToStakeButton({ availableUsd, className = '' }) {
+export default function CompoundToStakeButton({ availableUsd, lastStake = null, className = '' }) {
     const { blockchain, auth } = usePage().props;
     const [busy, setBusy] = useState(false);
+    const [amount, setAmount] = useState(() => String(availableUsd ?? ''));
+
+    useEffect(() => {
+        setAmount(String(availableUsd ?? ''));
+    }, [availableUsd]);
+
+    const max = Number(availableUsd);
+    const chosen = Number(amount);
+    const canSubmit = !busy && Number.isFinite(chosen) && chosen >= 0.01 && chosen <= max + 1e-8;
 
     const run = async () => {
-        if (busy) return;
+        if (!canSubmit) return;
         setBusy(true);
         showWalletPending('Minting RACE to your wallet…');
         try {
-            const minted = await postJson(route('virtual_income.compound_to_stake'));
+            const minted = await postJson(route('virtual_income.compound_to_stake'), {
+                amount_usd: Number(chosen).toFixed(4),
+            });
             const usdt = minted.usdt;
             const race = minted.race;
             const stakeIndex = minted.stake_index;
+            const lockLabel = lastStake?.lock_label || `${minted.lock_seconds || 0}s`;
             notifySuccess(
-                `Compound recorded: ${formatUsdt(usdt)} (≈ ${race} RACE) into last stake #${stakeIndex}. Confirm stake in your wallet.`,
+                `Compound recorded: ${formatUsdt(usdt)} (≈ ${race} RACE) using last stake #${stakeIndex} · ${lockLabel}. Confirm stake in your wallet.`,
                 'Compound',
             );
 
@@ -75,13 +87,13 @@ export default function CompoundToStakeButton({ availableUsd, className = '' }) 
                         tx_hash: stakeTx,
                     });
                     notifySuccess(
-                        `On-chain stake submitted for ${formatUsdt(usdt)}. Compound tx is in Transactions.`,
+                        `On-chain stake submitted for ${formatUsdt(usdt)} on the same lock as stake #${stakeIndex}. See Transactions.`,
                         'Compound',
                     );
                 }
             } else {
                 notifySuccess(
-                    `RACE minted to your wallet (${formatUsdt(usdt)}). Open Staking to finish compounding into your last lock.`,
+                    `RACE minted (${formatUsdt(usdt)}). Open Staking to finish compounding on last stake #${stakeIndex} lock.`,
                     'Compound',
                 );
             }
@@ -96,13 +108,50 @@ export default function CompoundToStakeButton({ availableUsd, className = '' }) 
     };
 
     return (
-        <button
-            type="button"
-            disabled={busy}
-            onClick={run}
-            className={className}
-        >
-            {busy ? 'Compounding…' : `Compound ${formatUsdt(availableUsd)}`}
-        </button>
+        <div className="w-full min-w-[14rem] space-y-2">
+            {lastStake ? (
+                <p className="text-[11px] leading-snug text-violet-900">
+                    Compounds into last stake{' '}
+                    <span className="font-bold">#{lastStake.index}</span>
+                    {' · '}
+                    {formatUsdt(lastStake.principal_usd)}
+                    {' · '}
+                    {lastStake.lock_label}
+                    {' · '}
+                    {lastStake.source_label}
+                </p>
+            ) : (
+                <p className="text-[11px] text-slate-500">Needs an active last stake.</p>
+            )}
+            <div className="flex items-center gap-1">
+                <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    max={Number.isFinite(max) ? max : undefined}
+                    value={amount}
+                    disabled={busy}
+                    onChange={(e) => setAmount(e.target.value)}
+                    className="w-full min-w-0 rounded-lg border border-violet-200 bg-white px-2 py-1.5 font-mono text-xs text-slate-800"
+                    aria-label="Compound amount in USDT"
+                />
+                <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setAmount(String(availableUsd ?? ''))}
+                    className="shrink-0 rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-violet-700"
+                >
+                    Max
+                </button>
+            </div>
+            <button
+                type="button"
+                disabled={!canSubmit}
+                onClick={run}
+                className={className}
+            >
+                {busy ? 'Compounding…' : `Compound ${formatUsdt(canSubmit ? chosen : availableUsd)}`}
+            </button>
+        </div>
     );
 }

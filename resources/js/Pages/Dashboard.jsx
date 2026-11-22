@@ -191,7 +191,8 @@ function DailyEarningCard({ amountUsd, count, dateLabel, dailyClaims, racePriceU
                     {virtualCompound?.can_compound ? (
                         <CompoundToStakeButton
                             availableUsd={virtualCompound.available_usd}
-                            className="inline-flex items-center justify-center rounded-xl border border-violet-300 bg-violet-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-violet-500 disabled:opacity-60"
+                            lastStake={virtualCompound.last_stake}
+                            className="inline-flex w-full items-center justify-center rounded-xl border border-violet-300 bg-violet-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-violet-500 disabled:opacity-60"
                         />
                     ) : null}
                     <Link
@@ -693,7 +694,7 @@ export default function Dashboard({
     summary: summaryProp = {},
     memberActivation: memberActivationProp,
     stake_auto_claim_live = false,
-    virtual_compound = { available_usd: '0.00', can_compound: false, stake_index: null },
+    virtual_compound = { available_usd: '0.00', can_compound: false, stake_index: null, last_stake: null },
     held_ico = { count: 0, race: '0.0000' },
 }) {
     const page = usePage();

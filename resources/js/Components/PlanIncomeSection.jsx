@@ -58,6 +58,7 @@ function DailyClaimsList({ claims, virtualCompound = null }) {
                     {virtualCompound?.can_compound ? (
                         <CompoundToStakeButton
                             availableUsd={virtualCompound.available_usd}
+                            lastStake={virtualCompound.last_stake}
                             className="rounded-lg bg-violet-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-violet-500 disabled:opacity-60"
                         />
                     ) : null}

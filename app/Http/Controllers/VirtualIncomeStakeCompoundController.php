@@ -13,7 +13,11 @@ class VirtualIncomeStakeCompoundController extends Controller
     public function store(Request $request, VirtualIncomeStakeCompoundService $compound): JsonResponse|RedirectResponse
     {
         try {
-            $result = $compound->compoundAll($request->user());
+            $amount = $request->input('amount_usd');
+            $result = $compound->compoundAll(
+                $request->user(),
+                $amount !== null && $amount !== '' ? (string) $amount : null,
+            );
         } catch (ValidationException $e) {
             if ($request->expectsJson()) {
                 $msg = collect($e->errors())->flatten()->first() ?: $e->getMessage();

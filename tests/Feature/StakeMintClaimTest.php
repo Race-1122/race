@@ -487,4 +487,57 @@ class StakeMintClaimTest extends TestCase
             ->where('type', IncomeWalletTransaction::TYPE_COMPOUND_REFUND)
             ->count());
     }
+
+    public function test_compound_accepts_partial_amount_and_keeps_remainder(): void
+    {
+        $this->inWindow();
+        $user = $this->user();
+        app(VirtualIncomeWalletService::class)->credit(
+            $user,
+            IncomeWalletTransaction::TYPE_INCOME_CLAIM,
+            '12.5000',
+            'test:seed',
+            'seed-partial-compound:'.$user->id,
+        );
+        \App\Models\BlockchainEngineStake::query()->create([
+            'user_id' => $user->id,
+            'wallet_address' => self::WALLET,
+            'stake_index' => 1,
+            'principal_usdt' => '300',
+            'staked_race' => '400',
+            'stake_price_usdt' => '0.5',
+            'lock_seconds' => 365 * 86400,
+            'daily_rate_bps' => 70,
+            'started_at' => now()->getTimestamp() - 5 * 86400,
+            'unlock_at' => now()->getTimestamp() + 360 * 86400,
+            'source_type' => 'ico',
+            'withdrawn' => false,
+            'status' => 'active',
+            'tx_hash' => '0x'.str_repeat('1', 64),
+            'contract_address' => '0x'.str_repeat('2', 40),
+        ]);
+
+        $mint = Mockery::mock(RaceCoinDirectMintService::class);
+        $mint->shouldReceive('configured')->andReturn(true);
+        $mint->shouldReceive('mintToWallet')->once()->andReturn([
+            'tx_hash' => '0x'.str_repeat('d', 64),
+            'to' => self::WALLET,
+            'amount_wei' => '1',
+            'minter' => '0x'.str_repeat('e', 40),
+        ]);
+        $this->app->instance(RaceCoinDirectMintService::class, $mint);
+
+        $price = Mockery::mock(\App\Services\Income\RaceCoinService::class);
+        $price->shouldReceive('priceUsd')->andReturn(0.5);
+        $this->app->instance(\App\Services\Income\RaceCoinService::class, $price);
+
+        $this->actingAs($user)
+            ->postJson(route('virtual_income.compound_to_stake'), ['amount_usd' => '5.00'])
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('usdt', '5.0000')
+            ->assertJsonPath('stake_index', 1);
+
+        $this->assertSame(0, bccomp(app(WalletBalanceService::class)->virtualIncomeBalance($user->fresh()), '7.5', 4));
+    }
 }

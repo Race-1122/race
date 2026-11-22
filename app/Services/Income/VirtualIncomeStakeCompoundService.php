@@ -60,12 +60,28 @@ class VirtualIncomeStakeCompoundService
      *     wallet_address: string
      * }
      */
-    public function compoundAll(User $user): array
+    public function compoundAll(User $user, ?string $amountUsd = null): array
     {
-        $amount = $this->availableUsd($user);
-        if (bccomp($amount, '0.01', 4) < 0) {
+        $available = $this->availableUsd($user);
+        if (bccomp($available, '0.01', 4) < 0) {
             throw ValidationException::withMessages([
                 'compound' => __('No virtual income to compound.'),
+            ]);
+        }
+
+        $amount = $amountUsd !== null && trim($amountUsd) !== ''
+            ? number_format((float) $amountUsd, 4, '.', '')
+            : $available;
+        if (bccomp($amount, '0.01', 4) < 0) {
+            throw ValidationException::withMessages([
+                'compound' => __('Compound amount must be at least $0.01.'),
+            ]);
+        }
+        if (bccomp($amount, $available, 4) > 0) {
+            throw ValidationException::withMessages([
+                'compound' => __('Compound amount cannot exceed your virtual balance (:usd).', [
+                    'usd' => $available,
+                ]),
             ]);
         }
 
@@ -294,7 +310,16 @@ class VirtualIncomeStakeCompoundService
     /**
      * Last active stake (most recently opened), not the largest principal.
      *
-     * @return array{index: int, price: string, lock_seconds: int, source_type: string, stake_contract: string}|null
+     * @return array{
+     *     index: int,
+     *     price: string,
+     *     lock_seconds: int,
+     *     lock_label: string,
+     *     source_type: string,
+     *     source_label: string,
+     *     principal_usd: string,
+     *     stake_contract: string
+     * }|null
      */
     public function bestActiveStake(User $user): ?array
     {
@@ -312,12 +337,16 @@ class VirtualIncomeStakeCompoundService
             if ($contract === '') {
                 $contract = $this->contractForSource($source);
             }
+            $lockSeconds = (int) ($row->lock_seconds ?? 0);
 
             return [
                 'index' => (int) $row->stake_index,
                 'price' => bccomp($price, '0', 18) > 0 ? $price : '0',
-                'lock_seconds' => (int) ($row->lock_seconds ?? 0),
+                'lock_seconds' => $lockSeconds,
+                'lock_label' => $this->lockLabel($lockSeconds),
                 'source_type' => $source,
+                'source_label' => $this->sourceLabel($source),
+                'principal_usd' => number_format((float) ($row->principal_usdt ?? 0), 2, '.', ''),
                 'stake_contract' => $contract,
             ];
         }
@@ -337,13 +366,37 @@ class VirtualIncomeStakeCompoundService
             return null;
         }
 
+        $lockSeconds = (int) ($last['lock_seconds'] ?? 0);
+        $source = BlockchainEngineStake::SOURCE_PARTICIPATION;
+
         return [
             'index' => $count - 1,
             'price' => (string) ($last['reward_price_usdt'] ?? '0'),
-            'lock_seconds' => (int) ($last['lock_seconds'] ?? 0),
-            'source_type' => BlockchainEngineStake::SOURCE_PARTICIPATION,
-            'stake_contract' => $this->contractForSource(BlockchainEngineStake::SOURCE_PARTICIPATION),
+            'lock_seconds' => $lockSeconds,
+            'lock_label' => $this->lockLabel($lockSeconds),
+            'source_type' => $source,
+            'source_label' => $this->sourceLabel($source),
+            'principal_usd' => number_format((float) ($last['principal_usdt'] ?? 0), 2, '.', ''),
+            'stake_contract' => $this->contractForSource($source),
         ];
+    }
+
+    private function lockLabel(int $seconds): string
+    {
+        if ($seconds <= 0) {
+            return 'Flexible';
+        }
+
+        return ((int) round($seconds / 86400)).' days';
+    }
+
+    private function sourceLabel(string $source): string
+    {
+        return match ($source) {
+            BlockchainEngineStake::SOURCE_ICO => 'ICO stake',
+            BlockchainEngineStake::SOURCE_WALLET_RACE => 'Wallet RACE stake',
+            default => 'USDT stake',
+        };
     }
 
     private function contractForSource(string $source): string
