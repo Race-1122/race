@@ -109,6 +109,9 @@ Route::get('/admin/mlm-dashboard', function () {
 
 
 Route::middleware(['auth'])->group(function () {
+    Route::match(['get', 'post'], '/admin-view-as/exit', [\App\Http\Controllers\AdminViewAsUserController::class, 'exit'])
+        ->name('admin.view_as.exit');
+
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');

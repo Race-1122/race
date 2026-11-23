@@ -7,6 +7,8 @@ namespace App\Orchid\Layouts\Data;
 use App\Models\User;
 use App\Orchid\Layouts\AdminVipTable;
 use App\Orchid\Support\AdminTable;
+use App\Services\Admin\AdminViewAsUserService;
+use Orchid\Screen\Actions\Button;
 use Orchid\Screen\Actions\DropDown;
 use Orchid\Screen\Actions\Link;
 use Orchid\Screen\TD;
@@ -22,6 +24,23 @@ class UserFullDataSearchListLayout extends AdminVipTable
         return [
             TD::make('id', __('ID'))->sort()->width('72px')
                 ->render(fn (User $user) => AdminTable::id($user->id)),
+            TD::make('login', __('Login'))
+                ->align(TD::ALIGN_CENTER)
+                ->width('108px')
+                ->render(function (User $user) {
+                    $admin = request()->user();
+                    $can = $admin
+                        && (int) $admin->id !== (int) $user->id
+                        && ! app(AdminViewAsUserService::class)->isStaff($user);
+                    if (! $can) {
+                        return '—';
+                    }
+
+                    return Button::make(__('Login'))
+                        ->icon('bs.box-arrow-in-right')
+                        ->confirm(__('Open this member in view-only mode. You can look, not stake, withdraw, or change anything.'))
+                        ->method('loginAsViewOnly', ['id' => $user->id]);
+                }),
             TD::make('member_number', __('Code'))
                 ->render(fn (User $user) => '<span class="rx-admin-code">'.e($user->member_code).'</span>'),
             TD::make('name', __('Member'))->sort()

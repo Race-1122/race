@@ -396,7 +396,7 @@ export default function AuthenticatedLayout({
     /** Floating “Share referral link” FAB — only Dashboard should enable this. */
     showReferralFab = false,
 }) {
-    const { auth, incomeHub } = usePage().props;
+    const { auth, incomeHub, adminViewOnly } = usePage().props;
     const user = auth.user;
     const [open, setOpen] = useState(false);
     const [isDesktop, setIsDesktop] = useState(
@@ -615,6 +615,22 @@ export default function AuthenticatedLayout({
             <MemberPopupModal />
             <GlobalFlashModal />
 
+            {adminViewOnly ? (
+                <div className="fixed inset-x-0 top-0 z-[200] flex flex-wrap items-center justify-center gap-2 border-b border-amber-400/40 bg-amber-500 px-3 py-2 text-center text-xs font-semibold text-slate-950 shadow-md sm:text-sm">
+                    <span>
+                        View-only — {memberId || 'member'} (look, cannot change)
+                    </span>
+                    <Link
+                        href={routeHref('admin.view_as.exit')}
+                        method="post"
+                        as="button"
+                        className="rounded-md bg-slate-950 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-amber-200 hover:bg-slate-800"
+                    >
+                        Back to admin
+                    </Link>
+                </div>
+            ) : null}
+
             {open ? (
                 <button
                     type="button"
@@ -786,7 +802,7 @@ export default function AuthenticatedLayout({
 
             {showMobileFintechNav ? <MobileFintechBottomNav /> : null}
 
-            {showReferralFab ? (
+            {showReferralFab && !adminViewOnly ? (
                 <div id="referral-fab" className="fixed">
                     <button
                         type="button"

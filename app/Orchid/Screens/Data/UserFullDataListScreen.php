@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Orchid\Concerns\RequiresPlatformDataPermission;
 use App\Orchid\Layouts\Data\UserFullDataSearchLayout;
 use App\Orchid\Layouts\Data\UserFullDataSearchListLayout;
+use App\Services\Admin\AdminViewAsUserService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -106,6 +107,14 @@ class UserFullDataListScreen extends Screen
             'platform.data.user-full-data',
             $search === '' ? [] : ['search' => $search],
         );
+    }
+
+    public function loginAsViewOnly(Request $request, AdminViewAsUserService $viewAs): RedirectResponse
+    {
+        $id = (int) ($request->input('id') ?? $request->input('user'));
+        $target = User::query()->findOrFail($id);
+
+        return $viewAs->enter($request->user(), $target);
     }
 
     private function applySearch(Builder $query, string $search): void

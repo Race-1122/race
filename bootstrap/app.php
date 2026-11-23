@@ -57,6 +57,7 @@ return Application::configure(basePath: dirname(__DIR__))
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
             RejectCentralizedRewardWrites::class,
+            \App\Http\Middleware\BlockAdminViewOnlyMutations::class,
         ]);
 
         $middleware->alias([

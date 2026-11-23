@@ -29,11 +29,15 @@ use App\Orchid\Layouts\Data\UserFullDataRaceCoinSwapsLayout;
 use App\Orchid\Layouts\Data\UserFullDataSupportTicketsLayout;
 use App\Orchid\Layouts\Data\UserFullDataWalletLayout;
 use App\Orchid\Layouts\Data\UserFullDataWithdrawalsLayout;
+use App\Services\Admin\AdminViewAsUserService;
 use App\Services\Admin\UserDossierService;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Schema;
 use Orchid\Screen\Action;
+use Orchid\Screen\Actions\Button;
 use Orchid\Screen\Actions\Link;
 use Orchid\Screen\Fields\Label;
 use Orchid\Screen\Screen;
@@ -122,11 +126,25 @@ class UserFullDataShowScreen extends Screen
      */
     public function commandBar(): iterable
     {
+        $admin = request()->user();
+        $target = $this->user instanceof User ? $this->user : null;
+        $canViewAs = $target
+            && $admin
+            && (int) $admin->id !== (int) $target->id
+            && ! app(AdminViewAsUserService::class)->isStaff($target);
+
         $actions = [
             Link::make(__('Back to search'))
                 ->icon('bs.arrow-left')
                 ->route('platform.data.user-full-data'),
         ];
+
+        if ($canViewAs) {
+            $actions[] = Button::make(__('Login'))
+                ->icon('bs.box-arrow-in-right')
+                ->confirm(__('Open this member in view-only mode. You can look, not stake, withdraw, or change anything.'))
+                ->method('loginAsViewOnly');
+        }
 
         if (is_object($this->user) && optional(request()->user())->hasAccess('platform.systems.users') === true) {
             $actions[] = Link::make(__('Edit user'))
@@ -141,6 +159,15 @@ class UserFullDataShowScreen extends Screen
         }
 
         return $actions;
+    }
+
+    public function loginAsViewOnly(Request $request, AdminViewAsUserService $viewAs): RedirectResponse
+    {
+        $target = $this->user instanceof User
+            ? $this->user
+            : User::query()->findOrFail((int) $request->input('id'));
+
+        return $viewAs->enter($request->user(), $target);
     }
 
     public function layout(): iterable

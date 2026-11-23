@@ -78,6 +78,7 @@ class HandleInertiaRequests extends Middleware
             'incomeHub' => fn () => $request->user()
                 ? IncomeCatalog::hubForUser($request->user()->id)
                 : null,
+            'adminViewOnly' => (bool) $request->session()->get(\App\Services\Admin\AdminViewAsUserService::SESSION_FLAG),
             'flash' => [
                 'status' => $request->session()->get('status'),
                 'error' => $request->session()->get('error'),
