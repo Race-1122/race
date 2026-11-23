@@ -416,8 +416,61 @@ class StakeMintClaimTest extends TestCase
         $service->stakes = [0 => $this->stake(1)];
         $claim = $service->claim($user, 0, ['from_cron' => true]);
 
-        // Overlay $50 on $100 principal → 0.50% of $150 = $0.75 (base would be $0.50).
-        $this->assertSame(0, bccomp((string) $claim->usdt_amount, '0.75', 4));
+        // Engine principal stays $100 → 0.50% = $0.50 (advance). Overlay $50 is a separate 04:00 credit.
+        $this->assertSame(0, bccomp((string) $claim->usdt_amount, '0.50', 4));
+        $this->assertSame(0, bccomp(
+            (string) IncomeWalletTransaction::query()
+                ->where('user_id', $user->id)
+                ->where('type', IncomeWalletTransaction::TYPE_INCOME_CLAIM)
+                ->where('source_reference', '!=', 'test:seed')
+                ->sum('amount'),
+            '0.75',
+            4,
+        ));
+        $advance = StakeMintAdvance::query()->where('user_id', $user->id)->where('stake_index', 0)->firstOrFail();
+        $this->assertSame(0, bccomp((string) $advance->usdt_outstanding, '0.50', 8));
+        $this->assertSame(1, (int) $advance->days_outstanding);
+    }
+
+    public function test_cron_pays_compound_overlay_on_parent_clock_without_waiting_24h(): void
+    {
+        $this->inWindow();
+        $user = $this->user();
+        \App\Models\VirtualStakeCompound::query()->create([
+            'user_id' => $user->id,
+            'stake_index' => 0,
+            'usdt_amount' => '50.00',
+            'race_amount' => '100',
+            'race_price_usdt' => '0.5',
+            'created_at' => now()->subHour(),
+            'updated_at' => now()->subHour(),
+        ]);
+
+        $service = $this->service();
+        $service->stakes = [0 => $this->stake(0)];
+        $claim = $service->claim($user, 0, ['from_cron' => true]);
+
+        $this->assertTrue((bool) ($claim->meta['overlay_compound_daily'] ?? false));
+        $this->assertSame(0, bccomp((string) $claim->usdt_amount, '0.25', 4));
+        $this->assertSame(0, StakeMintAdvance::query()->where('user_id', $user->id)->count());
+
+        try {
+            $service->claim($user, 0, ['from_cron' => true]);
+            $this->fail('same-day 04:00 overlay must not pay twice');
+        } catch (ValidationException $e) {
+            $this->assertStringContainsStringIgnoringCase(
+                'nothing to claim',
+                (string) collect($e->errors())->flatten()->first(),
+            );
+        }
+        $this->assertSame(0, bccomp(
+            (string) IncomeWalletTransaction::query()
+                ->where('user_id', $user->id)
+                ->where('type', IncomeWalletTransaction::TYPE_INCOME_CLAIM)
+                ->sum('amount'),
+            '0.25',
+            4,
+        ));
     }
 
     public function test_dashboard_compound_route_debits_virtual_and_is_not_refunded(): void
@@ -592,6 +645,7 @@ class StakeMintClaimTest extends TestCase
                 ->where('stakeCompounds.0.kind', 'compound')
                 ->where('stakeCompounds.0.principal_usdt', '1.0000')
                 ->where('stakeCompounds.0.stake_index', 0)
+                ->where('stakeCompounds.0.lock_days', 180)
                 ->has('communityEngineStakes', 1)
                 ->where('communityEngineStakes.0.principal_usdt', '101.00000000')
                 ->where('communityEngineStakes.0.staked_race', '202.00000000'));

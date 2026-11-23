@@ -846,7 +846,7 @@ export default function Investment({
                     />
                     {onChain && (communityEngineStakes?.length > 0 || stakeCompounds?.length > 0) ? (
                         <MemberTableScroll>
-                            <table className="w-full min-w-[40rem] text-left text-xs sm:min-w-0 sm:text-sm">
+                            <table className="w-full min-w-[32rem] text-left text-xs sm:min-w-0 sm:text-sm">
                                 <thead>
                                     <tr className="border-b border-slate-200 bg-slate-100/90 text-fintech-muted">
                                         <th className="px-3 py-2.5 font-semibold sm:px-4">RACE</th>
@@ -854,7 +854,6 @@ export default function Investment({
                                         <th className="px-3 py-2.5 font-semibold sm:px-4">Plan</th>
                                         <th className="px-3 py-2.5 font-semibold sm:px-4">Stake #</th>
                                         <th className="px-3 py-2.5 font-semibold sm:px-4">Status</th>
-                                        <th className="px-3 py-2.5 font-semibold sm:px-4">Tx</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -899,9 +898,6 @@ export default function Investment({
                                                 ) : (
                                                     'Active'
                                                 )}
-                                            </td>
-                                            <td className="px-3 py-3 font-mono text-[10px] sm:px-4">
-                                                {isCompound ? 'Internal' : `${String(row.tx_hash || '').slice(0, 10)}…`}
                                             </td>
                                         </tr>
                                         );

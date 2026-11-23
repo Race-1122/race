@@ -88,12 +88,19 @@ class VirtualIncomeStakeCompoundService
             return [];
         }
 
+        $lockByIndex = BlockchainEngineStake::query()
+            ->where('user_id', $user->id)
+            ->get(['stake_index', 'lock_seconds'])
+            ->keyBy('stake_index');
+
         return VirtualStakeCompound::query()
             ->where('user_id', $user->id)
             ->latest('id')
             ->limit(50)
             ->get()
-            ->map(static function (VirtualStakeCompound $row): array {
+            ->map(static function (VirtualStakeCompound $row) use ($lockByIndex): array {
+                $lockSeconds = (int) ($lockByIndex->get((int) $row->stake_index)?->lock_seconds ?? 0);
+
                 return [
                     'kind' => 'compound',
                     'id' => 'compound-'.$row->id,
@@ -101,7 +108,7 @@ class VirtualIncomeStakeCompoundService
                     'principal_usdt' => number_format((float) $row->usdt_amount, 4, '.', ''),
                     'staked_race' => (string) $row->race_amount,
                     'plan_label' => 'Compound',
-                    'lock_days' => 0,
+                    'lock_days' => $lockSeconds > 0 ? (int) round($lockSeconds / 86400) : 0,
                     'status' => ((string) ($row->status ?? VirtualStakeCompound::STATUS_PENDING)) === VirtualStakeCompound::STATUS_MINTED
                         ? 'Minted'
                         : 'Compound',

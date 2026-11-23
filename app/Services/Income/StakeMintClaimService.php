@@ -6,7 +6,6 @@ use App\Models\IncomeWalletTransaction;
 use App\Models\StakeMintAdvance;
 use App\Models\StakeMintClaim;
 use App\Models\User;
-use App\Models\VirtualStakeCompound;
 use App\Services\Blockchain\CommunityEngineRpcReader;
 use App\Services\Blockchain\RaceCoinDirectMintService;
 use Illuminate\Support\Facades\Cache;
@@ -69,13 +68,7 @@ class StakeMintClaimService
         if ($stake === null) {
             return null;
         }
-        if (! \Illuminate\Support\Facades\Schema::hasTable('virtual_stake_compounds')) {
-            return $stake;
-        }
-        $extra = (string) (VirtualStakeCompound::query()
-            ->where('user_id', $user->id)
-            ->where('stake_index', $stakeIndex)
-            ->sum('usdt_amount') ?? '0');
+        $extra = app(VirtualIncomeStakeCompoundService::class)->extraPrincipalUsd($user, $stakeIndex);
         if (bccomp($extra, '0', 8) > 0) {
             $stake['principal_usdt'] = bcadd((string) ($stake['principal_usdt'] ?? '0'), $extra, 18);
         }
@@ -304,11 +297,7 @@ class StakeMintClaimService
                 ]);
             }
 
-            $stake = $this->applyVirtualCompoundOverlay(
-                $user,
-                $stakeIndex,
-                $this->readStake($wallet, $stakeIndex),
-            );
+            $stake = $this->readStake($wallet, $stakeIndex);
             if ($stake === null) {
                 throw ValidationException::withMessages(['claim' => __('Stake not found on-chain.')]);
             }
@@ -322,17 +311,67 @@ class StakeMintClaimService
                 // Daily job: at most 1 day per stake per run (missed days catch up on later mornings).
                 $days = min($days, max(1, (int) config('race_income_mint.stake_claim_auto_max_days', 1)));
             }
-            if ($days <= 0) {
-                throw ValidationException::withMessages(['claim' => __('Nothing to claim for this stake yet.')]);
+
+            $baseClaim = null;
+            if ($days > 0) {
+                $reward = $this->rewardFor($stake, $days);
+                $usdt4 = number_format((float) $reward['usdt'], 4, '.', '');
+                if (bccomp($reward['race'], '0', 8) > 0 && bccomp($usdt4, '0.0001', 4) >= 0) {
+                    $baseClaim = $this->recordEngineVirtualClaim(
+                        $user,
+                        $wallet,
+                        $stakeIndex,
+                        $stake,
+                        $days,
+                        $reward,
+                        $usdt4,
+                        $fromCron,
+                    );
+                }
             }
 
-            $reward = $this->rewardFor($stake, $days);
-            $usdt4 = number_format((float) $reward['usdt'], 4, '.', '');
-            if (bccomp($reward['race'], '0', 8) <= 0 || bccomp($usdt4, '0.0001', 4) < 0) {
-                throw ValidationException::withMessages(['claim' => __('Reward is too small to claim yet.')]);
+            // Overlay compound has no own lastRewardAt / lock clock. 04:00 pays it on the parent stake.
+            $overlayClaim = $fromCron
+                ? $this->creditOverlayCompoundDaily($user, $wallet, $stakeIndex, $stake)
+                : null;
+
+            if ($baseClaim !== null) {
+                return $baseClaim;
+            }
+            if ($overlayClaim !== null) {
+                return $overlayClaim;
             }
 
-            return DB::transaction(function () use ($user, $wallet, $stakeIndex, $days, $reward, $usdt4, $stake, $fromCron) {
+            throw ValidationException::withMessages(['claim' => __('Nothing to claim for this stake yet.')]);
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            Log::warning('stake virtual claim failed', ['user_id' => $user->id, 'error' => $e->getMessage()]);
+            throw ValidationException::withMessages([
+                'claim' => __('Could not credit Virtual Income: :msg', [
+                    'msg' => Str::limit($e->getMessage(), 160),
+                ]),
+            ]);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $stake
+     * @param  array{usdt: string, race: string}  $reward
+     */
+    protected function recordEngineVirtualClaim(
+        User $user,
+        string $wallet,
+        int $stakeIndex,
+        array $stake,
+        int $days,
+        array $reward,
+        string $usdt4,
+        bool $fromCron,
+    ): StakeMintClaim {
+        return DB::transaction(function () use ($user, $wallet, $stakeIndex, $days, $reward, $usdt4, $stake, $fromCron) {
                 $claim = StakeMintClaim::query()->create([
                     'user_id' => $user->id,
                     'stake_index' => $stakeIndex,
@@ -392,19 +431,108 @@ class StakeMintClaimService
                 ])->save();
 
                 return $claim->refresh();
-            });
-        } catch (ValidationException $e) {
-            throw $e;
-        } catch (\Throwable $e) {
-            Log::warning('stake virtual claim failed', ['user_id' => $user->id, 'error' => $e->getMessage()]);
-            throw ValidationException::withMessages([
-                'claim' => __('Could not credit Virtual Income: :msg', [
-                    'msg' => Str::limit($e->getMessage(), 160),
-                ]),
-            ]);
-        } finally {
-            $lock->release();
+        });
+    }
+
+    /**
+     * Overlay compound ROI at 04:00 on the parent stake's rate/lock.
+     * No compound lastRewardAt, no 24h wait from the click, no Engine advance (not on-chain).
+     *
+     * @param  array<string, mixed>  $stake
+     */
+    protected function creditOverlayCompoundDaily(
+        User $user,
+        string $wallet,
+        int $stakeIndex,
+        array $stake,
+    ): ?StakeMintClaim {
+        if (! empty($stake['withdrawn'])) {
+            return null;
         }
+        if ((int) ($stake['daily_rate_bps'] ?? 0) <= 0) {
+            return null;
+        }
+        if ((int) ($stake['lock_seconds'] ?? 0) <= 0) {
+            return null;
+        }
+        $unlockAt = (int) ($stake['unlock_at'] ?? 0);
+        if ($unlockAt > 0 && $this->now() >= $unlockAt) {
+            return null;
+        }
+
+        $extra = app(VirtualIncomeStakeCompoundService::class)->extraPrincipalUsd($user, $stakeIndex);
+        if (bccomp($extra, '0', 8) <= 0) {
+            return null;
+        }
+
+        $tz = (string) config('income.claim.timezone', 'Asia/Kolkata');
+        $period = now($tz)->toDateString();
+        $idem = 'overlay_compound_daily:'.$user->id.':'.$stakeIndex.':'.$period;
+        $already = IncomeWalletTransaction::query()
+            ->where('user_id', $user->id)
+            ->where('idempotency_key', $idem)
+            ->exists();
+        if ($already) {
+            return null;
+        }
+
+        $overlay = $stake;
+        $overlay['principal_usdt'] = $extra;
+        $reward = $this->rewardFor($overlay, 1);
+        $usdt4 = number_format((float) $reward['usdt'], 4, '.', '');
+        if (bccomp($reward['race'], '0', 8) <= 0 || bccomp($usdt4, '0.0001', 4) < 0) {
+            return null;
+        }
+
+        return DB::transaction(function () use ($user, $wallet, $stakeIndex, $stake, $extra, $reward, $usdt4, $period, $idem) {
+            $claim = StakeMintClaim::query()->create([
+                'user_id' => $user->id,
+                'stake_index' => $stakeIndex,
+                'wallet_address' => $wallet,
+                'days' => 1,
+                'usdt_amount' => $reward['usdt'],
+                'race_amount' => $reward['race'],
+                'race_price_usdt' => bcadd((string) $stake['reward_price_usdt'], '0', 8),
+                'status' => StakeMintClaim::STATUS_PENDING,
+                'meta' => [
+                    'overlay_compound_daily' => true,
+                    'period' => $period,
+                    'parent_last_reward_at' => (int) ($stake['last_reward_at'] ?? 0),
+                    'extra_principal_usdt' => $extra,
+                    'settlement' => 'virtual_income',
+                    'from_cron' => true,
+                    'note' => 'Compound overlay daily ROI → Virtual Income (04:00 IST; parent stake lock, no compound timer)',
+                ],
+            ]);
+
+            $this->virtualWallet->credit(
+                $user,
+                IncomeWalletTransaction::TYPE_INCOME_CLAIM,
+                $usdt4,
+                "overlay_compound_daily:{$claim->id}",
+                $idem,
+                [
+                    'overlay_compound_daily' => true,
+                    'period' => $period,
+                    'stake_index' => $stakeIndex,
+                    'days' => 1,
+                    'extra_principal_usdt' => $extra,
+                    'race_amount' => $reward['race'],
+                    'race_price_usdt' => $stake['reward_price_usdt'],
+                    'usdt_amount' => $reward['usdt'],
+                    'claim_id' => $claim->id,
+                    'from_cron' => true,
+                    'note' => 'Compound amount uses parent stake lock; daily ROI at 04:00 IST',
+                ],
+            );
+
+            $claim->forceFill([
+                'status' => StakeMintClaim::STATUS_COMPLETED,
+                'tx_hash' => null,
+            ])->save();
+
+            return $claim->refresh();
+        });
     }
 
     /**
@@ -446,6 +574,17 @@ class StakeMintClaimService
                 ]);
                 $out['claims']++;
                 $out['usdt'] = bcadd($out['usdt'], number_format((float) $claim->usdt_amount, 4, '.', ''), 4);
+                $meta = is_array($claim->meta) ? $claim->meta : [];
+                if (empty($meta['overlay_compound_daily'])) {
+                    $period = now((string) config('income.claim.timezone', 'Asia/Kolkata'))->toDateString();
+                    $overlayAmt = (string) (IncomeWalletTransaction::query()
+                        ->where('user_id', $user->id)
+                        ->where('idempotency_key', 'overlay_compound_daily:'.$user->id.':'.$i.':'.$period)
+                        ->value('amount') ?? '0');
+                    if (bccomp($overlayAmt, '0', 4) > 0) {
+                        $out['usdt'] = bcadd($out['usdt'], number_format((float) $overlayAmt, 4, '.', ''), 4);
+                    }
+                }
             } catch (ValidationException $e) {
                 $msg = (string) collect($e->errors())->flatten()->first();
                 if (str_contains(strtolower($msg), 'nothing to claim')) {
