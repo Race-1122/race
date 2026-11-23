@@ -108,12 +108,61 @@ class StakeMintClaimService
         $lastRewardAt = (int) ($stake['last_reward_at'] ?? 0);
         $lockSeconds = (int) ($stake['lock_seconds'] ?? 0);
         $unlockAt = (int) ($stake['unlock_at'] ?? 0);
-        $end = $lockSeconds === 0 ? $now : min($now, $unlockAt);
+        // Unix-0 unlock (bad indexer) must not cap the window to 1970.
+        $end = ($lockSeconds === 0 || $unlockAt <= 0) ? $now : min($now, $unlockAt);
         if ($lastRewardAt <= 0 || $end <= $lastRewardAt) {
             return 0;
         }
 
         return intdiv($end - $lastRewardAt, self::SECONDS_PER_DAY);
+    }
+
+    protected function cronIncomeDate(): string
+    {
+        return now((string) config('income.claim.timezone', 'Asia/Kolkata'))->toDateString();
+    }
+
+    /**
+     * @param  array<string, mixed>  $stake
+     */
+    protected function cronStakePayable(array $stake, int $now): bool
+    {
+        if (! empty($stake['withdrawn'])) {
+            return false;
+        }
+        if ((int) ($stake['daily_rate_bps'] ?? 0) <= 0) {
+            return false;
+        }
+        if (bccomp((string) ($stake['principal_usdt'] ?? '0'), '0', 18) <= 0) {
+            return false;
+        }
+        $lockSeconds = (int) ($stake['lock_seconds'] ?? 0);
+        $unlockAt = (int) ($stake['unlock_at'] ?? 0);
+        if ($lockSeconds > 0 && $unlockAt > 0 && $now >= $unlockAt) {
+            return false;
+        }
+
+        return true;
+    }
+
+    protected function alreadyCronPaidToday(int $userId, int $stakeIndex): bool
+    {
+        $today = $this->cronIncomeDate();
+
+        return StakeMintClaim::query()
+            ->where('user_id', $userId)
+            ->where('stake_index', $stakeIndex)
+            ->where('status', StakeMintClaim::STATUS_COMPLETED)
+            ->where(function ($q) use ($today) {
+                $q->where('meta->period', $today)
+                    ->orWhereDate('created_at', $today);
+            })
+            ->where(function ($q) {
+                $q->whereNull('meta->overlay_compound_daily')
+                    ->orWhere('meta->overlay_compound_daily', false)
+                    ->orWhere('meta->overlay_compound_daily', 0);
+            })
+            ->exists();
     }
 
     /**
@@ -310,6 +359,14 @@ class StakeMintClaimService
             if ($fromCron) {
                 // Daily job: at most 1 day per stake per run (missed days catch up on later mornings).
                 $days = min($days, max(1, (int) config('race_income_mint.stake_claim_auto_max_days', 1)));
+                // 04:00 IST calendar: unix-0 lastRewardAt / evening Engine clock / already-advanced
+                // days must not skip an active stake that has no claim today.
+                if ($days <= 0
+                    && $this->cronStakePayable($stake, $now)
+                    && ! $this->alreadyCronPaidToday((int) $user->id, $stakeIndex)
+                ) {
+                    $days = 1;
+                }
             }
 
             $baseClaim = null;
@@ -385,6 +442,8 @@ class StakeMintClaimService
                         'engine_last_reward_at' => (int) $stake['last_reward_at'],
                         'settlement' => 'virtual_income',
                         'from_cron' => $fromCron,
+                        'period' => $fromCron ? $this->cronIncomeDate() : null,
+                        'schedule_anchor' => $fromCron ? '03:58' : null,
                         'note' => $fromCron
                             ? 'Daily auto-claim → Virtual Income (04:00 IST)'
                             : 'Credited to Virtual Income; RACE mint + fees on withdraw',

@@ -450,9 +450,18 @@ class StakeMintClaimTest extends TestCase
         $service->stakes = [0 => $this->stake(0)];
         $claim = $service->claim($user, 0, ['from_cron' => true]);
 
-        $this->assertTrue((bool) ($claim->meta['overlay_compound_daily'] ?? false));
-        $this->assertSame(0, bccomp((string) $claim->usdt_amount, '0.25', 4));
-        $this->assertSame(0, StakeMintAdvance::query()->where('user_id', $user->id)->count());
+        // Engine clock is 0 days, but 04:00 still pays 1 day on the parent stake + overlay extra.
+        $this->assertSame(0, bccomp((string) $claim->usdt_amount, '0.50', 4));
+        $this->assertSame(0, bccomp(
+            (string) IncomeWalletTransaction::query()
+                ->where('user_id', $user->id)
+                ->where('type', IncomeWalletTransaction::TYPE_INCOME_CLAIM)
+                ->sum('amount'),
+            '0.75',
+            4,
+        ));
+        $advance = StakeMintAdvance::query()->where('user_id', $user->id)->where('stake_index', 0)->firstOrFail();
+        $this->assertSame(1, (int) $advance->days_outstanding);
 
         try {
             $service->claim($user, 0, ['from_cron' => true]);
@@ -463,14 +472,39 @@ class StakeMintClaimTest extends TestCase
                 (string) collect($e->errors())->flatten()->first(),
             );
         }
-        $this->assertSame(0, bccomp(
-            (string) IncomeWalletTransaction::query()
-                ->where('user_id', $user->id)
-                ->where('type', IncomeWalletTransaction::TYPE_INCOME_CLAIM)
-                ->sum('amount'),
-            '0.25',
-            4,
-        ));
+    }
+
+    public function test_cron_pays_when_engine_last_reward_is_unix_zero(): void
+    {
+        $this->inWindow();
+        $user = $this->user();
+        $service = $this->service();
+        $stake = $this->stake(0);
+        $stake['last_reward_at'] = 0;
+        $stake['started_at'] = 0;
+        $stake['unlock_at'] = 0;
+        $service->stakes = [0 => $stake];
+
+        $claim = $service->claim($user, 0, ['from_cron' => true]);
+
+        $this->assertSame(1, (int) $claim->days);
+        $this->assertSame(0, bccomp((string) $claim->usdt_amount, '0.50', 4));
+        $this->assertSame('03:58', $claim->meta['schedule_anchor'] ?? null);
+    }
+
+    public function test_cron_pays_when_engine_clock_is_under_24h(): void
+    {
+        $this->inWindow();
+        $user = $this->user();
+        $service = $this->service();
+        $stake = $this->stake(0);
+        $stake['last_reward_at'] = now()->getTimestamp() - 9 * 3600;
+        $service->stakes = [0 => $stake];
+
+        $claim = $service->claim($user, 0, ['from_cron' => true]);
+
+        $this->assertSame(1, (int) $claim->days);
+        $this->assertSame(0, bccomp((string) $claim->usdt_amount, '0.50', 4));
     }
 
     public function test_dashboard_compound_route_debits_virtual_and_is_not_refunded(): void
