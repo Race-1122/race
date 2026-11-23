@@ -83,7 +83,7 @@ export default function CompoundToStakeButton({ availableUsd, lastStake = null, 
                     {' · '}
                     {lastStake.source_label}
                     {' · '}
-                    no wallet transfer
+                    {Number(lastStake.lock_seconds) > 0 ? 'fixed lock · mint on withdraw' : 'Flexible (not compoundable)'}
                 </p>
             ) : (
                 <p className="text-[11px] text-slate-500">Needs an active last stake.</p>

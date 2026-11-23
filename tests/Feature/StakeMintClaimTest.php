@@ -596,4 +596,131 @@ class StakeMintClaimTest extends TestCase
                 ->where('communityEngineStakes.0.principal_usdt', '101.00000000')
                 ->where('communityEngineStakes.0.staked_race', '202.00000000'));
     }
+
+    public function test_compound_skips_flexible_and_uses_last_fixed_stake(): void
+    {
+        $this->inWindow();
+        $user = $this->user();
+        app(VirtualIncomeWalletService::class)->credit(
+            $user,
+            IncomeWalletTransaction::TYPE_INCOME_CLAIM,
+            '5.00',
+            'test:seed',
+            'seed-flex-compound:'.$user->id,
+        );
+        \App\Models\BlockchainEngineStake::query()->create([
+            'user_id' => $user->id,
+            'wallet_address' => self::WALLET,
+            'stake_index' => 1,
+            'principal_usdt' => '100',
+            'staked_race' => '200',
+            'stake_price_usdt' => '0.5',
+            'lock_seconds' => 180 * 86400,
+            'daily_rate_bps' => 50,
+            'started_at' => now()->getTimestamp() - 20 * 86400,
+            'unlock_at' => now()->getTimestamp() + 160 * 86400,
+            'source_type' => 'ico',
+            'withdrawn' => false,
+            'status' => 'active',
+            'tx_hash' => '0x'.str_repeat('3', 64),
+            'contract_address' => '0x'.str_repeat('4', 40),
+        ]);
+        \App\Models\BlockchainEngineStake::query()->create([
+            'user_id' => $user->id,
+            'wallet_address' => self::WALLET,
+            'stake_index' => 0,
+            'principal_usdt' => '40',
+            'staked_race' => '57.6',
+            'stake_price_usdt' => '0.5',
+            'lock_seconds' => 0,
+            'daily_rate_bps' => 40,
+            'started_at' => now()->getTimestamp() - 1 * 86400,
+            'unlock_at' => now()->getTimestamp(),
+            'source_type' => 'wallet_race',
+            'withdrawn' => false,
+            'status' => 'active',
+            'tx_hash' => '0x'.str_repeat('5', 64),
+            'contract_address' => '0x'.str_repeat('6', 40),
+        ]);
+
+        $price = Mockery::mock(\App\Services\Income\RaceCoinService::class);
+        $price->shouldReceive('priceUsd')->andReturn(0.5);
+        $this->app->instance(\App\Services\Income\RaceCoinService::class, $price);
+
+        $this->actingAs($user)
+            ->postJson(route('virtual_income.compound_to_stake'), ['amount_usd' => '5.00'])
+            ->assertOk()
+            ->assertJsonPath('stake_index', 1);
+
+        $this->assertSame(1, (int) \App\Models\VirtualStakeCompound::query()->where('user_id', $user->id)->value('stake_index'));
+    }
+
+    public function test_compound_rejected_when_only_flexible_stake_exists(): void
+    {
+        $this->inWindow();
+        $user = $this->user();
+        app(VirtualIncomeWalletService::class)->credit(
+            $user,
+            IncomeWalletTransaction::TYPE_INCOME_CLAIM,
+            '5.00',
+            'test:seed',
+            'seed-only-flex:'.$user->id,
+        );
+        \App\Models\BlockchainEngineStake::query()->create([
+            'user_id' => $user->id,
+            'wallet_address' => self::WALLET,
+            'stake_index' => 0,
+            'principal_usdt' => '40',
+            'staked_race' => '57.6',
+            'stake_price_usdt' => '0.5',
+            'lock_seconds' => 0,
+            'daily_rate_bps' => 40,
+            'started_at' => now()->getTimestamp() - 1 * 86400,
+            'unlock_at' => now()->getTimestamp(),
+            'source_type' => 'wallet_race',
+            'withdrawn' => false,
+            'status' => 'active',
+            'tx_hash' => '0x'.str_repeat('7', 64),
+            'contract_address' => '0x'.str_repeat('8', 40),
+        ]);
+
+        $price = Mockery::mock(\App\Services\Income\RaceCoinService::class);
+        $price->shouldReceive('priceUsd')->andReturn(0.5);
+        $this->app->instance(\App\Services\Income\RaceCoinService::class, $price);
+
+        $this->actingAs($user)
+            ->postJson(route('virtual_income.compound_to_stake'), ['amount_usd' => '5.00'])
+            ->assertStatus(422);
+    }
+
+    public function test_withdrawn_fixed_stake_mints_pending_compound_race(): void
+    {
+        $this->inWindow();
+        $user = $this->user();
+        \App\Models\VirtualStakeCompound::query()->create([
+            'user_id' => $user->id,
+            'stake_index' => 2,
+            'usdt_amount' => '1.0000',
+            'race_amount' => '2.00000000',
+            'race_price_usdt' => '0.5',
+            'status' => \App\Models\VirtualStakeCompound::STATUS_PENDING,
+        ]);
+
+        $mint = Mockery::mock(RaceCoinDirectMintService::class);
+        $mint->shouldReceive('configured')->andReturn(true);
+        $mint->shouldReceive('mintToWallet')->once()->with(self::WALLET, '2.00000000')->andReturn([
+            'tx_hash' => '0x'.str_repeat('9', 64),
+            'to' => self::WALLET,
+            'amount_wei' => '2000000000000000000',
+            'minter' => '0x'.str_repeat('a', 40),
+        ]);
+        $this->app->instance(RaceCoinDirectMintService::class, $mint);
+
+        $out = app(\App\Services\Income\VirtualIncomeStakeCompoundService::class)
+            ->mintCompoundedOnWithdraw($user, 2);
+
+        $this->assertSame(1, $out['minted']);
+        $this->assertSame('0x'.str_repeat('9', 64), $out['tx_hash']);
+        $this->assertSame(\App\Models\VirtualStakeCompound::STATUS_MINTED, \App\Models\VirtualStakeCompound::query()->where('user_id', $user->id)->value('status'));
+    }
 }

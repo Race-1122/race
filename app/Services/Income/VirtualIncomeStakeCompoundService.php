@@ -7,17 +7,18 @@ use App\Models\IncomeWalletTransaction;
 use App\Models\User;
 use App\Models\VirtualStakeCompound;
 use App\Services\Blockchain\CommunityEngineRpcReader;
+use App\Services\Blockchain\RaceCoinDirectMintService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Compound virtual income under-to-under into the member's last stake.
- * Live Engine/WalletRace cannot add principal without a user wallet tx, so this
- * path stays internal: debit virtual USD and attach it to last stake for daily ROI.
- * No RaceCoin mint to the member wallet. No contract redeploy.
+ * Compound virtual income onto the last fixed-lock stake (not Flexible).
+ * Stays internal until that stake is withdrawn on-chain, then RaceCoin.mint to wallet.
+ * No Engine/WalletRace redeploy.
  */
 class VirtualIncomeStakeCompoundService
 {
@@ -25,6 +26,7 @@ class VirtualIncomeStakeCompoundService
         protected VirtualIncomeWalletService $virtualWallet,
         protected WalletBalanceService $wallets,
         protected RaceCoinService $raceCoin,
+        protected RaceCoinDirectMintService $mint,
     ) {}
 
     public function availableUsd(User $user): string
@@ -37,10 +39,7 @@ class VirtualIncomeStakeCompoundService
         if (! Schema::hasTable('virtual_stake_compounds')) {
             return '0.00000000';
         }
-        $sum = VirtualStakeCompound::query()
-            ->where('user_id', $user->id)
-            ->where('stake_index', $stakeIndex)
-            ->sum('usdt_amount');
+        $sum = $this->pendingCompoundQuery($user->id, $stakeIndex)->sum('usdt_amount');
 
         return number_format((float) $sum, 8, '.', '');
     }
@@ -50,10 +49,7 @@ class VirtualIncomeStakeCompoundService
         if (! Schema::hasTable('virtual_stake_compounds')) {
             return '0.00000000';
         }
-        $sum = VirtualStakeCompound::query()
-            ->where('user_id', $user->id)
-            ->where('stake_index', $stakeIndex)
-            ->sum('race_amount');
+        $sum = $this->pendingCompoundQuery($user->id, $stakeIndex)->sum('race_amount');
 
         return number_format((float) $sum, 8, '.', '');
     }
@@ -106,9 +102,11 @@ class VirtualIncomeStakeCompoundService
                     'staked_race' => (string) $row->race_amount,
                     'plan_label' => 'Compound',
                     'lock_days' => 0,
-                    'status' => 'Compound',
+                    'status' => ((string) ($row->status ?? VirtualStakeCompound::STATUS_PENDING)) === VirtualStakeCompound::STATUS_MINTED
+                        ? 'Minted'
+                        : 'Compound',
                     'withdrawn' => false,
-                    'tx_hash' => '',
+                    'tx_hash' => (string) ($row->mint_tx_hash ?: ''),
                     'created_at' => $row->created_at?->toIso8601String(),
                 ];
             })
@@ -167,7 +165,12 @@ class VirtualIncomeStakeCompoundService
         $target = $this->bestActiveStake($user);
         if ($target === null) {
             throw ValidationException::withMessages([
-                'compound' => __('You need an active on-chain stake to compound into.'),
+                'compound' => __('You need an active fixed-lock stake to compound into. Flexible stakes cannot be compounded.'),
+            ]);
+        }
+        if ((int) ($target['lock_seconds'] ?? 0) <= 0) {
+            throw ValidationException::withMessages([
+                'compound' => __('Compounding is only allowed on fixed-lock stakes, not Flexible.'),
             ]);
         }
 
@@ -208,14 +211,18 @@ class VirtualIncomeStakeCompoundService
                 );
 
                 if (Schema::hasTable('virtual_stake_compounds')) {
-                    VirtualStakeCompound::query()->create([
+                    $payload = [
                         'user_id' => $user->id,
                         'stake_index' => $target['index'],
                         'usdt_amount' => $amount,
                         'race_amount' => $race,
                         'race_price_usdt' => $price,
                         'income_wallet_transaction_id' => $debit->id,
-                    ]);
+                    ];
+                    if (Schema::hasColumn('virtual_stake_compounds', 'status')) {
+                        $payload['status'] = VirtualStakeCompound::STATUS_PENDING;
+                    }
+                    VirtualStakeCompound::query()->create($payload);
                 }
 
                 return $debit;
@@ -362,7 +369,125 @@ class VirtualIncomeStakeCompoundService
     }
 
     /**
-     * Last active stake (most recently opened), not the largest principal.
+     * After the Engine stake is withdrawn, mint pending overlay RACE to the member wallet.
+     *
+     * @return array{minted: int, race: string, tx_hash: string}
+     */
+    public function mintCompoundedOnWithdraw(User $user, int $stakeIndex): array
+    {
+        $empty = ['minted' => 0, 'race' => '0', 'tx_hash' => ''];
+        if (! Schema::hasTable('virtual_stake_compounds') || $stakeIndex < 0) {
+            return $empty;
+        }
+
+        $lock = Cache::lock('virtual-compound-mint:'.$user->id.':'.$stakeIndex, 120);
+        if (! $lock->get()) {
+            return $empty;
+        }
+
+        try {
+            [$ids, $race] = DB::transaction(function () use ($user, $stakeIndex) {
+                $rows = $this->pendingCompoundQuery($user->id, $stakeIndex)->orderBy('id')->lockForUpdate()->get();
+                $total = '0';
+                foreach ($rows as $row) {
+                    $total = bcadd($total, (string) $row->race_amount, 8);
+                }
+
+                return [$rows->pluck('id')->all(), $total];
+            });
+            if ($ids === [] || bccomp($race, '0', 8) <= 0) {
+                return $empty;
+            }
+
+            if (! $this->mint->configured()) {
+                throw new \RuntimeException('RaceCoin minter is not configured.');
+            }
+
+            $wallet = strtolower(trim((string) ($user->wallet_address ?? '')));
+            $minted = $this->mint->mintToWallet($wallet, $race);
+            $tx = strtolower((string) ($minted['tx_hash'] ?? ''));
+
+            $now = now();
+            VirtualStakeCompound::query()
+                ->whereIn('id', $ids)
+                ->update([
+                    'status' => VirtualStakeCompound::STATUS_MINTED,
+                    'mint_tx_hash' => $tx,
+                    'minted_at' => $now,
+                ]);
+
+            return [
+                'minted' => count($ids),
+                'race' => $race,
+                'tx_hash' => $tx,
+            ];
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * Retry mint for any withdrawn Engine stake that still has pending overlay compounds.
+     *
+     * @return array{users: int, minted: int, race: string}
+     */
+    public function settleWithdrawnCompounds(): array
+    {
+        $users = 0;
+        $minted = 0;
+        $race = '0';
+        if (! Schema::hasTable('virtual_stake_compounds') || ! Schema::hasTable('blockchain_engine_stakes')) {
+            return ['users' => 0, 'minted' => 0, 'race' => '0'];
+        }
+
+        $pending = VirtualStakeCompound::query()
+            ->select('user_id', 'stake_index')
+            ->when(Schema::hasColumn('virtual_stake_compounds', 'status'), function ($q) {
+                $q->where(function ($inner) {
+                    $inner->where('status', VirtualStakeCompound::STATUS_PENDING)
+                        ->orWhereNull('status');
+                });
+            })
+            ->groupBy('user_id', 'stake_index')
+            ->get();
+
+        foreach ($pending as $row) {
+            $withdrawn = BlockchainEngineStake::query()
+                ->where('user_id', $row->user_id)
+                ->where('stake_index', $row->stake_index)
+                ->where('withdrawn', true)
+                ->exists();
+            if (! $withdrawn) {
+                continue;
+            }
+            $user = User::query()->find($row->user_id);
+            if (! $user) {
+                continue;
+            }
+            try {
+                $out = $this->mintCompoundedOnWithdraw($user, (int) $row->stake_index);
+            } catch (\Throwable $e) {
+                Log::warning('virtual compound mint on withdraw failed', [
+                    'user_id' => $user->id,
+                    'stake_index' => $row->stake_index,
+                    'error' => $e->getMessage(),
+                ]);
+
+                continue;
+            }
+            if ((int) $out['minted'] > 0) {
+                $users++;
+                $minted += (int) $out['minted'];
+                $race = bcadd($race, (string) $out['race'], 8);
+            }
+        }
+
+        return ['users' => $users, 'minted' => $minted, 'race' => $race];
+    }
+
+    /**
+     * Last active fixed-lock stake (most recently opened). Flexible is skipped.
+     *
      *
      * @return array{
      *     index: int,
@@ -380,6 +505,7 @@ class VirtualIncomeStakeCompoundService
         $row = BlockchainEngineStake::query()
             ->where('user_id', $user->id)
             ->where('withdrawn', false)
+            ->where('lock_seconds', '>', 0)
             ->orderByDesc('started_at')
             ->orderByDesc('stake_index')
             ->first();
@@ -417,26 +543,46 @@ class VirtualIncomeStakeCompoundService
             return null;
         }
 
-        $last = $reader->readStakeAt($wallet, $count - 1);
-        if ($last === null || ! empty($last['withdrawn'])) {
-            return null;
+        for ($i = $count - 1; $i >= 0; $i--) {
+            $last = $reader->readStakeAt($wallet, $i);
+            if ($last === null || ! empty($last['withdrawn'])) {
+                continue;
+            }
+            $lockSeconds = (int) ($last['lock_seconds'] ?? 0);
+            if ($lockSeconds <= 0) {
+                continue;
+            }
+
+            $source = BlockchainEngineStake::SOURCE_PARTICIPATION;
+
+            return [
+                'index' => $i,
+                'price' => (string) ($last['reward_price_usdt'] ?? '0'),
+                'lock_seconds' => $lockSeconds,
+                'lock_label' => $this->lockLabel($lockSeconds),
+                'source_type' => $source,
+                'source_label' => $this->sourceLabel($source),
+                'principal_usd' => $this->displayPrincipalUsd((string) ($last['principal_usdt'] ?? '0'), $user, $i),
+                'stake_contract' => $this->contractForSource($source),
+            ];
         }
 
-        $lockSeconds = (int) ($last['lock_seconds'] ?? 0);
-        $source = BlockchainEngineStake::SOURCE_PARTICIPATION;
+        return null;
+    }
 
-        $index = $count - 1;
+    private function pendingCompoundQuery(int $userId, int $stakeIndex)
+    {
+        $query = VirtualStakeCompound::query()
+            ->where('user_id', $userId)
+            ->where('stake_index', $stakeIndex);
+        if (Schema::hasColumn('virtual_stake_compounds', 'status')) {
+            $query->where(function ($q) {
+                $q->where('status', VirtualStakeCompound::STATUS_PENDING)
+                    ->orWhereNull('status');
+            });
+        }
 
-        return [
-            'index' => $index,
-            'price' => (string) ($last['reward_price_usdt'] ?? '0'),
-            'lock_seconds' => $lockSeconds,
-            'lock_label' => $this->lockLabel($lockSeconds),
-            'source_type' => $source,
-            'source_label' => $this->sourceLabel($source),
-            'principal_usd' => $this->displayPrincipalUsd((string) ($last['principal_usdt'] ?? '0'), $user, $index),
-            'stake_contract' => $this->contractForSource($source),
-        ];
+        return $query;
     }
 
     private function lockLabel(int $seconds): string

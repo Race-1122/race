@@ -253,6 +253,12 @@ class BlockchainEngineStakeIndexer
         $stakeIndex = (int) hexdec(substr($hex, 0, 64));
         $walletLower = strtolower($wallet);
 
+        $updated = BlockchainEngineStake::query()
+            ->where('wallet_address', $walletLower)
+            ->where('stake_index', $stakeIndex)
+            ->where('contract_address', strtolower($contract))
+            ->get();
+
         BlockchainEngineStake::query()
             ->where('wallet_address', $walletLower)
             ->where('stake_index', $stakeIndex)
@@ -261,6 +267,23 @@ class BlockchainEngineStakeIndexer
                 'withdrawn' => true,
                 'status' => BlockchainEngineStake::STATUS_WITHDRAWN,
             ]);
+
+        foreach ($updated as $row) {
+            $user = $row->user_id ? User::query()->find($row->user_id) : null;
+            if (! $user) {
+                continue;
+            }
+            try {
+                app(\App\Services\Income\VirtualIncomeStakeCompoundService::class)
+                    ->mintCompoundedOnWithdraw($user, $stakeIndex);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('virtual compound mint after stake withdraw failed', [
+                    'user_id' => $user->id,
+                    'stake_index' => $stakeIndex,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
     }
 
     /**
