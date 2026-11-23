@@ -7,7 +7,6 @@ use App\Models\IncomeWalletTransaction;
 use App\Models\User;
 use App\Models\VirtualStakeCompound;
 use App\Services\Blockchain\CommunityEngineRpcReader;
-use App\Services\Blockchain\RaceCoinDirectMintService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -15,8 +14,10 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Compound virtual income: mint RACE to the member wallet, then the member
- * stakes those coins on-chain (same lock as their last stake). No Engine redeploy.
+ * Compound virtual income under-to-under into the member's last stake.
+ * Live Engine/WalletRace cannot add principal without a user wallet tx, so this
+ * path stays internal: debit virtual USD and attach it to last stake for daily ROI.
+ * No RaceCoin mint to the member wallet. No contract redeploy.
  */
 class VirtualIncomeStakeCompoundService
 {
@@ -24,7 +25,6 @@ class VirtualIncomeStakeCompoundService
         protected VirtualIncomeWalletService $virtualWallet,
         protected WalletBalanceService $wallets,
         protected RaceCoinService $raceCoin,
-        protected RaceCoinDirectMintService $mint,
     ) {}
 
     public function availableUsd(User $user): string
@@ -45,8 +45,79 @@ class VirtualIncomeStakeCompoundService
         return number_format((float) $sum, 8, '.', '');
     }
 
+    public function extraRace(User $user, int $stakeIndex): string
+    {
+        if (! Schema::hasTable('virtual_stake_compounds')) {
+            return '0.00000000';
+        }
+        $sum = VirtualStakeCompound::query()
+            ->where('user_id', $user->id)
+            ->where('stake_index', $stakeIndex)
+            ->sum('race_amount');
+
+        return number_format((float) $sum, 8, '.', '');
+    }
+
     /**
-     * Mint RACE first, then debit virtual. Overlay-only (old) path is gone.
+     * Indexed Engine stakes with overlay compound principal/RACE folded in for UI.
+     *
+     * @param  list<array<string, mixed>>  $stakes
+     * @return list<array<string, mixed>>
+     */
+    public function withExtraPrincipal(User $user, array $stakes): array
+    {
+        return array_map(function (array $stake) use ($user): array {
+            $index = (int) ($stake['stake_index'] ?? 0);
+            $extraUsd = $this->extraPrincipalUsd($user, $index);
+            $extraRace = $this->extraRace($user, $index);
+            if (bccomp($extraUsd, '0', 8) > 0) {
+                $stake['principal_usdt'] = bcadd((string) ($stake['principal_usdt'] ?? '0'), $extraUsd, 8);
+            }
+            if (bccomp($extraRace, '0', 8) > 0) {
+                $stake['staked_race'] = bcadd((string) ($stake['staked_race'] ?? '0'), $extraRace, 8);
+            }
+
+            return $stake;
+        }, $stakes);
+    }
+
+    /**
+     * Compound events for the Staking page table (same columns as Engine stakes).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function stakingTableRows(User $user): array
+    {
+        if (! Schema::hasTable('virtual_stake_compounds')) {
+            return [];
+        }
+
+        return VirtualStakeCompound::query()
+            ->where('user_id', $user->id)
+            ->latest('id')
+            ->limit(50)
+            ->get()
+            ->map(static function (VirtualStakeCompound $row): array {
+                return [
+                    'kind' => 'compound',
+                    'id' => 'compound-'.$row->id,
+                    'stake_index' => (int) $row->stake_index,
+                    'principal_usdt' => number_format((float) $row->usdt_amount, 4, '.', ''),
+                    'staked_race' => (string) $row->race_amount,
+                    'plan_label' => 'Compound',
+                    'lock_days' => 0,
+                    'status' => 'Compound',
+                    'withdrawn' => false,
+                    'tx_hash' => '',
+                    'created_at' => $row->created_at?->toIso8601String(),
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Attach virtual USD to the last stake (internal). Never mints to the member wallet.
      *
      * @return array{
      *     usdt: string,
@@ -54,6 +125,7 @@ class VirtualIncomeStakeCompoundService
      *     stake_index: int,
      *     lock_seconds: int,
      *     mint_tx_hash: string,
+     *     compound_tx_hash: string,
      *     transaction_id: int,
      *     stake_contract: string,
      *     race_token: string,
@@ -99,28 +171,11 @@ class VirtualIncomeStakeCompoundService
             ]);
         }
 
-        if (! $this->mint->configured()) {
-            throw ValidationException::withMessages([
-                'compound' => __('On-chain mint is not configured. Try again later.'),
-            ]);
-        }
-
         $price = number_format((float) $this->raceCoin->priceUsd(), 8, '.', '');
         if (bccomp($price, '0', 8) <= 0) {
             $price = (string) ($target['price'] ?? '0');
         }
-        if (bccomp($price, '0', 8) <= 0) {
-            throw ValidationException::withMessages([
-                'compound' => __('Live RACE price is unavailable. Try again in a moment.'),
-            ]);
-        }
-
-        $race = bcdiv($amount, $price, 8);
-        if (bccomp($race, '0', 8) <= 0) {
-            throw ValidationException::withMessages([
-                'compound' => __('Compound amount is too small to mint.'),
-            ]);
-        }
+        $race = bccomp($price, '0', 8) > 0 ? bcdiv($amount, $price, 8) : '0.00000000';
 
         $lock = Cache::lock('virtual-stake-compound:'.$user->id, 120);
         if (! $lock->get()) {
@@ -130,25 +185,10 @@ class VirtualIncomeStakeCompoundService
         }
 
         try {
-            try {
-                $minted = $this->mint->mintToWallet($wallet, $race);
-            } catch (\Throwable $e) {
-                throw ValidationException::withMessages([
-                    'compound' => __('RACE mint failed: :msg', ['msg' => $e->getMessage()]),
-                ]);
-            }
-
-            $mintTx = strtolower((string) ($minted['tx_hash'] ?? ''));
-            if (! preg_match('/^0x[a-f0-9]{64}$/', $mintTx)) {
-                throw ValidationException::withMessages([
-                    'compound' => __('Mint succeeded but no transaction hash was returned.'),
-                ]);
-            }
-
-            $row = DB::transaction(function () use ($user, $amount, $target, $price, $race, $mintTx) {
+            $row = DB::transaction(function () use ($user, $amount, $target, $price, $race) {
                 $key = 'virtual_stake_compound:'.$user->id.':'.Str::uuid()->toString();
 
-                return $this->virtualWallet->debit(
+                $debit = $this->virtualWallet->debit(
                     $user,
                     IncomeWalletTransaction::TYPE_COMPOUND,
                     $amount,
@@ -159,13 +199,26 @@ class VirtualIncomeStakeCompoundService
                         'stake_index' => $target['index'],
                         'lock_seconds' => $target['lock_seconds'],
                         'source_type' => $target['source_type'],
-                        'phase' => 'minted_awaiting_stake',
-                        'on_chain_required' => true,
+                        'phase' => 'virtual_into_last_stake',
+                        'on_chain_required' => false,
                         'race_amount' => $race,
                         'race_price_usdt' => $price,
-                        'mint_tx_hash' => $mintTx,
+                        'user_wallet_credited' => false,
                     ],
                 );
+
+                if (Schema::hasTable('virtual_stake_compounds')) {
+                    VirtualStakeCompound::query()->create([
+                        'user_id' => $user->id,
+                        'stake_index' => $target['index'],
+                        'usdt_amount' => $amount,
+                        'race_amount' => $race,
+                        'race_price_usdt' => $price,
+                        'income_wallet_transaction_id' => $debit->id,
+                    ]);
+                }
+
+                return $debit;
             });
 
             return [
@@ -173,7 +226,8 @@ class VirtualIncomeStakeCompoundService
                 'race' => $race,
                 'stake_index' => $target['index'],
                 'lock_seconds' => $target['lock_seconds'],
-                'mint_tx_hash' => $mintTx,
+                'mint_tx_hash' => '',
+                'compound_tx_hash' => '',
                 'transaction_id' => $row->id,
                 'stake_contract' => $target['stake_contract'],
                 'race_token' => strtolower(trim((string) config('blockchain.contracts.race_token', ''))),
@@ -339,14 +393,16 @@ class VirtualIncomeStakeCompoundService
             }
             $lockSeconds = (int) ($row->lock_seconds ?? 0);
 
+            $index = (int) $row->stake_index;
+
             return [
-                'index' => (int) $row->stake_index,
+                'index' => $index,
                 'price' => bccomp($price, '0', 18) > 0 ? $price : '0',
                 'lock_seconds' => $lockSeconds,
                 'lock_label' => $this->lockLabel($lockSeconds),
                 'source_type' => $source,
                 'source_label' => $this->sourceLabel($source),
-                'principal_usd' => number_format((float) ($row->principal_usdt ?? 0), 2, '.', ''),
+                'principal_usd' => $this->displayPrincipalUsd((string) ($row->principal_usdt ?? '0'), $user, $index),
                 'stake_contract' => $contract,
             ];
         }
@@ -369,14 +425,16 @@ class VirtualIncomeStakeCompoundService
         $lockSeconds = (int) ($last['lock_seconds'] ?? 0);
         $source = BlockchainEngineStake::SOURCE_PARTICIPATION;
 
+        $index = $count - 1;
+
         return [
-            'index' => $count - 1,
+            'index' => $index,
             'price' => (string) ($last['reward_price_usdt'] ?? '0'),
             'lock_seconds' => $lockSeconds,
             'lock_label' => $this->lockLabel($lockSeconds),
             'source_type' => $source,
             'source_label' => $this->sourceLabel($source),
-            'principal_usd' => number_format((float) ($last['principal_usdt'] ?? 0), 2, '.', ''),
+            'principal_usd' => $this->displayPrincipalUsd((string) ($last['principal_usdt'] ?? '0'), $user, $index),
             'stake_contract' => $this->contractForSource($source),
         ];
     }
@@ -406,5 +464,12 @@ class VirtualIncomeStakeCompoundService
         }
 
         return strtolower(trim((string) config('blockchain.contracts.community_engine', '')));
+    }
+
+    private function displayPrincipalUsd(string $base, User $user, int $stakeIndex): string
+    {
+        $total = bcadd($base, $this->extraPrincipalUsd($user, $stakeIndex), 8);
+
+        return number_format((float) $total, 2, '.', '');
     }
 }

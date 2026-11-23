@@ -109,6 +109,7 @@ export default function Investment({
     web3Engine = {},
     blockchainParticipations = [],
     communityEngineStakes = [],
+    stakeCompounds = [],
     memberActivation = {},
     on_chain_sponsor_wallet = null,
 }) {
@@ -385,7 +386,7 @@ export default function Investment({
                     : 'Stake opened. Claimed income stays in your income wallet — bring it to your wallet anytime.',
                 'Stake',
             );
-            router.reload({ only: ['investments', 'blockchainParticipations', 'communityEngineStakes', 'memberActivation', 'web3Engine'] });
+            router.reload({ only: ['investments', 'blockchainParticipations', 'communityEngineStakes', 'stakeCompounds', 'memberActivation', 'web3Engine'] });
         } catch (err) {
             const msg = err?.message || 'Participation failed.';
             if (/stakeRace|function selector|execution reverted/i.test(msg)) {
@@ -843,7 +844,7 @@ export default function Investment({
                                 : 'Compound daily ROI · Flexible 10+ days = no unlock fee · fixed lock: unlock within 24h of completion or auto-rollover'
                         }
                     />
-                    {onChain && communityEngineStakes?.length > 0 ? (
+                    {onChain && (communityEngineStakes?.length > 0 || stakeCompounds?.length > 0) ? (
                         <MemberTableScroll>
                             <table className="w-full min-w-[40rem] text-left text-xs sm:min-w-0 sm:text-sm">
                                 <thead>
@@ -857,11 +858,23 @@ export default function Investment({
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {communityEngineStakes.map((row, i) => (
+                                    {[
+                                        ...(stakeCompounds ?? []).map((row) => ({ ...row, kind: 'compound' })),
+                                        ...(communityEngineStakes ?? []).map((row) => ({
+                                            ...row,
+                                            kind: row.kind || 'stake',
+                                        })),
+                                    ].map((row, i) => {
+                                        const isCompound = row.kind === 'compound';
+                                        return (
                                         <tr
-                                            key={`${row.tx_hash}-${row.stake_index}`}
+                                            key={isCompound ? row.id || `compound-${i}` : `${row.tx_hash}-${row.stake_index}`}
                                             className={`border-b border-slate-100/80 ${
-                                                i % 2 === 0 ? 'bg-sky-50/30' : 'bg-white'
+                                                isCompound
+                                                    ? 'bg-violet-50/70'
+                                                    : i % 2 === 0
+                                                      ? 'bg-sky-50/30'
+                                                      : 'bg-white'
                                             }`}
                                         >
                                             <td className="px-3 py-3 font-semibold sm:px-4">
@@ -871,17 +884,28 @@ export default function Investment({
                                                 {formatUsd(row.principal_usdt)}
                                             </td>
                                             <td className="px-3 py-3 sm:px-4">
-                                                {row.plan_label || (row.lock_days ? `${row.lock_days}D` : '—')}
+                                                {isCompound
+                                                    ? 'Compound'
+                                                    : row.plan_label || (row.lock_days ? `${row.lock_days}D` : '—')}
                                             </td>
                                             <td className="px-3 py-3 sm:px-4">#{row.stake_index}</td>
                                             <td className="px-3 py-3 sm:px-4">
-                                                {row.withdrawn ? 'Withdrawn' : 'Active'}
+                                                {isCompound ? (
+                                                    <span className="rounded-md bg-violet-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-800">
+                                                        Compound
+                                                    </span>
+                                                ) : row.withdrawn ? (
+                                                    'Withdrawn'
+                                                ) : (
+                                                    'Active'
+                                                )}
                                             </td>
                                             <td className="px-3 py-3 font-mono text-[10px] sm:px-4">
-                                                {String(row.tx_hash || '').slice(0, 10)}…
+                                                {isCompound ? 'Internal' : `${String(row.tx_hash || '').slice(0, 10)}…`}
                                             </td>
                                         </tr>
-                                    ))}
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </MemberTableScroll>
@@ -930,6 +954,7 @@ export default function Investment({
                     ) : null}
                     {onChain &&
                     communityEngineStakes?.length === 0 &&
+                    (stakeCompounds?.length ?? 0) === 0 &&
                     blockchainParticipations?.length === 0 &&
                     investments.length === 0 ? (
                         <p className="rx-empty mx-3 my-3">

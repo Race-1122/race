@@ -12,6 +12,7 @@ use App\Services\Income\InvestmentRecorder;
 use App\Services\Income\RaceCoinService;
 use App\Services\Income\R10LeadershipService;
 use App\Services\Income\StakeUnlockService;
+use App\Services\Income\VirtualIncomeStakeCompoundService;
 use App\Services\Income\WalletBalanceService;
 use App\Services\Member\MemberActivationService;
 use App\Support\OnChainReferrer;
@@ -244,6 +245,10 @@ class InvestmentController extends Controller
         );
 
         $incomePolicy = $accrualSvc->summaryForUser($user, app(WalletBalanceService::class));
+        $virtualCompoundSvc = app(VirtualIncomeStakeCompoundService::class);
+        $communityEngineStakes = $user->wallet_address
+            ? $virtualCompoundSvc->withExtraPrincipal($user, $stakeRead->stakesForUser($user))
+            : [];
 
         $investments = $investmentRows
             ->map(static function (Investment $inv) use ($unlockSvc, $unlockRules, $compoundingEnabled, $compoundableMap, $accruedMap) {
@@ -317,9 +322,8 @@ class InvestmentController extends Controller
                     ->limit(10)
                     ->get(['tx_hash', 'stake_index', 'principal_usdt', 'lock_seconds', 'synced_at'])
                 : [],
-            'communityEngineStakes' => $user->wallet_address
-                ? $stakeRead->stakesForUser($user)
-                : [],
+            'communityEngineStakes' => $communityEngineStakes,
+            'stakeCompounds' => $virtualCompoundSvc->stakingTableRows($user),
             'builtForGrowth' => [
                 'min_amount_usd' => number_format((float) ($growth['min_amount_usd'] ?? 1), 2, '.', ''),
                 'qualifying_amount_usd' => number_format((float) ($growth['qualifying_amount_usd'] ?? 50), 2, '.', ''),

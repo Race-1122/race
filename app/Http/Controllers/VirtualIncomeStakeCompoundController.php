@@ -39,23 +39,26 @@ class VirtualIncomeStakeCompoundController extends Controller
                 'race' => $result['race'],
                 'stake_index' => $result['stake_index'],
                 'lock_seconds' => $result['lock_seconds'],
-                'mint_tx_hash' => $result['mint_tx_hash'],
+                'mint_tx_hash' => $result['mint_tx_hash'] ?? '',
+                'compound_tx_hash' => $result['compound_tx_hash'] ?? '',
                 'transaction_id' => $result['transaction_id'],
                 'stake_contract' => $result['stake_contract'],
                 'race_token' => $result['race_token'],
                 'wallet_address' => $result['wallet_address'],
-                'message' => __('Minted :race RACE from :usd USDT. Confirm the stake in your wallet.', [
+                'message' => __('Compounded :usd USDT (≈ :race RACE) into last stake #:index. No wallet confirmation needed.', [
                     'race' => $result['race'],
                     'usd' => $result['usdt'],
+                    'index' => $result['stake_index'],
                 ]),
             ]);
         }
 
         return back()->with(
             'status',
-            __('Minted :race RACE (:usd USDT) for compounding into your last stake. Confirm the stake transaction in your wallet.', [
+            __('Compounded :usd USDT (≈ :race RACE) into last stake #:index.', [
                 'usd' => $result['usdt'],
                 'race' => $result['race'],
+                'index' => $result['stake_index'],
             ]),
         );
     }

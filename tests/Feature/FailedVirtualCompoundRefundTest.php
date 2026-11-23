@@ -86,4 +86,31 @@ class FailedVirtualCompoundRefundTest extends TestCase
             ->count());
         $this->assertSame(0, bccomp(app(WalletBalanceService::class)->virtualIncomeBalance($user->fresh()), '0', 4));
     }
+
+    public function test_does_not_refund_virtual_into_last_stake_compound(): void
+    {
+        $user = User::factory()->create();
+        $wallet = app(VirtualIncomeWalletService::class);
+        $wallet->credit($user, IncomeWalletTransaction::TYPE_INCOME_CLAIM, '8.0000', 'seed', 'seed-virt-'.$user->id);
+        $wallet->debit(
+            $user,
+            IncomeWalletTransaction::TYPE_COMPOUND,
+            '8.0000',
+            'engine_stake:0',
+            'virt-'.$user->id,
+            [
+                'phase' => 'virtual_into_last_stake',
+                'on_chain_required' => false,
+                'user_wallet_credited' => false,
+            ],
+        );
+
+        $this->artisan('income:refund-failed-virtual-compounds')->assertSuccessful();
+
+        $this->assertSame(0, IncomeWalletTransaction::query()
+            ->where('user_id', $user->id)
+            ->where('type', IncomeWalletTransaction::TYPE_COMPOUND_REFUND)
+            ->count());
+        $this->assertSame(0, bccomp(app(WalletBalanceService::class)->virtualIncomeBalance($user->fresh()), '0', 4));
+    }
 }

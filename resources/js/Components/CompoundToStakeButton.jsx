@@ -1,7 +1,6 @@
 import { csrfHeaders } from '@/lib/csrf';
-import { stakeRaceFromWallet } from '@/lib/web3Engine';
-import { forceHideWalletPending, notifyError, notifySuccess, showWalletPending } from '@/lib/appNotify';
-import { router, usePage } from '@inertiajs/react';
+import { notifyError, notifySuccess, showWalletPending, forceHideWalletPending } from '@/lib/appNotify';
+import { router } from '@inertiajs/react';
 import { useEffect, useState } from 'react';
 
 function formatUsdt(value) {
@@ -35,7 +34,6 @@ async function postJson(url, body = {}) {
 }
 
 export default function CompoundToStakeButton({ availableUsd, lastStake = null, className = '' }) {
-    const { blockchain, auth } = usePage().props;
     const [busy, setBusy] = useState(false);
     const [amount, setAmount] = useState(() => String(availableUsd ?? ''));
 
@@ -50,54 +48,19 @@ export default function CompoundToStakeButton({ availableUsd, lastStake = null, 
     const run = async () => {
         if (!canSubmit) return;
         setBusy(true);
-        showWalletPending('Minting RACE to your wallet…');
+        showWalletPending('Compounding into your last stake…');
         try {
-            const minted = await postJson(route('virtual_income.compound_to_stake'), {
+            const result = await postJson(route('virtual_income.compound_to_stake'), {
                 amount_usd: Number(chosen).toFixed(4),
             });
-            const usdt = minted.usdt;
-            const race = minted.race;
-            const stakeIndex = minted.stake_index;
-            const lockLabel = lastStake?.lock_label || `${minted.lock_seconds || 0}s`;
+            const usdt = result.usdt;
+            const race = result.race;
+            const stakeIndex = result.stake_index;
+            const lockLabel = lastStake?.lock_label || `${result.lock_seconds || 0}s`;
             notifySuccess(
-                `Compound recorded: ${formatUsdt(usdt)} (≈ ${race} RACE) using last stake #${stakeIndex} · ${lockLabel}. Confirm stake in your wallet.`,
+                `Compounded ${formatUsdt(usdt)} (≈ ${race} RACE) into last stake #${stakeIndex} · ${lockLabel}. Nothing sent to your wallet.`,
                 'Compound',
             );
-
-            const stakeContract = minted.stake_contract || blockchain?.contracts?.wallet_race_stake || '';
-            const engineContract = blockchain?.contracts?.community_engine || '';
-            const raceToken = minted.race_token || blockchain?.contracts?.race_token || '';
-            const walletAddress = minted.wallet_address || auth?.user?.wallet_address || '';
-
-            if (Number(usdt) >= 1 && stakeContract && raceToken && walletAddress) {
-                showWalletPending('Confirm approve + stake in your wallet…');
-                const stakeTx = await stakeRaceFromWallet({
-                    walletAddress,
-                    stakeContract,
-                    engineContract,
-                    raceToken,
-                    raceAmount: race,
-                    lockSeconds: minted.lock_seconds || 0,
-                    sponsorWallet: auth?.user?.referrer?.wallet_address || '',
-                    rpcUrl: blockchain?.rpc_url || '',
-                });
-                if (stakeTx && minted.transaction_id) {
-                    await postJson(route('virtual_income.compound_to_stake.confirm'), {
-                        transaction_id: minted.transaction_id,
-                        tx_hash: stakeTx,
-                    });
-                    notifySuccess(
-                        `On-chain stake submitted for ${formatUsdt(usdt)} on the same lock as stake #${stakeIndex}. See Transactions.`,
-                        'Compound',
-                    );
-                }
-            } else {
-                notifySuccess(
-                    `RACE minted (${formatUsdt(usdt)}). Open Staking to finish compounding on last stake #${stakeIndex} lock.`,
-                    'Compound',
-                );
-            }
-
             router.reload({ only: ['summary', 'virtual_compound'], preserveScroll: true });
         } catch (e) {
             notifyError(e?.message || 'Compound failed.');
@@ -119,6 +82,8 @@ export default function CompoundToStakeButton({ availableUsd, lastStake = null, 
                     {lastStake.lock_label}
                     {' · '}
                     {lastStake.source_label}
+                    {' · '}
+                    no wallet transfer
                 </p>
             ) : (
                 <p className="text-[11px] text-slate-500">Needs an active last stake.</p>
