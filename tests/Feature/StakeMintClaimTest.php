@@ -46,6 +46,49 @@ class FakeChainStakeMintClaimService extends StakeMintClaimService
     }
 }
 
+/**
+ * Engine empty, WalletRace live — same split #1179 hits on withdraw reconcile.
+ */
+class FakeSplitChainStakeMintClaimService extends StakeMintClaimService
+{
+    /** @var array<string, mixed>|null */
+    public ?array $engineStake = null;
+
+    /** @var array<string, mixed>|null */
+    public ?array $walletRaceStake = null;
+
+    public ?int $nextAllowed = null;
+
+    protected function readEngineStake(string $wallet, int $index): ?array
+    {
+        return $this->engineStake;
+    }
+
+    protected function readWalletRaceStake(string $wallet, int $index): ?array
+    {
+        return $this->walletRaceStake;
+    }
+
+    protected function readStakeCount(string $wallet): ?int
+    {
+        if ($this->engineStake !== null || $this->walletRaceStake !== null) {
+            return 1;
+        }
+
+        return 0;
+    }
+
+    protected function readNextAllowedClaimAt(string $wallet): ?int
+    {
+        return $this->nextAllowed;
+    }
+
+    public function enabled(): bool
+    {
+        return true;
+    }
+}
+
 class StakeMintClaimTest extends TestCase
 {
     use RefreshDatabase;
@@ -810,5 +853,97 @@ class StakeMintClaimTest extends TestCase
         $this->assertSame(1, $out['minted']);
         $this->assertSame('0x'.str_repeat('9', 64), $out['tx_hash']);
         $this->assertSame(\App\Models\VirtualStakeCompound::STATUS_MINTED, \App\Models\VirtualStakeCompound::query()->where('user_id', $user->id)->value('status'));
+    }
+
+    public function test_withdraw_reconcile_reads_wallet_race_when_engine_has_no_stake(): void
+    {
+        $this->inWindow();
+        $user = $this->user();
+        StakeMintAdvance::query()->create([
+            'user_id' => $user->id,
+            'stake_index' => 0,
+            'days_outstanding' => 3,
+            'usdt_outstanding' => '14.56000000',
+            'last_onchain_reward_at' => 0,
+        ]);
+
+        $service = new FakeSplitChainStakeMintClaimService(
+            Mockery::mock(RaceCoinDirectMintService::class),
+            app(IncomeClaimService::class),
+            app(WalletBalanceService::class),
+            app(VirtualIncomeWalletService::class),
+        );
+        $walletRace = $this->stake(0);
+        $walletRace['last_reward_at'] = $walletRace['started_at'];
+        $service->walletRaceStake = $walletRace;
+
+        $service->reconcileUser($user);
+
+        $advance = StakeMintAdvance::query()->where('user_id', $user->id)->firstOrFail();
+        $this->assertSame(3, (int) $advance->days_outstanding);
+        $this->assertSame((int) $walletRace['started_at'], (int) $advance->last_onchain_reward_at);
+    }
+
+    public function test_withdraw_reconcile_skips_engine_read_for_indexed_wallet_race_only(): void
+    {
+        $this->inWindow();
+        $user = $this->user();
+        StakeMintAdvance::query()->create([
+            'user_id' => $user->id,
+            'stake_index' => 0,
+            'days_outstanding' => 3,
+            'usdt_outstanding' => '14.56000000',
+            'last_onchain_reward_at' => 0,
+        ]);
+        \App\Models\BlockchainEngineStake::query()->create([
+            'user_id' => $user->id,
+            'wallet_address' => self::WALLET,
+            'stake_index' => 0,
+            'principal_usdt' => '485.37',
+            'staked_race' => '734.4',
+            'lock_seconds' => 94608000,
+            'daily_rate_bps' => 100,
+            'started_at' => now()->getTimestamp() - 10 * 86400,
+            'unlock_at' => now()->getTimestamp() + 1000 * 86400,
+            'source_type' => 'wallet_race',
+            'withdrawn' => false,
+            'status' => 'active',
+            'tx_hash' => '0x'.str_repeat('e', 64),
+            'contract_address' => '0x'.str_repeat('b', 40),
+        ]);
+
+        $service = new FakeSplitChainStakeMintClaimService(
+            Mockery::mock(RaceCoinDirectMintService::class),
+            app(IncomeClaimService::class),
+            app(WalletBalanceService::class),
+            app(VirtualIncomeWalletService::class),
+        );
+
+        $service->reconcileUser($user);
+
+        $this->assertSame(3, (int) StakeMintAdvance::query()->where('user_id', $user->id)->value('days_outstanding'));
+    }
+
+    public function test_withdraw_reconcile_still_fails_closed_when_engine_stake_cannot_be_read(): void
+    {
+        $this->inWindow();
+        $user = $this->user();
+        StakeMintAdvance::query()->create([
+            'user_id' => $user->id,
+            'stake_index' => 0,
+            'days_outstanding' => 1,
+            'usdt_outstanding' => '1.00000000',
+            'last_onchain_reward_at' => 0,
+        ]);
+
+        $service = new FakeSplitChainStakeMintClaimService(
+            Mockery::mock(RaceCoinDirectMintService::class),
+            app(IncomeClaimService::class),
+            app(WalletBalanceService::class),
+            app(VirtualIncomeWalletService::class),
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $service->reconcileUser($user);
     }
 }

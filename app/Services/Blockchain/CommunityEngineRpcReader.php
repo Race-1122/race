@@ -16,7 +16,17 @@ final class CommunityEngineRpcReader
 
     public static function fromConfig(): ?self
     {
-        $address = strtolower(trim((string) config('blockchain.contracts.community_engine', '')));
+        return self::forContract((string) config('blockchain.contracts.community_engine', ''));
+    }
+
+    public static function fromWalletRaceConfig(): ?self
+    {
+        return self::forContract((string) config('blockchain.contracts.wallet_race_stake', ''));
+    }
+
+    public static function forContract(string $address): ?self
+    {
+        $address = strtolower(trim($address));
         if ($address === '' || ! preg_match('/^0x[a-f0-9]{40}$/', $address)) {
             return null;
         }

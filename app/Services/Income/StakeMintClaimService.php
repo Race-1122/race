@@ -2,6 +2,7 @@
 
 namespace App\Services\Income;
 
+use App\Models\BlockchainEngineStake;
 use App\Models\IncomeWalletTransaction;
 use App\Models\StakeMintAdvance;
 use App\Models\StakeMintClaim;
@@ -11,6 +12,7 @@ use App\Services\Blockchain\RaceCoinDirectMintService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -48,10 +50,61 @@ class StakeMintClaimService
         return CommunityEngineRpcReader::fromConfig();
     }
 
-    /** @return array<string, mixed>|null */
-    protected function readStake(string $wallet, int $index): ?array
+    protected function walletRaceReader(): ?CommunityEngineRpcReader
+    {
+        return CommunityEngineRpcReader::fromWalletRaceConfig();
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    protected function readEngineStake(string $wallet, int $index): ?array
     {
         return $this->reader()?->readStakeAt($wallet, $index);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    protected function readWalletRaceStake(string $wallet, int $index): ?array
+    {
+        return $this->walletRaceReader()?->readStakeAt($wallet, $index);
+    }
+
+    /**
+     * Engine first (ICO / participation). WalletRace-only members have no Engine row —
+     * withdraw reconcile used to throw "Could not verify your stake claims on-chain".
+     *
+     * @return array<string, mixed>|null
+     */
+    protected function readStake(string $wallet, int $index): ?array
+    {
+        $engine = $this->readEngineStake($wallet, $index);
+        if ($this->isOnChainLiveStake($engine)) {
+            return $engine;
+        }
+
+        $walletRace = $this->readWalletRaceStake($wallet, $index);
+        if ($this->isOnChainLiveStake($walletRace)) {
+            return $walletRace;
+        }
+
+        return $engine ?? $walletRace;
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $stake
+     */
+    protected function isOnChainLiveStake(?array $stake): bool
+    {
+        if ($stake === null) {
+            return false;
+        }
+        if (! empty($stake['withdrawn'])) {
+            return false;
+        }
+
+        return bccomp((string) ($stake['principal_usdt'] ?? '0'), '0', 18) > 0;
     }
 
     protected function readStakeCount(string $wallet): ?int
@@ -696,12 +749,43 @@ class StakeMintClaimService
             if ((int) $row->days_outstanding > 0) {
                 $stake = $this->readStake($wallet, (int) $row->stake_index);
                 if ($stake === null) {
+                    // WalletRace-only (e.g. #1179): no Engine stake exists. Do not block withdraw.
+                    if ($this->advanceIsWalletRaceOnly($user, (int) $row->stake_index)) {
+                        continue;
+                    }
                     throw new \RuntimeException('Could not read stake '.$row->stake_index.' from the Engine.');
                 }
                 $this->applyAbsorption($row, $stake);
             }
             $this->settlePending($user, $row);
         }
+    }
+
+    /**
+     * Indexed Wallet RACE stake and no Engine/ICO stake at the same index.
+     */
+    protected function advanceIsWalletRaceOnly(User $user, int $stakeIndex): bool
+    {
+        if (! Schema::hasTable('blockchain_engine_stakes')) {
+            return false;
+        }
+
+        $hasWalletRace = BlockchainEngineStake::query()
+            ->where('user_id', $user->id)
+            ->where('stake_index', $stakeIndex)
+            ->where('source_type', BlockchainEngineStake::SOURCE_WALLET_RACE)
+            ->where('withdrawn', false)
+            ->exists();
+        if (! $hasWalletRace) {
+            return false;
+        }
+
+        return ! BlockchainEngineStake::query()
+            ->where('user_id', $user->id)
+            ->where('stake_index', $stakeIndex)
+            ->where('source_type', '!=', BlockchainEngineStake::SOURCE_WALLET_RACE)
+            ->where('withdrawn', false)
+            ->exists();
     }
 
     /**
