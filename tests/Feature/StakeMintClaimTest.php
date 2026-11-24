@@ -69,13 +69,14 @@ class FakeSplitChainStakeMintClaimService extends StakeMintClaimService
         return $this->walletRaceStake;
     }
 
-    protected function readStakeCount(string $wallet): ?int
+    protected function readEngineStakeCount(string $wallet): ?int
     {
-        if ($this->engineStake !== null || $this->walletRaceStake !== null) {
-            return 1;
-        }
+        return $this->engineStake !== null ? 1 : 0;
+    }
 
-        return 0;
+    protected function readWalletRaceStakeCount(string $wallet): ?int
+    {
+        return $this->walletRaceStake !== null ? 1 : 0;
     }
 
     protected function readNextAllowedClaimAt(string $wallet): ?int
@@ -402,6 +403,28 @@ class StakeMintClaimTest extends TestCase
         // Cron credits at most 1 day per stake per run (0.50% of $100 = $0.50 each).
         $this->assertSame(0, bccomp($out['usdt'], '1.0', 4));
         $this->assertSame(2, StakeMintAdvance::query()->where('user_id', $user->id)->count());
+    }
+
+    public function test_auto_claim_credits_wallet_race_when_engine_count_is_zero(): void
+    {
+        $this->inWindow();
+        $user = $this->user();
+        $service = new FakeSplitChainStakeMintClaimService(
+            Mockery::mock(RaceCoinDirectMintService::class),
+            app(IncomeClaimService::class),
+            app(WalletBalanceService::class),
+            app(VirtualIncomeWalletService::class),
+        );
+        $service->nextAllowed = now()->getTimestamp() + 3600;
+        $stake = $this->stake(0);
+        $stake['last_reward_at'] = 0;
+        $service->walletRaceStake = $stake;
+
+        $out = $service->autoClaimUser($user);
+
+        $this->assertSame(1, $out['claims']);
+        $this->assertSame(0, bccomp($out['usdt'], '0.50', 4));
+        $this->assertSame(1, StakeMintClaim::query()->where('user_id', $user->id)->count());
     }
 
     public function test_auto_claim_credits_onchain_stake_even_when_wallet_cooldown_is_open(): void

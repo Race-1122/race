@@ -107,9 +107,29 @@ class StakeMintClaimService
         return bccomp((string) ($stake['principal_usdt'] ?? '0'), '0', 18) > 0;
     }
 
-    protected function readStakeCount(string $wallet): ?int
+    protected function readEngineStakeCount(string $wallet): ?int
     {
         return $this->reader()?->readStakeCount($wallet);
+    }
+
+    protected function readWalletRaceStakeCount(string $wallet): ?int
+    {
+        return $this->walletRaceReader()?->readStakeCount($wallet);
+    }
+
+    /**
+     * Engine count first; WalletRace-only wallets (the unpaid six) have Engine 0.
+     * Using max() keeps per-contract indexes aligned with readStake fallback.
+     */
+    protected function readStakeCount(string $wallet): ?int
+    {
+        $engine = $this->readEngineStakeCount($wallet);
+        $walletRace = $this->readWalletRaceStakeCount($wallet);
+        if ($engine === null && $walletRace === null) {
+            return null;
+        }
+
+        return max((int) ($engine ?? 0), (int) ($walletRace ?? 0));
     }
 
     /**
