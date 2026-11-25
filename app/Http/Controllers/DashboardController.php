@@ -9,6 +9,7 @@ use App\Models\IcoPurchase;
 use App\Models\Investment;
 use App\Models\LedgerEntry;
 use App\Models\User;
+use App\Models\Withdrawal;
 use Illuminate\Support\Facades\Schema;
 use App\Services\Income\CompoundTransactionRows;
 use App\Services\Income\RaceCoinService;
@@ -226,6 +227,20 @@ class DashboardController extends Controller
         $directReferrals = User::query()->where('referred_by', $uid)->count();
         $totalTeamBusinessUsd = $referralTree->downlineInvestmentVolumeUsd($uid, true);
 
+        $totalWithdrawnUsd = 0.0;
+        $totalWithdrawnRace = 0.0;
+        $totalWithdrawnCount = 0;
+        if (Schema::hasTable('withdrawals')) {
+            $withdrawn = Withdrawal::query()
+                ->where('user_id', $uid)
+                ->where('status', Withdrawal::STATUS_COMPLETED)
+                ->selectRaw('COUNT(*) as cnt, COALESCE(SUM(amount_usd), 0) as usd, COALESCE(SUM(race_amount), 0) as race')
+                ->first();
+            $totalWithdrawnCount = (int) ($withdrawn->cnt ?? 0);
+            $totalWithdrawnUsd = (float) ($withdrawn->usd ?? 0);
+            $totalWithdrawnRace = (float) ($withdrawn->race ?? 0);
+        }
+
         $creditGroups = LedgerEntry::query()
             ->production()
             ->where('user_id', $uid)
@@ -266,6 +281,7 @@ class DashboardController extends Controller
             ])
             ->map(static fn ($row) => [
                 'id' => $row->id,
+                'income_key' => IncomeCatalog::keyForType((string) $row->entry_type),
                 'income_name' => IncomeCatalog::labelForType((string) $row->entry_type),
                 'entry_type' => $row->entry_type,
                 'amount_usd' => $row->amount_usd,
@@ -533,6 +549,9 @@ class DashboardController extends Controller
                 'direct_referrals' => $directReferrals,
                 'team_size' => $teamSize,
                 'total_team_business_usd' => $totalTeamBusinessUsd,
+                'total_withdrawn_usd' => number_format($totalWithdrawnUsd, 2, '.', ''),
+                'total_withdrawn_race' => number_format($totalWithdrawnRace, 4, '.', ''),
+                'total_withdrawn_count' => $totalWithdrawnCount,
                 'income_pct' => [
                     'total' => $this->pctChange($bucket, 'total'),
                     'direct' => $this->pctChange($bucket, 'direct'),

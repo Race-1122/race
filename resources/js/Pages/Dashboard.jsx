@@ -81,6 +81,9 @@ const defaultSummary = {
     direct_referrals: 0,
     team_size: 0,
     total_team_business_usd: '0.00',
+    total_withdrawn_usd: '0.00',
+    total_withdrawn_race: '0.0000',
+    total_withdrawn_count: 0,
     income_pct: {
         total: '+0.00%',
         direct: '+0.00%',
@@ -807,6 +810,28 @@ export default function Dashboard({
                 </svg>
             ),
         },
+        {
+            title: 'Total withdrawal',
+            value: formatUsdt(summary.total_withdrawn_usd),
+            raceLine:
+                Number(summary.total_withdrawn_race) > 0
+                    ? `≈ ${formatRace(summary.total_withdrawn_race, 4)} RACE`
+                    : raceEquivLabel(summary.total_withdrawn_usd, summary.race_coin_price_usd),
+            sub:
+                Number(summary.total_withdrawn_count) > 0
+                    ? `${summary.total_withdrawn_count} completed`
+                    : 'No withdrawals yet',
+            tintClass: 'bg-amber-400/25',
+            icon: (
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                    <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"
+                    />
+                </svg>
+            ),
+        },
     ], [
         summary.balance_usd,
         buckets.daily_claim_usd,
@@ -824,6 +849,9 @@ export default function Dashboard({
         summary.team_size,
         summary.direct_referrals,
         summary.total_team_business_usd,
+        summary.total_withdrawn_usd,
+        summary.total_withdrawn_race,
+        summary.total_withdrawn_count,
     ]);
 
     return (
@@ -857,40 +885,6 @@ export default function Dashboard({
                             </Link>
                         </div>
                     ) : null}
-
-                    <div className="mx-auto w-full min-w-0 max-w-lg">
-                        <DpCard className="bg-gradient-to-br from-sky-50/80 to-white p-4 ring-1 ring-[#2563EB]/30 sm:p-5" hover={false}>
-                            <p className="text-xs font-semibold uppercase tracking-wide text-fintech-primary">
-                                Daily claim hold
-                            </p>
-                            <p className="mt-1 text-2xl font-bold text-fintech-ink">
-                                {formatUsdt(buckets.daily_claim_usd)}
-                            </p>
-                            {raceEquivLabel(buckets.daily_claim_usd, summary.race_coin_price_usd) ? (
-                                <p className="mt-0.5 font-mono text-sm font-semibold text-sky-700">
-                                    {raceEquivLabel(buckets.daily_claim_usd, summary.race_coin_price_usd)}
-                                </p>
-                            ) : null}
-                            <p className="mt-1 text-[11px] text-fintech-muted">
-                                From daily claims to date, {formatUsdt(buckets.daily_claim_usd)} is on hold
-                                {Number(buckets.daily_claim_earned_usd) > 0
-                                    ? ` (lifetime credited ${formatUsdt(buckets.daily_claim_earned_usd)})`
-                                    : ''}
-                                . Team Reward + Admin Fee apply on withdraw. Other income:{' '}
-                                {formatUsdt(buckets.other_usd)}
-                                {raceEquivLabel(buckets.other_usd, summary.race_coin_price_usd)
-                                    ? ` (${raceEquivLabel(buckets.other_usd, summary.race_coin_price_usd)})`
-                                    : ''}{' '}
-                                — withdraw anytime.
-                            </p>
-                            <Link
-                                href={route('withdrawal')}
-                                className="mt-2 inline-flex text-xs font-semibold text-[#2563EB] underline"
-                            >
-                                Open Income wallet
-                            </Link>
-                        </DpCard>
-                    </div>
 
                     <DailyEarningCard
                         amountUsd={summary.today_income_usd}

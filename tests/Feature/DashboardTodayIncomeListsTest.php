@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\IncomeWalletTransaction;
 use App\Models\LedgerEntry;
 use App\Models\User;
+use App\Models\Withdrawal;
 use App\Services\Income\LedgerWriter;
 use App\Services\Income\RaceCoinService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -61,6 +62,7 @@ class DashboardTodayIncomeListsTest extends TestCase
                 ->component('Dashboard')
                 ->has('summary.income_entries', 1)
                 ->where('summary.income_entries.0.id', $today->id)
+                ->where('summary.income_entries.0.income_key', 'affiliate_network_roi')
                 ->where('summary.income_entries.0.amount_usd', '1.2500'));
     }
 
@@ -150,6 +152,46 @@ class DashboardTodayIncomeListsTest extends TestCase
                 ->where('entries.0.entry_type', 'compound')
                 ->where('entries.0.amount_usd', '-25.0000')
                 ->where('entries.1.id', 'compound-'.$yesterday->id));
+    }
+
+    public function test_dashboard_shows_completed_withdrawal_totals(): void
+    {
+        $user = User::factory()->create();
+        Withdrawal::query()->create([
+            'user_id' => $user->id,
+            'amount_usd' => '14.56',
+            'fee_usd' => '1.46',
+            'team_reward_usd' => '1.46',
+            'admin_fee_usd' => '1.00',
+            'net_usd' => '13.10',
+            'race_amount' => '24.67060000',
+            'destination_address' => '0x9ff1cd17834078ffb730b9ec848fc52963f17f08',
+            'status' => Withdrawal::STATUS_COMPLETED,
+        ]);
+        Withdrawal::query()->create([
+            'user_id' => $user->id,
+            'amount_usd' => '10.00',
+            'fee_usd' => '1.00',
+            'net_usd' => '9.00',
+            'race_amount' => '10.00000000',
+            'destination_address' => '0x9ff1cd17834078ffb730b9ec848fc52963f17f08',
+            'status' => Withdrawal::STATUS_PENDING,
+        ]);
+
+        $this->mock(RaceCoinService::class, function ($mock): void {
+            $mock->shouldReceive('currentBalance')->andReturn('0');
+            $mock->shouldReceive('priceUsd')->andReturn(0.55);
+            $mock->shouldReceive('formattedPriceUsd')->andReturn('0.5500');
+        });
+
+        $this->actingAs($user)
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Dashboard')
+                ->where('summary.total_withdrawn_usd', '14.56')
+                ->where('summary.total_withdrawn_race', '24.6706')
+                ->where('summary.total_withdrawn_count', 1));
     }
 
     private function postCompound(User $user, string $amount): IncomeWalletTransaction
