@@ -323,6 +323,39 @@ class DashboardTodayIncomeListsTest extends TestCase
                 ->where('summary.total_withdrawn_count', 1));
     }
 
+    public function test_withdrawal_history_includes_usdt_deducted_and_race_received(): void
+    {
+        $user = User::factory()->create();
+        Withdrawal::query()->create([
+            'user_id' => $user->id,
+            'amount_usd' => '14.56',
+            'fee_usd' => '1.46',
+            'team_reward_usd' => '1.46',
+            'admin_fee_usd' => '1.00',
+            'net_usd' => '13.10',
+            'race_amount' => '24.67060000',
+            'race_tx_hash' => '0xabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabca',
+            'destination_address' => '0x9ff1cd17834078ffb730b9ec848fc52963f17f08',
+            'status' => Withdrawal::STATUS_COMPLETED,
+        ]);
+
+        $this->mock(RaceCoinService::class, function ($mock): void {
+            $mock->shouldReceive('currentBalance')->andReturn('0');
+            $mock->shouldReceive('priceUsd')->andReturn(0.55);
+            $mock->shouldReceive('formattedPriceUsd')->andReturn('0.5500');
+        });
+
+        $this->actingAs($user)
+            ->get(route('withdrawal'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Withdrawal')
+                ->has('withdrawals', 1)
+                ->where('withdrawals.0.amount_usd', '14.56')
+                ->where('withdrawals.0.race_amount', '24.67060000')
+                ->where('withdrawals.0.race_tx_url', 'https://bscscan.com/tx/0xabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabca'));
+    }
+
     private function postIncomeClaim(User $user, string $amount): IncomeWalletTransaction
     {
         return IncomeWalletTransaction::query()->create([

@@ -10,6 +10,7 @@ use App\Services\Income\IncomeAccrualService;
 use App\Services\Income\RaceCoinService;
 use App\Services\Income\WalletBalanceService;
 use App\Services\Income\WithdrawalService;
+use App\Support\BlockchainMode;
 use App\Support\RewardPlan;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -25,6 +26,10 @@ class WithdrawalController extends Controller
         $incomePolicy = app(IncomeAccrualService::class)->summaryForUser($user, $wallets);
 
         $raceMintOnWithdraw = app(RaceCoinDirectMintService::class)->enabled();
+
+        $explorer = BlockchainMode::effectiveChainId() === 97
+            ? 'https://testnet.bscscan.com'
+            : 'https://bscscan.com';
 
         $withdrawals = Withdrawal::query()
             ->where('user_id', $user->id)
@@ -51,6 +56,7 @@ class WithdrawalController extends Controller
                 'net_usd' => $w->net_usd,
                 'race_amount' => $w->race_amount,
                 'race_tx_hash' => $w->race_tx_hash,
+                'race_tx_url' => filled($w->race_tx_hash) ? $explorer.'/tx/'.$w->race_tx_hash : null,
                 'status' => $w->status,
                 'status_label' => Withdrawal::statusLabels()[$w->status] ?? ucfirst((string) $w->status),
                 'created_at' => $w->created_at?->toIso8601String(),

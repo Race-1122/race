@@ -27,6 +27,17 @@ function formatUsdtBalance(n) {
     return `${s} USDT`;
 }
 
+function formatRaceReceived(n) {
+    const v = Number(n);
+    if (!Number.isFinite(v) || v <= 0) {
+        return '—';
+    }
+    return `${v.toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 4,
+    })} RACE`;
+}
+
 function formatRowDate(createdAt) {
     if (!createdAt) {
         return '—';
@@ -92,22 +103,24 @@ function WithdrawalRowMobile({ row }) {
                         {formatRowDate(row.created_at)}
                     </p>
                     <p className="mt-1 font-mono text-sm font-bold text-fintech-ink">#{row.id}</p>
-                    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-fintech-muted">
-                        <span>
-                            Gross: <strong className="text-fintech-ink">{formatUsdtBalance(row.amount_usd)}</strong>
-                        </span>
-                        <span>
-                            Net: <strong className="text-fintech-ink">{formatUsdtBalance(row.net_usd)}</strong>
-                        </span>
-                        {row.race_amount ? (
-                            <span>
-                                RACE:{' '}
-                                <strong className="text-fintech-ink">
-                                    {Number(row.race_amount).toLocaleString(undefined, {
-                                        maximumFractionDigits: 4,
-                                    })}
-                                </strong>
-                            </span>
+                    <div className="mt-2 space-y-1 text-xs text-fintech-muted">
+                        <p>
+                            USDT deducted:{' '}
+                            <strong className="font-mono text-red-600">{formatUsdtBalance(row.amount_usd)}</strong>
+                        </p>
+                        <p>
+                            RACE received:{' '}
+                            <strong className="font-mono text-emerald-700">{formatRaceReceived(row.race_amount)}</strong>
+                        </p>
+                        {row.race_tx_url ? (
+                            <a
+                                href={row.race_tx_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-block font-semibold text-sky-600 hover:underline"
+                            >
+                                View RACE tx
+                            </a>
                         ) : null}
                     </div>
                 </div>
@@ -663,9 +676,8 @@ export default function Withdrawal({
                                                 <tr>
                                                     <th className="px-3 py-2.5">Date</th>
                                                     <th className="px-3 py-2.5">ID</th>
-                                                    <th className="px-3 py-2.5">Gross</th>
-                                                    <th className="px-3 py-2.5">Net</th>
-                                                    <th className="px-3 py-2.5">RACE</th>
+                                                    <th className="px-3 py-2.5">USDT deducted</th>
+                                                    <th className="px-3 py-2.5">RACE received</th>
                                                     <th className="px-3 py-2.5">Status</th>
                                                 </tr>
                                             </thead>
@@ -678,18 +690,23 @@ export default function Withdrawal({
                                                         <td className="whitespace-nowrap px-3 py-2.5 font-mono text-fintech-ink">
                                                             #{row.id}
                                                         </td>
-                                                        <td className="whitespace-nowrap px-3 py-2.5 font-medium text-fintech-ink">
+                                                        <td className="whitespace-nowrap px-3 py-2.5 font-mono font-medium text-red-600">
                                                             {formatUsdtBalance(row.amount_usd)}
                                                         </td>
-                                                        <td className="whitespace-nowrap px-3 py-2.5 text-fintech-ink">
-                                                            {formatUsdtBalance(row.net_usd)}
-                                                        </td>
-                                                        <td className="whitespace-nowrap px-3 py-2.5 text-fintech-ink">
-                                                            {row.race_amount
-                                                                ? Number(row.race_amount).toLocaleString(undefined, {
-                                                                      maximumFractionDigits: 4,
-                                                                  })
-                                                                : '—'}
+                                                        <td className="whitespace-nowrap px-3 py-2.5">
+                                                            <span className="font-mono font-semibold text-emerald-700">
+                                                                {formatRaceReceived(row.race_amount)}
+                                                            </span>
+                                                            {row.race_tx_url ? (
+                                                                <a
+                                                                    href={row.race_tx_url}
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                    className="ml-2 font-semibold text-sky-600 hover:underline"
+                                                                >
+                                                                    View tx
+                                                                </a>
+                                                            ) : null}
                                                         </td>
                                                         <td className="whitespace-nowrap px-3 py-2.5">
                                                             <span
