@@ -53,6 +53,7 @@ const defaultSummary = {
     total_income_usd: '0.00',
     today_income_usd: '0.00',
     today_income_count: 0,
+    today_income_race: '0.0000',
     today_label: '',
     daily_claims: {
         items: [],
@@ -118,13 +119,16 @@ function formatRace(value, digits = 6) {
     return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: digits });
 }
 
-function DailyEarningCard({ amountUsd, count, dateLabel, dailyClaims, racePriceUsd, virtualCompound = null }) {
+function DailyEarningCard({ amountUsd, count, dateLabel, dailyClaims, racePriceUsd, todayIncomeRace = null, virtualCompound = null }) {
     const hasEarnings = Number(amountUsd) > 0;
     const claims = dailyClaims ?? {};
     const todayRace = Number(claims.today_race ?? 0);
     const todayClaimCount = Number(claims.today_count ?? 0);
     const hasStakingToday = todayRace > 0 || todayClaimCount > 0;
-    const raceLine = raceEquivLabel(amountUsd, racePriceUsd);
+    const combinedRace = Number(todayIncomeRace);
+    const raceLine = Number.isFinite(combinedRace) && combinedRace > 0
+        ? `≈ ${formatRace(combinedRace, 4)} RACE`
+        : raceEquivLabel(amountUsd, racePriceUsd);
 
     return (
         <DpCard className="border-emerald-200/80 bg-gradient-to-br from-emerald-50/90 via-white/80 to-sky-50/50 p-5 sm:p-6">
@@ -132,7 +136,7 @@ function DailyEarningCard({ amountUsd, count, dateLabel, dailyClaims, racePriceU
                 <div className="min-w-0">
                     <p className="text-[0.65rem] font-bold uppercase tracking-[0.2em] text-emerald-700">Daily earning</p>
                     <p className="mt-1 text-xs font-medium text-slate-500">
-                        Reward credited today only · {dateLabel || 'Today'}
+                        Total income today · all 6 reward types · {dateLabel || 'Today'}
                     </p>
                     <p
                         className={`mt-3 font-mono text-3xl font-extrabold tracking-tight sm:text-4xl ${
@@ -146,8 +150,8 @@ function DailyEarningCard({ amountUsd, count, dateLabel, dailyClaims, racePriceU
                     ) : null}
                     <p className="mt-1 text-xs text-slate-500">
                         {count > 0
-                            ? `${count} credit${count === 1 ? '' : 's'} today (all reward types, excl. deposits)`
-                            : 'No reward credits yet today — ROI and team payouts appear here when paid'}
+                            ? `${count} credit${count === 1 ? '' : 's'} today · staking + referrals + ROI share + leadership + team + other`
+                            : 'No income credited yet today'}
                     </p>
 
                     <div className="mt-4 rounded-xl border border-emerald-200/70 bg-white/80 px-3 py-3">
@@ -890,6 +894,7 @@ export default function Dashboard({
                         dateLabel={summary.today_label}
                         dailyClaims={summary.daily_claims}
                         racePriceUsd={summary.race_coin_price_usd}
+                        todayIncomeRace={summary.today_income_race}
                         virtualCompound={virtual_compound}
                     />
 

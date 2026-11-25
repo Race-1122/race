@@ -66,6 +66,60 @@ class DashboardTodayIncomeListsTest extends TestCase
                 ->where('summary.income_entries.0.amount_usd', '1.2500'));
     }
 
+    public function test_daily_earning_card_sums_all_today_income_types(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-11-25 12:00:00', 'Asia/Kolkata'));
+
+        $user = User::factory()->create();
+        $this->postIncomeClaim($user, '27.5000');
+        IncomeWalletTransaction::query()->create([
+            'user_id' => $user->id,
+            'wallet_address' => $user->wallet_address,
+            'type' => IncomeWalletTransaction::TYPE_LEVEL_INCOME,
+            'source_reference' => 'test:roi-share',
+            'amount' => '2.9800',
+            'balance_before_usd' => '27.5000',
+            'balance_after_usd' => '30.4800',
+            'asset' => 'USDT',
+            'direction' => IncomeWalletTransaction::DIRECTION_CREDIT,
+            'status' => IncomeWalletTransaction::STATUS_POSTED,
+            'idempotency_key' => 'test-today-roi-'.$user->id,
+            'metadata' => ['framework' => 'roi_sharing'],
+        ]);
+        $old = IncomeWalletTransaction::query()->create([
+            'user_id' => $user->id,
+            'wallet_address' => $user->wallet_address,
+            'type' => IncomeWalletTransaction::TYPE_REFERRAL_INCOME,
+            'source_reference' => 'test:old-ref',
+            'amount' => '9.9900',
+            'balance_before_usd' => '0.0000',
+            'balance_after_usd' => '9.9900',
+            'asset' => 'USDT',
+            'direction' => IncomeWalletTransaction::DIRECTION_CREDIT,
+            'status' => IncomeWalletTransaction::STATUS_POSTED,
+            'idempotency_key' => 'test-old-ref-'.$user->id,
+            'metadata' => [],
+        ]);
+        $old->forceFill([
+            'created_at' => Carbon::parse('2026-11-24 10:00:00', 'Asia/Kolkata')
+                ->timezone(config('app.timezone')),
+        ])->save();
+
+        $this->mock(RaceCoinService::class, function ($mock): void {
+            $mock->shouldReceive('currentBalance')->andReturn('0');
+            $mock->shouldReceive('priceUsd')->andReturn(0.55);
+            $mock->shouldReceive('formattedPriceUsd')->andReturn('0.5500');
+        });
+
+        $this->actingAs($user)
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Dashboard')
+                ->where('summary.today_income_usd', '30.48')
+                ->where('summary.today_income_count', 2));
+    }
+
     public function test_transactions_page_defaults_to_all_dates(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-11-22 09:00:00', 'Asia/Kolkata'));

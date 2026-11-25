@@ -9,6 +9,7 @@ use App\Models\IcoPurchase;
 use App\Models\Investment;
 use App\Models\LedgerEntry;
 use App\Models\User;
+use App\Models\IncomeWalletTransaction;
 use App\Models\Withdrawal;
 use Illuminate\Support\Facades\Schema;
 use App\Services\Income\CompoundTransactionRows;
@@ -343,16 +344,41 @@ class DashboardController extends Controller
         $today = Carbon::now()->startOfDay();
         $todayEnd = Carbon::now()->endOfDay();
 
-        $todayAgg = LedgerEntry::query()
-            ->production()
+        $dailyClaims = $this->dailyClaimsForUser($user, $raceCoin);
+        $todayIncomeTypes = [
+            IncomeWalletTransaction::TYPE_INCOME_CLAIM,
+            IncomeWalletTransaction::TYPE_DAILY_REWARD,
+            IncomeWalletTransaction::TYPE_LEVEL_INCOME,
+            IncomeWalletTransaction::TYPE_TEAM_INCOME,
+            IncomeWalletTransaction::TYPE_REFERRAL_INCOME,
+            IncomeWalletTransaction::TYPE_OTHER_INCOME,
+            IncomeWalletTransaction::TYPE_STAKE_UNLOCK_EMI,
+            IncomeWalletTransaction::TYPE_COMPOUND_REFUND,
+            IncomeWalletTransaction::TYPE_ADJUSTMENT,
+        ];
+        $todayIwt = IncomeWalletTransaction::query()
             ->where('user_id', $uid)
-            ->takeHomeCredits()
-            ->whereBetween('created_at', [$today, $todayEnd])
-            ->selectRaw('COALESCE(SUM(amount_usd), 0) as total, COUNT(*) as cnt')
+            ->where('status', IncomeWalletTransaction::STATUS_POSTED)
+            ->where('direction', IncomeWalletTransaction::DIRECTION_CREDIT)
+            ->whereIn('type', $todayIncomeTypes)
+            ->whereBetween('created_at', [$todayStart, $todayEnd])
+            ->selectRaw("COALESCE(SUM(amount), 0) as total, COUNT(*) as cnt, COALESCE(SUM(CASE WHEN type IN (?, ?) THEN amount ELSE 0 END), 0) as staking", [
+                IncomeWalletTransaction::TYPE_INCOME_CLAIM,
+                IncomeWalletTransaction::TYPE_DAILY_REWARD,
+            ])
             ->first();
 
-        $todayIncomeUsd = (float) ($todayAgg->total ?? 0);
-        $todayIncomeCount = (int) ($todayAgg->cnt ?? 0);
+        $todayIncomeUsd = (float) ($todayIwt->total ?? 0);
+        $todayIncomeCount = (int) ($todayIwt->cnt ?? 0);
+        $stakingTodayUsd = (float) ($todayIwt->staking ?? 0);
+        $otherTodayUsd = max(0.0, $todayIncomeUsd - $stakingTodayUsd);
+        $priceUsd = (float) $raceCoin->priceUsd();
+        $stakingTodayRace = (float) ($dailyClaims['today_race'] ?? 0);
+        if ($stakingTodayRace <= 0 && $stakingTodayUsd > 0 && $priceUsd > 0) {
+            $stakingTodayRace = $stakingTodayUsd / $priceUsd;
+        }
+        $otherTodayRace = $priceUsd > 0 ? $otherTodayUsd / $priceUsd : 0.0;
+        $todayIncomeRace = $stakingTodayRace + $otherTodayRace;
 
         $currentStart = $today->copy()->subDays(29);
         $previousStart = $today->copy()->subDays(59);
@@ -540,9 +566,10 @@ class DashboardController extends Controller
                 'total_income_usd' => number_format((float) $totalIncomeUsd, 2, '.', ''),
                 'today_income_usd' => number_format($todayIncomeUsd, 2, '.', ''),
                 'today_income_count' => $todayIncomeCount,
-                'today_label' => $today->format('M j, Y'),
+                'today_income_race' => number_format($todayIncomeRace, 4, '.', ''),
+                'today_label' => now($this->claimTimezone())->format('M j, Y'),
                 'plan_income' => $planIncome,
-                'daily_claims' => $this->dailyClaimsForUser($user, $raceCoin),
+                'daily_claims' => $dailyClaims,
                 'income_entries' => $incomeEntries,
                 'income_payout_count' => $incomePayoutCount,
                 'principal_invested_usd' => number_format((float) $principalInvested, 2, '.', ''),
