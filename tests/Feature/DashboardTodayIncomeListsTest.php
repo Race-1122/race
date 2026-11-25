@@ -102,6 +102,75 @@ class DashboardTodayIncomeListsTest extends TestCase
                 ->has('entries', 2));
     }
 
+    public function test_section_ledger_all_and_today_exclude_other_income_types(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-11-22 09:00:00', 'Asia/Kolkata'));
+
+        $user = User::factory()->create();
+        $writer = app(LedgerWriter::class);
+
+        $todayRoi = $writer->record(
+            $user,
+            LedgerEntry::TYPE_AFFILIATE_NETWORK_ROI,
+            '1.2500',
+            'investment',
+            1,
+            ['framework' => 'roi_sharing'],
+        );
+        $oldRoi = $writer->record(
+            $user,
+            LedgerEntry::TYPE_AFFILIATE_NETWORK_ROI,
+            '9.9900',
+            'investment',
+            2,
+            ['framework' => 'roi_sharing'],
+        );
+        $oldRoi->forceFill([
+            'created_at' => Carbon::parse('2026-11-21 05:00:00', 'Asia/Kolkata'),
+        ])->save();
+
+        $writer->record(
+            $user,
+            LedgerEntry::TYPE_COMMUNITY_REFERRAL,
+            '5.0000',
+            'investment',
+            3,
+            ['level' => 1],
+        );
+        $writer->record(
+            $user,
+            LedgerEntry::TYPE_INCOME_CLAIM,
+            '3.0000',
+            'investment',
+            4,
+            [],
+        );
+
+        $this->actingAs($user)
+            ->get(route('transactions', ['income' => 'affiliate_network_roi', 'date' => 'all']))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Transactions')
+                ->where('filter_income_key', 'affiliate_network_roi')
+                ->where('filter_date', 'all')
+                ->has('entries', 2)
+                ->where('entries.0.entry_type', LedgerEntry::TYPE_AFFILIATE_NETWORK_ROI)
+                ->where('entries.1.entry_type', LedgerEntry::TYPE_AFFILIATE_NETWORK_ROI));
+
+        $this->actingAs($user)
+            ->get(route('transactions', [
+                'income' => 'affiliate_network_roi',
+                'date' => Carbon::today()->toDateString(),
+            ]))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Transactions')
+                ->where('filter_income_key', 'affiliate_network_roi')
+                ->has('entries', 1)
+                ->where('entries.0.id', $todayRoi->id)
+                ->where('entries.0.entry_type', LedgerEntry::TYPE_AFFILIATE_NETWORK_ROI));
+    }
+
     public function test_dashboard_shows_todays_compound_transactions(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-11-22 09:00:00', 'Asia/Kolkata'));

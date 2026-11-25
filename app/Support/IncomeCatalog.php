@@ -106,7 +106,11 @@ class IncomeCatalog
         $types = self::typesForKey($incomeKey);
         if ($types !== []) {
             $query->whereIn('entry_type', $types);
+
+            return;
         }
+
+        $query->whereRaw('0 = 1');
     }
 
     /**
@@ -253,13 +257,13 @@ class IncomeCatalog
         $mapped = array_map(static function (array $row) use ($userId) {
             $routeName = $row['route'] ?? 'dashboard';
             $href = $routeName === 'transactions'
-                ? route('transactions', ['income' => $row['key'], 'date' => 'all'])
+                ? route('transactions', ['income' => $row['key'], 'date' => now()->toDateString()])
                 : route($routeName);
 
             $enriched = [
                 ...$row,
                 'href' => $href,
-                'ledger_href' => route('transactions', ['income' => $row['key'], 'date' => 'all']),
+                'ledger_href' => route('transactions', ['income' => $row['key'], 'date' => now()->toDateString()]),
             ];
 
             return $enriched;

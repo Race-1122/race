@@ -120,27 +120,35 @@ function navigateTransactions(filter_income_key, date) {
     });
 }
 
+function dateModeButtonClass(active) {
+    return active
+        ? 'rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-800'
+        : 'rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-50';
+}
+
 function DateFilterBar({
     filter_date,
     filter_date_label,
     max_date,
     filter_income_key,
+    filter_label,
     day_total_usd,
     rowCount,
 }) {
     const isToday = filter_date === max_date;
     const isAllDates = filter_date === 'all';
     const dateInputValue = isAllDates ? max_date : filter_date;
+    const scoped = Boolean(filter_income_key);
 
     return (
         <div className="rounded-xl border border-fintech-line bg-white p-3 shadow-sm sm:p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
                     <p className="text-[0.65rem] font-bold uppercase tracking-wide text-fintech-muted">
-                        Select date
+                        {scoped ? filter_label ?? 'This section' : 'Select date'}
                     </p>
                     <p className="mt-0.5 text-sm font-semibold text-fintech-ink">
-                        {filter_date_label ?? 'Today'}
+                        {isAllDates ? 'All' : filter_date_label ?? 'Today'}
                         {!isAllDates && day_total_usd != null ? (
                             <span className="ml-2 font-mono text-xs font-bold text-emerald-600">
                                 +{formatUsd(day_total_usd)}
@@ -149,53 +157,74 @@ function DateFilterBar({
                     </p>
                     <p className="mt-0.5 text-xs text-fintech-muted">
                         {isAllDates
-                            ? 'Showing latest activity (up to 200 rows)'
+                            ? scoped
+                                ? `All ${filter_label ?? 'section'} credits (up to 200 rows)`
+                                : 'Showing latest activity (up to 200 rows)'
                             : `${rowCount} transaction${rowCount === 1 ? '' : 's'} on this day`}
                     </p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                    <label className="sr-only" htmlFor="transactions-date">
-                        Transaction date
-                    </label>
-                    <input
-                        id="transactions-date"
-                        type="date"
-                        value={dateInputValue}
-                        max={max_date}
-                        onChange={(e) => {
-                            if (e.target.value) {
-                                navigateTransactions(filter_income_key, e.target.value);
-                            }
-                        }}
-                        className="min-h-[2.75rem] rounded-lg border border-[#38BDF8]/35 bg-[#0F172A]/85 px-3 py-2 text-sm font-medium text-slate-100 shadow-sm focus:border-[#38BDF8] focus:outline-none focus:ring-2 focus:ring-[#38BDF8]/30"
-                    />
-                    {!isToday && !isAllDates ? (
+                {scoped ? (
+                    <div className="flex flex-wrap items-center gap-2">
                         <button
                             type="button"
                             onClick={() => navigateTransactions(filter_income_key, max_date)}
-                            className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-800 transition hover:bg-sky-100"
+                            className={dateModeButtonClass(isToday)}
                         >
                             Today
                         </button>
-                    ) : null}
-                    {!isAllDates ? (
                         <button
                             type="button"
                             onClick={() => navigateTransactions(filter_income_key, 'all')}
-                            className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-100"
+                            className={dateModeButtonClass(isAllDates)}
                         >
-                            All dates
+                            All
                         </button>
-                    ) : (
-                        <button
-                            type="button"
-                            onClick={() => navigateTransactions(filter_income_key, max_date)}
-                            className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-800 transition hover:bg-sky-100"
-                        >
-                            Today only
-                        </button>
-                    )}
-                </div>
+                    </div>
+                ) : (
+                    <div className="flex flex-wrap items-center gap-2">
+                        <label className="sr-only" htmlFor="transactions-date">
+                            Transaction date
+                        </label>
+                        <input
+                            id="transactions-date"
+                            type="date"
+                            value={dateInputValue}
+                            max={max_date}
+                            onChange={(e) => {
+                                if (e.target.value) {
+                                    navigateTransactions(filter_income_key, e.target.value);
+                                }
+                            }}
+                            className="min-h-[2.75rem] rounded-lg border border-[#38BDF8]/35 bg-[#0F172A]/85 px-3 py-2 text-sm font-medium text-slate-100 shadow-sm focus:border-[#38BDF8] focus:outline-none focus:ring-2 focus:ring-[#38BDF8]/30"
+                        />
+                        {!isToday && !isAllDates ? (
+                            <button
+                                type="button"
+                                onClick={() => navigateTransactions(filter_income_key, max_date)}
+                                className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-800 transition hover:bg-sky-100"
+                            >
+                                Today
+                            </button>
+                        ) : null}
+                        {!isAllDates ? (
+                            <button
+                                type="button"
+                                onClick={() => navigateTransactions(filter_income_key, 'all')}
+                                className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-100"
+                            >
+                                All
+                            </button>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={() => navigateTransactions(filter_income_key, max_date)}
+                                className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-800 transition hover:bg-sky-100"
+                            >
+                                Today
+                            </button>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -289,7 +318,7 @@ export default function Transactions({
                     value={formatUsd(displayTotal)}
                     hint={
                         filter_income_key
-                            ? `Lifetime all types: ${formatUsd(lifetimeTotal)}`
+                            ? `${filter_label ?? 'This section'} only`
                             : 'All ROI, referral, bonus and rewards combined'
                     }
                     icon="transactions"
@@ -309,6 +338,7 @@ export default function Transactions({
                     filter_date_label={filter_date_label}
                     max_date={todayDate}
                     filter_income_key={filter_income_key}
+                    filter_label={filter_label}
                     day_total_usd={day_total_usd}
                     rowCount={entries.length}
                 />
@@ -316,7 +346,7 @@ export default function Transactions({
                 <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3">
                     <p className="max-w-2xl text-xs leading-relaxed text-fintech-muted sm:text-sm">
                         {filter_label
-                            ? `Ledger for: ${filter_label}.`
+                            ? `${filter_label} · ${activeDate === 'all' ? 'All credits' : filter_date_label ?? 'Today'}.`
                             : activeDate === 'all'
                               ? 'All reward and wallet activity below.'
                               : `Activity for ${filter_date_label ?? 'selected day'}.`}
@@ -328,13 +358,13 @@ export default function Transactions({
 
                 {filter_income_key ? (
                     <p className="mb-3 text-xs sm:mb-4">
-                        <Link href={route('transactions')} className="font-semibold text-[#2563EB] hover:underline">
-                            ← Show all transactions
+                        <Link href={route('dashboard')} className="font-semibold text-[#2563EB] hover:underline">
+                            ← Dashboard
                         </Link>
                     </p>
                 ) : (
                     <p className="mb-3 text-xs text-fintech-muted sm:mb-4">
-                        Tap a reward type above to filter, or open Dashboard for summaries.
+                        Open a dashboard section to see that income type only.
                     </p>
                 )}
 
