@@ -214,11 +214,13 @@ export default function Investment({
             : Number(race_coin_price_usd) > 0
               ? Number(race_coin_price_usd)
               : 0;
-    /** Engine receives ~96% after 4% RACE transfer tax (unless fee-exempt). */
-    const raceReceivedEst = Number.isFinite(raceAmountNum) && raceAmountNum > 0 ? raceAmountNum * 0.96 : 0;
-    const racePrincipalUsdEst = pancakePrice > 0 ? raceReceivedEst * pancakePrice : 0;
+    /** Stake create: show full RACE × live price (no 4% fee cut in UI). */
+    const racePrincipalUsdEst =
+        pancakePrice > 0 && Number.isFinite(raceAmountNum) && raceAmountNum > 0
+            ? raceAmountNum * pancakePrice
+            : 0;
     const minRaceForOneUsd =
-        pancakePrice > 0 ? Math.ceil(((1 / pancakePrice) / 0.96) * 10000) / 10000 : null;
+        pancakePrice > 0 ? Math.ceil((1 / pancakePrice) * 10000) / 10000 : null;
     const amountValid = stakeWithWalletRace
         ? Number.isFinite(raceAmountNum) && raceAmountNum > 0
         : Number.isFinite(amountNum) && amountNum >= Number(builtForGrowth.min_amount_usd ?? 50);
@@ -471,7 +473,7 @@ export default function Investment({
                             </p>
                             <p className="mt-1 text-[11px] text-fintech-muted">
                                 Live RACE→USDT · Min stake ≈{' '}
-                                {minRaceForOneUsd != null ? `${minRaceForOneUsd} RACE` : '—'} (after 4% fee ≥ $1)
+                                {minRaceForOneUsd != null ? `${minRaceForOneUsd} RACE` : '—'} (≥ $1)
                             </p>
                         </PanelCard>
                     ) : null}
@@ -695,7 +697,7 @@ export default function Investment({
                                         />
                                         <p className="mt-1 text-xs text-fintech-muted">
                                             Wallet: {formatTokenWei(walletRaceBalance, 18, 4)} RACE · Est. principal ≈{' '}
-                                            {formatUsd(racePrincipalUsdEst)} after 4% fee (min{' '}
+                                            {formatUsd(racePrincipalUsdEst)} (min{' '}
                                             {formatUsd(onChainParticipation.min_usdt ?? '1')}).
                                         </p>
                                         {walletRaceBalance > 0n ? (
@@ -781,12 +783,7 @@ export default function Investment({
                                     <p className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
                                         Payment: <strong>{amountRace} RACE</strong> · Price{' '}
                                         <strong>{pancakePrice > 0 ? formatRacePriceUsd(pancakePrice) : '—'}</strong> ·
-                                        Est. after fee ≈ <strong>{formatUsd(racePrincipalUsdEst)}</strong>
-                                        {racePrincipalUsdEst > 0 && racePrincipalUsdEst < 1 ? (
-                                            <span className="mt-1 block text-amber-800">
-                                                Below $1 minimum — add more RACE or check live price.
-                                            </span>
-                                        ) : null}
+                                        Est. principal ≈ <strong>{formatUsd(racePrincipalUsdEst)}</strong>
                                     </p>
                                 ) : payWithRaceCoin ? (
                                     <p className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
