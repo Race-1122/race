@@ -20,10 +20,11 @@ import { useEffect, useState } from 'react';
 const USDT_NETWORK = 'BEP20 (BNB Smart Chain)';
 
 function formatUsdtBalance(n) {
+    const v = Number(n);
     const s = new Intl.NumberFormat(undefined, {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
-    }).format(Number.isFinite(n) ? n : 0);
+    }).format(Number.isFinite(v) ? v : 0);
     return `${s} USDT`;
 }
 
