@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\LedgerEntry;
 use App\Services\Blockchain\OnChainLevelIncomeRows;
 use App\Services\Income\CompoundTransactionRows;
+use App\Services\Income\IncomeClaimTransactionRows;
 use App\Support\IncomeCatalog;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -46,13 +47,12 @@ class LedgerController extends Controller
         }
 
         $dayTotalUsd = null;
-        if (! $showAllDates) {
-            $dayTotalUsd = number_format(
-                (float) ((clone $query)->takeHomeCredits()->sum('amount_usd') ?? 0),
-                2,
-                '.',
-                '',
-            );
+        if (! $showAllDates && $filterDate) {
+            $daySum = (float) ((clone $query)->takeHomeCredits()->sum('amount_usd') ?? 0);
+            if ($incomeKey === null || $incomeKey === 'participation_rewards') {
+                $daySum += app(IncomeClaimTransactionRows::class)->postedSumOnDate((int) $user->id, $filterDate);
+            }
+            $dayTotalUsd = number_format($daySum, 2, '.', '');
         }
 
         $entries = IncomeCatalog::formatLedgerRows(
@@ -81,11 +81,12 @@ class LedgerController extends Controller
             $raceIncome = $onChainLevel->totalsForUser($user);
         }
 
-        $includeCompounds = $incomeKey === null || $incomeKey === 'participation_rewards';
-        if ($includeCompounds) {
-            $entries = $entries->concat(
-                app(CompoundTransactionRows::class)->forUser($user, $showAllDates ? null : $filterDate),
-            );
+        $includeStakingWallet = $incomeKey === null || $incomeKey === 'participation_rewards';
+        if ($includeStakingWallet) {
+            $onDate = $showAllDates ? null : $filterDate;
+            $entries = $entries
+                ->concat(app(IncomeClaimTransactionRows::class)->forUser($user, $onDate))
+                ->concat(app(CompoundTransactionRows::class)->forUser($user, $onDate));
         }
 
         $entries = $entries

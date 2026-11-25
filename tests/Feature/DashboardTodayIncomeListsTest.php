@@ -223,6 +223,66 @@ class DashboardTodayIncomeListsTest extends TestCase
                 ->where('entries.1.id', 'compound-'.$yesterday->id));
     }
 
+    public function test_staking_reward_ledger_includes_virtual_daily_claims(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-11-22 09:00:00', 'Asia/Kolkata'));
+
+        $user = User::factory()->create();
+        $writer = app(LedgerWriter::class);
+
+        $oldLedger = $writer->record(
+            $user,
+            LedgerEntry::TYPE_ROI_DAILY,
+            '20.4461',
+            'investment',
+            21,
+            [],
+        );
+        $oldLedger->forceFill([
+            'created_at' => Carbon::parse('2026-11-17 09:41:00', 'Asia/Kolkata'),
+        ])->save();
+
+        $todayClaim = $this->postIncomeClaim($user, '1.2500');
+        $oldClaim = $this->postIncomeClaim($user, '0.5000');
+        $oldClaim->forceFill([
+            'created_at' => Carbon::parse('2026-11-21 22:30:00', 'Asia/Kolkata')
+                ->timezone(config('app.timezone')),
+        ])->save();
+
+        $writer->record(
+            $user,
+            LedgerEntry::TYPE_AFFILIATE_NETWORK_ROI,
+            '9.9900',
+            'investment',
+            2,
+            ['framework' => 'roi_sharing'],
+        );
+
+        $this->actingAs($user)
+            ->get(route('transactions', ['income' => 'participation_rewards', 'date' => 'all']))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Transactions')
+                ->where('filter_income_key', 'participation_rewards')
+                ->has('entries', 3)
+                ->where('entries.0.id', 'iwt-claim-'.$todayClaim->id)
+                ->where('entries.0.entry_type', IncomeWalletTransaction::TYPE_INCOME_CLAIM)
+                ->where('entries.0.amount_usd', '1.2500')
+                ->where('filtered_earnings_usd', '22.20'));
+
+        $this->actingAs($user)
+            ->get(route('transactions', [
+                'income' => 'participation_rewards',
+                'date' => Carbon::today()->toDateString(),
+            ]))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Transactions')
+                ->has('entries', 1)
+                ->where('entries.0.id', 'iwt-claim-'.$todayClaim->id)
+                ->where('day_total_usd', '1.25'));
+    }
+
     public function test_dashboard_shows_completed_withdrawal_totals(): void
     {
         $user = User::factory()->create();
@@ -261,6 +321,28 @@ class DashboardTodayIncomeListsTest extends TestCase
                 ->where('summary.total_withdrawn_usd', '14.56')
                 ->where('summary.total_withdrawn_race', '24.6706')
                 ->where('summary.total_withdrawn_count', 1));
+    }
+
+    private function postIncomeClaim(User $user, string $amount): IncomeWalletTransaction
+    {
+        return IncomeWalletTransaction::query()->create([
+            'user_id' => $user->id,
+            'wallet_address' => $user->wallet_address,
+            'type' => IncomeWalletTransaction::TYPE_INCOME_CLAIM,
+            'source_reference' => 'stake_mint_claim:test',
+            'amount' => $amount,
+            'balance_before_usd' => '0.0000',
+            'balance_after_usd' => $amount,
+            'asset' => 'USDT',
+            'direction' => IncomeWalletTransaction::DIRECTION_CREDIT,
+            'status' => IncomeWalletTransaction::STATUS_POSTED,
+            'idempotency_key' => 'test-claim-'.$user->id.'-'.$amount.'-'.uniqid(),
+            'metadata' => [
+                'stake_index' => 1,
+                'race_amount' => '2.000000',
+                'from_cron' => true,
+            ],
+        ]);
     }
 
     private function postCompound(User $user, string $amount): IncomeWalletTransaction

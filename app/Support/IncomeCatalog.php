@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Models\Investment;
 use App\Models\LedgerEntry;
 use App\Models\User;
+use App\Services\Income\IncomeClaimTransactionRows;
 use App\Support\RewardPlan;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -125,9 +126,18 @@ class IncomeCatalog
 
         self::applyIncomeKeyFilter($query, $incomeKey);
 
+        $sum = (float) ($query->sum('amount_usd') ?? 0);
+        $count = (int) (clone $query)->count();
+
+        if ($incomeKey === 'participation_rewards') {
+            $virtual = app(IncomeClaimTransactionRows::class)->postedTotals($userId);
+            $sum += $virtual['sum'];
+            $count += $virtual['count'];
+        }
+
         return [
-            'sum' => (float) ($query->sum('amount_usd') ?? 0),
-            'count' => (int) (clone $query)->count(),
+            'sum' => $sum,
+            'count' => $count,
         ];
     }
 
@@ -170,6 +180,12 @@ class IncomeCatalog
                         $count += (int) $row->cnt;
                     }
                 }
+            }
+
+            if ($key === 'participation_rewards') {
+                $virtual = app(IncomeClaimTransactionRows::class)->postedTotals($userId);
+                $sum += $virtual['sum'];
+                $count += $virtual['count'];
             }
 
             $summary[] = [
