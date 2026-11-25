@@ -356,6 +356,50 @@ class DashboardTodayIncomeListsTest extends TestCase
                 ->where('withdrawals.0.race_tx_url', 'https://bscscan.com/tx/0xabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabca'));
     }
 
+    public function test_total_reward_uses_wallet_earned_not_extra_ledger(): void
+    {
+        $user = User::factory()->create();
+        $this->postIncomeClaim($user, '50.0000');
+        IncomeWalletTransaction::query()->create([
+            'user_id' => $user->id,
+            'wallet_address' => $user->wallet_address,
+            'type' => IncomeWalletTransaction::TYPE_REFERRAL_INCOME,
+            'source_reference' => 'test:referral',
+            'amount' => '100.0000',
+            'balance_before_usd' => '50.0000',
+            'balance_after_usd' => '150.0000',
+            'asset' => 'USDT',
+            'direction' => IncomeWalletTransaction::DIRECTION_CREDIT,
+            'status' => IncomeWalletTransaction::STATUS_POSTED,
+            'idempotency_key' => 'test-referral-'.$user->id,
+            'metadata' => [],
+        ]);
+        LedgerEntry::query()->create([
+            'user_id' => $user->id,
+            'entry_type' => LedgerEntry::TYPE_COMMUNITY_LEADERSHIP_SKIP,
+            'amount_usd' => '6.7600',
+            'balance_after_usd' => '6.7600',
+            'reference_type' => 'test',
+            'reference_id' => 1,
+            'meta' => [],
+        ]);
+
+        $this->mock(RaceCoinService::class, function ($mock): void {
+            $mock->shouldReceive('currentBalance')->andReturn('0');
+            $mock->shouldReceive('priceUsd')->andReturn(0.55);
+            $mock->shouldReceive('formattedPriceUsd')->andReturn('0.5500');
+        });
+
+        $this->actingAs($user)
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Dashboard')
+                ->where('summary.total_income_usd', '150.00')
+                ->where('summary.income_buckets.other_usd', '100.00')
+                ->where('summary.income_buckets.daily_claim_usd', '50.00'));
+    }
+
     private function postIncomeClaim(User $user, string $amount): IncomeWalletTransaction
     {
         return IncomeWalletTransaction::query()->create([

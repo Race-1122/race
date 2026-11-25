@@ -261,6 +261,13 @@ class DashboardController extends Controller
             $incomeByType[$row->entry_type] = number_format($amount, 2, '.', '');
         }
 
+        // Dashboard Total Reward = actual wallet credits (Daily + Other). Skip extra ledger
+        // rows that never entered the withdrawable wallet (e.g. leadership skip).
+        $walletEarnedUsd = (float) ($incomeBuckets['daily_claim_earned_usd'] ?? 0)
+            + (float) ($incomeBuckets['other_earned_usd'] ?? 0);
+        $totalIncomeUsd = $walletEarnedUsd;
+        $lifetimeCredits = $walletEarnedUsd;
+
         $planIncome = IncomeCatalog::summarizeForUser($uid);
 
         [$todayStart, $todayEnd] = $this->todayWindowInClaimTz();

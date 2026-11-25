@@ -750,9 +750,7 @@ export default function Dashboard({
             title: 'Total reward earned',
             value: formatUsd(summary.total_income_usd ?? summary.lifetime_credits_usd),
             raceLine: raceEquivLabel(summary.total_income_usd ?? summary.lifetime_credits_usd, summary.race_coin_price_usd),
-            sub: summary.income_payout_count
-                ? `${summary.income_payout_count} payout(s) · ROI ${summary.income_pct?.roi ?? '+0.00%'}`
-                : (summary.income_pct?.roi ?? '+0.00% ROI window'),
+            sub: `${formatUsdt(summary.balance_usd)} remaining`,
             tintClass: 'bg-emerald-400/25',
             icon: (
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
