@@ -337,6 +337,32 @@ class DashboardTodayIncomeListsTest extends TestCase
                 ->where('day_total_usd', '1.25'));
     }
 
+    public function test_staking_today_includes_ist_0400_claims_stored_on_previous_utc_date(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-11-25 14:26:00', 'Asia/Kolkata'));
+
+        $user = User::factory()->create();
+        $claim = $this->postIncomeClaim($user, '20.4461');
+        $claim->forceFill([
+            'created_at' => Carbon::parse('2026-11-25 04:00:18', 'Asia/Kolkata')
+                ->timezone(config('app.timezone')),
+        ])->save();
+
+        $this->actingAs($user)
+            ->get(route('transactions', [
+                'income' => 'participation_rewards',
+                'date' => '2026-11-25',
+            ]))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Transactions')
+                ->where('filter_date_label', 'Today')
+                ->has('entries', 1)
+                ->where('entries.0.id', 'iwt-claim-'.$claim->id)
+                ->where('entries.0.amount_usd', '20.4461')
+                ->where('day_total_usd', '20.45'));
+    }
+
     public function test_dashboard_shows_completed_withdrawal_totals(): void
     {
         $user = User::factory()->create();

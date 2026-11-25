@@ -168,7 +168,7 @@ function DailyEarningCard({ amountUsd, count, dateLabel, dailyClaims, racePriceU
                         </p>
                         <p className="mt-0.5 text-xs text-slate-500">
                             {todayClaimCount > 0
-                                ? `${todayClaimCount} staking claim${todayClaimCount === 1 ? '' : 's'} · ≈ $${formatRace(claims.today_value_claim_usd ?? 0, 4)} at claim · ≈ $${formatRace(claims.today_value_now_usd ?? 0, 4)} at today's rate`
+                                ? `${todayClaimCount} staking claim${todayClaimCount === 1 ? '' : 's'} · ≈ ${formatRace(claims.today_value_now_usd ?? 0, 4)} USDT at today's rate · ≈ $${formatRace(claims.today_value_claim_usd ?? 0, 4)} at claim`
                                 : 'No staking claim yet today — appears after you claim or mint'}
                         </p>
                         {Number(claims.total_race ?? 0) > 0 ? (

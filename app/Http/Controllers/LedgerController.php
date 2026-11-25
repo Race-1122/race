@@ -35,22 +35,24 @@ class LedgerController extends Controller
         $dateParam = $request->string('date')->toString();
         $showAllDates = $dateParam === 'all' || $dateParam === '';
         $filterDate = null;
+        $rangeFrom = null;
+        $rangeTo = null;
         if (! $showAllDates) {
             try {
-                $filterDate = Carbon::parse($dateParam)->startOfDay();
+                [$rangeFrom, $rangeTo, $filterDate] = $this->dayRangeInClaimTz($dateParam);
             } catch (\Throwable) {
                 $showAllDates = true;
             }
-            if (! $showAllDates && $filterDate) {
-                $query->whereDate('created_at', $filterDate);
+            if (! $showAllDates && $rangeFrom && $rangeTo) {
+                $query->whereBetween('created_at', [$rangeFrom, $rangeTo]);
             }
         }
 
         $dayTotalUsd = null;
-        if (! $showAllDates && $filterDate) {
+        if (! $showAllDates && $rangeFrom && $rangeTo) {
             $daySum = (float) ((clone $query)->takeHomeCredits()->sum('amount_usd') ?? 0);
             if ($incomeKey === null || $incomeKey === 'participation_rewards') {
-                $daySum += app(IncomeClaimTransactionRows::class)->postedSumOnDate((int) $user->id, $filterDate);
+                $daySum += app(IncomeClaimTransactionRows::class)->postedSumBetween((int) $user->id, $rangeFrom, $rangeTo);
             }
             $dayTotalUsd = number_format($daySum, 2, '.', '');
         }
@@ -83,10 +85,15 @@ class LedgerController extends Controller
 
         $includeStakingWallet = $incomeKey === null || $incomeKey === 'participation_rewards';
         if ($includeStakingWallet) {
-            $onDate = $showAllDates ? null : $filterDate;
-            $entries = $entries
-                ->concat(app(IncomeClaimTransactionRows::class)->forUser($user, $onDate))
-                ->concat(app(CompoundTransactionRows::class)->forUser($user, $onDate));
+            if ($showAllDates) {
+                $entries = $entries
+                    ->concat(app(IncomeClaimTransactionRows::class)->forUser($user))
+                    ->concat(app(CompoundTransactionRows::class)->forUser($user));
+            } else {
+                $entries = $entries
+                    ->concat(app(IncomeClaimTransactionRows::class)->forUserBetween($user, $rangeFrom, $rangeTo))
+                    ->concat(app(CompoundTransactionRows::class)->forUserBetween($user, $rangeFrom, $rangeTo));
+            }
         }
 
         $entries = $entries
@@ -113,7 +120,7 @@ class LedgerController extends Controller
             $filteredEarningsUsd = number_format($scoped['sum'], 2, '.', '');
         }
 
-        $today = Carbon::today();
+        $istToday = now($this->claimTimezone())->startOfDay();
 
         return Inertia::render('Transactions', [
             'entries' => $entries,
@@ -121,13 +128,36 @@ class LedgerController extends Controller
             'filter_label' => $filterLabel,
             'total_earnings_usd' => $totalEarningsUsd,
             'filtered_earnings_usd' => $filteredEarningsUsd,
-            'filter_date' => $showAllDates ? 'all' : ($filterDate?->toDateString() ?? $today->toDateString()),
+            'filter_date' => $showAllDates ? 'all' : ($filterDate?->toDateString() ?? $istToday->toDateString()),
             'filter_date_label' => $showAllDates
                 ? 'All dates'
-                : ($filterDate?->isSameDay($today) ? 'Today' : $filterDate?->format('D, M j, Y')),
-            'max_date' => $today->toDateString(),
+                : ($filterDate && $filterDate->isSameDay($istToday) ? 'Today' : $filterDate?->format('D, M j, Y')),
+            'max_date' => $istToday->toDateString(),
             'day_total_usd' => $dayTotalUsd,
             'race_level_income' => $raceIncome,
         ]);
+    }
+
+    private function claimTimezone(): string
+    {
+        return (string) config('income.claim.timezone', 'Asia/Kolkata');
+    }
+
+    /**
+     * IST calendar day as [fromUtc, toUtc, istStart].
+     *
+     * @return array{0: Carbon, 1: Carbon, 2: Carbon}
+     */
+    private function dayRangeInClaimTz(string $ymd): array
+    {
+        $tz = $this->claimTimezone();
+        $appTz = (string) config('app.timezone', 'UTC');
+        $istDay = Carbon::parse($ymd, $tz)->startOfDay();
+
+        return [
+            $istDay->copy()->timezone($appTz),
+            $istDay->copy()->endOfDay()->timezone($appTz),
+            $istDay,
+        ];
     }
 }

@@ -271,15 +271,16 @@ class IncomeCatalog
         $earnedCount = collect($programs)->where('has_earned', true)->count();
 
         $mapped = array_map(static function (array $row) use ($userId) {
+            $istToday = now((string) config('income.claim.timezone', 'Asia/Kolkata'))->toDateString();
             $routeName = $row['route'] ?? 'dashboard';
             $href = $routeName === 'transactions'
-                ? route('transactions', ['income' => $row['key'], 'date' => now()->toDateString()])
+                ? route('transactions', ['income' => $row['key'], 'date' => $istToday])
                 : route($routeName);
 
             $enriched = [
                 ...$row,
                 'href' => $href,
-                'ledger_href' => route('transactions', ['income' => $row['key'], 'date' => now()->toDateString()]),
+                'ledger_href' => route('transactions', ['income' => $row['key'], 'date' => $istToday]),
             ];
 
             return $enriched;

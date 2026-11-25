@@ -27,6 +27,20 @@ class IncomeClaimTransactionRows
     }
 
     /**
+     * @return list<array<string, mixed>>
+     */
+    public function forUserBetween(User $user, Carbon $from, Carbon $to, int $limit = 200): array
+    {
+        return $this->mapRows(
+            $this->baseQuery($user->id)
+                ->whereBetween('created_at', [$from, $to])
+                ->latest('id')
+                ->limit($limit)
+                ->get(),
+        );
+    }
+
+    /**
      * @return array{sum: float, count: int}
      */
     public function postedTotals(int $userId): array
@@ -44,6 +58,14 @@ class IncomeClaimTransactionRows
         return (float) ($this->baseQuery($userId)
             ->where('direction', IncomeWalletTransaction::DIRECTION_CREDIT)
             ->whereDate('created_at', $onDate->toDateString())
+            ->sum('amount') ?? 0);
+    }
+
+    public function postedSumBetween(int $userId, Carbon $from, Carbon $to): float
+    {
+        return (float) ($this->baseQuery($userId)
+            ->where('direction', IncomeWalletTransaction::DIRECTION_CREDIT)
+            ->whereBetween('created_at', [$from, $to])
             ->sum('amount') ?? 0);
     }
 
