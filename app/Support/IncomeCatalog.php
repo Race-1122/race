@@ -246,6 +246,10 @@ class IncomeCatalog
             ->takeHomeCredits()
             ->sum('amount_usd') ?? 0);
 
+        // Daily staking claims live on income_wallet_transactions, not ledger_entries.
+        $virtual = app(IncomeClaimTransactionRows::class)->postedTotals($userId);
+        $sum += $virtual['sum'];
+
         return $memo[$userId] = number_format($sum, 2, '.', '');
     }
 
