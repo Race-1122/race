@@ -134,7 +134,7 @@ function IncomeTypeSection({ row, payouts, index, hubRow, totalSections, animate
     const recent = ledgerPayouts.slice(0, 5);
     const todayFromPayouts = ledgerPayouts.reduce((sum, p) => sum + Number(p.amount_usd || 0), 0);
     const todayUsd = isStaking
-        ? todayFromPayouts + Number(dailyClaims?.today_value_claim_usd || 0)
+        ? todayFromPayouts + Number(dailyClaims?.today_value_now_usd || 0)
         : todayFromPayouts;
     const raceLine = raceEquivLabel(row.amount_usd, racePriceUsd);
     const motionProps = animate

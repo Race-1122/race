@@ -480,19 +480,24 @@ class DashboardTodayIncomeListsTest extends TestCase
                 ->where('summary.income_buckets.daily_claim_usd', '50.00'));
     }
 
-    public function test_total_earnings_page_includes_daily_claim_income(): void
+    public function test_total_earnings_page_matches_wallet_total_reward(): void
     {
         $user = User::factory()->create();
-        $writer = app(LedgerWriter::class);
-        $writer->record(
-            $user,
-            LedgerEntry::TYPE_AFFILIATE_NETWORK_ROI,
-            '10.0000',
-            'investment',
-            1,
-            ['framework' => 'roi_sharing'],
-        );
         $this->postIncomeClaim($user, '27.5000');
+        IncomeWalletTransaction::query()->create([
+            'user_id' => $user->id,
+            'wallet_address' => $user->wallet_address,
+            'type' => IncomeWalletTransaction::TYPE_LEVEL_INCOME,
+            'source_reference' => 'test:level',
+            'amount' => '10.0000',
+            'balance_before_usd' => '27.5000',
+            'balance_after_usd' => '37.5000',
+            'asset' => 'USDT',
+            'direction' => IncomeWalletTransaction::DIRECTION_CREDIT,
+            'status' => IncomeWalletTransaction::STATUS_POSTED,
+            'idempotency_key' => 'test-level-'.$user->id,
+            'metadata' => [],
+        ]);
 
         $this->actingAs($user)
             ->get(route('transactions'))

@@ -6,6 +6,7 @@ use App\Models\Investment;
 use App\Models\LedgerEntry;
 use App\Models\User;
 use App\Services\Income\IncomeClaimTransactionRows;
+use App\Services\Income\WalletBalanceService;
 use App\Support\RewardPlan;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -240,15 +241,15 @@ class IncomeCatalog
             return $memo[$userId];
         }
 
-        $sum = (float) (LedgerEntry::query()
-            ->production()
-            ->where('user_id', $userId)
-            ->takeHomeCredits()
-            ->sum('amount_usd') ?? 0);
+        $user = User::query()->find($userId);
+        if (! $user) {
+            return $memo[$userId] = '0.00';
+        }
 
-        // Daily staking claims live on income_wallet_transactions, not ledger_entries.
-        $virtual = app(IncomeClaimTransactionRows::class)->postedTotals($userId);
-        $sum += $virtual['sum'];
+        // Same source as Dashboard "Total Reward Earned" (wallet credits, not ledger-only).
+        $buckets = app(WalletBalanceService::class)->incomeBuckets($user);
+        $sum = (float) ($buckets['daily_claim_earned_usd'] ?? 0)
+            + (float) ($buckets['other_earned_usd'] ?? 0);
 
         return $memo[$userId] = number_format($sum, 2, '.', '');
     }
