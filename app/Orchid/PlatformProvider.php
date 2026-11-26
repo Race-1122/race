@@ -108,6 +108,11 @@ class PlatformProvider extends OrchidServiceProvider
                 ->route('platform.data.income-minter-multisig')
                 ->permission('platform.data'),
 
+            Menu::make(__('Stake 4% fee exempt (Multisig)'))
+                ->icon('bs.shield-check')
+                ->route('platform.data.stake-fee-exempt-multisig')
+                ->permission('platform.data'),
+
             Menu::make(__('Withdrawals'))
                 ->icon('bs.cash-coin')
                 ->route('platform.data.withdrawals')

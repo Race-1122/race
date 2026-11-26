@@ -22,6 +22,21 @@ class RaceErc20Calldata
         return '0x'.$selector.$addr.$flag;
     }
 
+    /** RaceCoin.setFeeExempt(address,bool) — e.g. WalletRace stake contract. */
+    public static function setFeeExempt(string $account, bool $exempt = true): string
+    {
+        $account = strtolower(trim($account));
+        if (! preg_match('/^0x[a-f0-9]{40}$/', $account)) {
+            throw new \InvalidArgumentException('Invalid fee-exempt address.');
+        }
+
+        $selector = '8ebfc796'; // setFeeExempt(address,bool)
+        $addr = str_pad(substr($account, 2), 64, '0', STR_PAD_LEFT);
+        $flag = str_pad($exempt ? '1' : '0', 64, '0', STR_PAD_LEFT);
+
+        return '0x'.$selector.$addr.$flag;
+    }
+
     public static function transfer(string $to, string $amountWei): string
     {
         $to = strtolower(trim($to));
