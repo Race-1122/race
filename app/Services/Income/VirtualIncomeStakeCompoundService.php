@@ -44,6 +44,45 @@ class VirtualIncomeStakeCompoundService
         return number_format((float) $sum, 8, '.', '');
     }
 
+    /**
+     * Sum of pending overlay compound USDT on open Engine stakes (Dashboard Active package).
+     */
+    public function totalExtraPrincipalUsd(User $user): string
+    {
+        if (! Schema::hasTable('virtual_stake_compounds') || ! Schema::hasTable('blockchain_engine_stakes')) {
+            return '0.00';
+        }
+
+        $openIndexes = BlockchainEngineStake::query()
+            ->where('user_id', $user->id)
+            ->where('withdrawn', false)
+            ->where(function ($q) {
+                $q->whereNull('status')
+                    ->orWhere('status', '!=', BlockchainEngineStake::STATUS_WITHDRAWN);
+            })
+            ->pluck('stake_index')
+            ->map(static fn ($i) => (int) $i)
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($openIndexes === []) {
+            return '0.00';
+        }
+
+        $query = VirtualStakeCompound::query()
+            ->where('user_id', $user->id)
+            ->whereIn('stake_index', $openIndexes);
+        if (Schema::hasColumn('virtual_stake_compounds', 'status')) {
+            $query->where(function ($q) {
+                $q->where('status', VirtualStakeCompound::STATUS_PENDING)
+                    ->orWhereNull('status');
+            });
+        }
+
+        return number_format((float) ($query->sum('usdt_amount') ?? 0), 2, '.', '');
+    }
+
     public function extraRace(User $user, int $stakeIndex): string
     {
         if (! Schema::hasTable('virtual_stake_compounds')) {

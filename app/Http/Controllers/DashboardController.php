@@ -330,11 +330,15 @@ class DashboardController extends Controller
             $enginePrincipal = (float) (clone $openEngineStakes)->sum('principal_usdt');
             $engineCount = (int) (clone $openEngineStakes)->count();
 
-            if ($enginePrincipal > (float) $activePrincipalInvested) {
-                $activePrincipalInvested = number_format($enginePrincipal, 2, '.', '');
+            // Overlay compounds stay off-chain until withdraw — fold into Active package USDT.
+            $compoundExtra = (float) $compoundSvc->totalExtraPrincipalUsd($user);
+            $enginePrincipalWithCompound = $enginePrincipal + $compoundExtra;
+
+            if ($enginePrincipalWithCompound > (float) $activePrincipalInvested) {
+                $activePrincipalInvested = number_format($enginePrincipalWithCompound, 2, '.', '');
             }
-            if ($enginePrincipal > (float) $principalInvested) {
-                $principalInvested = number_format($enginePrincipal, 2, '.', '');
+            if ($enginePrincipalWithCompound > (float) $principalInvested) {
+                $principalInvested = number_format($enginePrincipalWithCompound, 2, '.', '');
             }
             if ($engineCount > $activeInvestments) {
                 $activeInvestments = $engineCount;

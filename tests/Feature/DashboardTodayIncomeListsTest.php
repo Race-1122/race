@@ -508,6 +508,50 @@ class DashboardTodayIncomeListsTest extends TestCase
                 ->where('total_earnings_usd', '37.50'));
     }
 
+    public function test_active_package_includes_overlay_compound_usdt(): void
+    {
+        $user = User::factory()->create([
+            'wallet_address' => '0x'.str_repeat('ab', 20),
+        ]);
+        \App\Models\BlockchainEngineStake::query()->create([
+            'user_id' => $user->id,
+            'wallet_address' => $user->wallet_address,
+            'stake_index' => 0,
+            'principal_usdt' => '100.000000000000000000',
+            'staked_race' => '200.000000000000000000',
+            'lock_seconds' => 15552000,
+            'daily_rate_bps' => 50,
+            'started_at' => now()->timestamp,
+            'unlock_at' => now()->addDays(180)->timestamp,
+            'source_type' => \App\Models\BlockchainEngineStake::SOURCE_ICO,
+            'withdrawn' => false,
+            'status' => 'active',
+            'tx_hash' => '0x'.str_repeat('1', 64),
+            'contract_address' => '0x'.str_repeat('2', 40),
+        ]);
+        \App\Models\VirtualStakeCompound::query()->create([
+            'user_id' => $user->id,
+            'stake_index' => 0,
+            'usdt_amount' => '25.2900',
+            'race_amount' => '40.00000000',
+            'race_price_usdt' => '0.63000000',
+            'status' => \App\Models\VirtualStakeCompound::STATUS_PENDING,
+        ]);
+
+        $this->mock(RaceCoinService::class, function ($mock): void {
+            $mock->shouldReceive('currentBalance')->andReturn('0');
+            $mock->shouldReceive('priceUsd')->andReturn(0.55);
+            $mock->shouldReceive('formattedPriceUsd')->andReturn('0.5500');
+        });
+
+        $this->actingAs($user)
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('Dashboard')
+                ->where('summary.active_principal_usd', '125.29'));
+    }
+
     private function postIncomeClaim(User $user, string $amount): IncomeWalletTransaction
     {
         return IncomeWalletTransaction::query()->create([
