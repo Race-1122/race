@@ -41,7 +41,7 @@ export default function Lending({ lending_access, positions = [], lending_enable
         <AuthenticatedLayout pageTitle="Lending" mobileFintechPageTitle="Lending">
             <Head title="Lending" />
             <MemberPageShell>
-                <MemberPageHero title="Lending" subtitle="Smart Lending & Smart Pro (on-chain)" />
+                <MemberPageHero title="Lending" subtitle="Smart Lending & Smart Pro" />
 
                 {blocked ? (
                     <MemberAlert variant="error" title="Lending ID blocked">

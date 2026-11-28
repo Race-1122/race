@@ -21,7 +21,7 @@ class IncomeAutoClaimCommand extends Command
         {--due-only : Only users whose manual claim cooldown has elapsed}
         {--dry-run : List users without writing}';
 
-    protected $description = 'Auto-claim accrued ROI into virtual income wallets (cron). Manual Claim button still works.';
+    protected $description = 'NOT SCHEDULED (claim is manual, 07:00–12:00 IST). Emergency/admin-only: credit accrued ROI into virtual income wallets.';
 
     public function handle(IncomeClaimService $claims): int
     {

@@ -4,9 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Models\Withdrawal;
 use App\Models\SiteSetting;
+use App\Services\Blockchain\RaceCoinDirectMintService;
+use App\Services\Blockchain\UsdtTransferVerifier;
 use App\Services\Income\IncomeAccrualService;
+use App\Services\Income\RaceCoinService;
 use App\Services\Income\WalletBalanceService;
 use App\Services\Income\WithdrawalService;
+use App\Support\BlockchainMode;
 use App\Support\RewardPlan;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -21,11 +25,28 @@ class WithdrawalController extends Controller
         $feeRules = RewardPlan::walletWithdrawalFeeRulesForUi();
         $incomePolicy = app(IncomeAccrualService::class)->summaryForUser($user, $wallets);
 
+        $raceMintOnWithdraw = app(RaceCoinDirectMintService::class)->enabled();
+
+        $explorer = BlockchainMode::effectiveChainId() === 97
+            ? 'https://testnet.bscscan.com'
+            : 'https://bscscan.com';
+
         $withdrawals = Withdrawal::query()
             ->where('user_id', $user->id)
             ->latest('id')
             ->limit(50)
-            ->get(['id', 'amount_usd', 'fee_usd', 'team_reward_usd', 'admin_fee_usd', 'net_usd', 'status', 'created_at'])
+            ->get([
+                'id',
+                'amount_usd',
+                'fee_usd',
+                'team_reward_usd',
+                'admin_fee_usd',
+                'net_usd',
+                'race_amount',
+                'race_tx_hash',
+                'status',
+                'created_at',
+            ])
             ->map(static fn (Withdrawal $w) => [
                 'id' => $w->id,
                 'amount_usd' => $w->amount_usd,
@@ -33,6 +54,9 @@ class WithdrawalController extends Controller
                 'team_reward_usd' => $w->teamRewardUsd(),
                 'admin_fee_usd' => $w->adminFeeUsd(),
                 'net_usd' => $w->net_usd,
+                'race_amount' => $w->race_amount,
+                'race_tx_hash' => $w->race_tx_hash,
+                'race_tx_url' => filled($w->race_tx_hash) ? $explorer.'/tx/'.$w->race_tx_hash : null,
                 'status' => $w->status,
                 'status_label' => Withdrawal::statusLabels()[$w->status] ?? ucfirst((string) $w->status),
                 'created_at' => $w->created_at?->toIso8601String(),
@@ -40,20 +64,29 @@ class WithdrawalController extends Controller
             ->values()
             ->all();
 
+        $buckets = $wallets->incomeBuckets($user);
+
         return Inertia::render('Withdrawal', [
             'race_level_income' => app(\App\Services\Blockchain\OnChainLevelIncomeRows::class)->totalsForUser($user),
-            'balance_usd' => $wallets->virtualIncomeBalance($user),
+            'balance_usd' => $buckets['total_usd'],
+            'income_buckets' => $buckets,
+            'stake_auto_claim_live' => SiteSetting::stakeMintClaimEnabled(),
             'income_policy' => $incomePolicy,
             'wallet_address' => $user->wallet_address,
             'withdrawal_fee' => $feeRules,
             'admin_wallet' => [
                 'address' => SiteSetting::treasuryAddress(),
                 'network' => SiteSetting::treasuryNetworkLabel(),
+                'usdt_contract' => app(UsdtTransferVerifier::class)->resolvedUsdtContract(),
+                'min_confirmations' => max(1, (int) config('wallet.deposit_min_confirmations', 12)),
+                'chain_id' => (int) config('blockchain.chain_id', 56),
             ],
             'withdrawals_disabled' => ! $user->canRequestWithdrawal(),
             'withdrawal_lock_message' => $user->withdrawalLockMessage(),
             'withdrawals_locked_until' => $user->withdrawals_locked_until?->toIso8601String(),
             'rate_limit' => $withdrawalService->rateLimitStatus($user),
+            'race_mint_on_withdraw' => $raceMintOnWithdraw,
+            'race_price_usd' => app(RaceCoinService::class)->formattedPriceUsd(8),
             'withdrawals' => $withdrawals,
         ]);
     }
@@ -63,6 +96,8 @@ class WithdrawalController extends Controller
         $validated = $request->validate([
             'amount_usd' => ['required', 'numeric', 'min:1', 'max:999999.99'],
             'destination_address' => ['required', 'string', 'min:10', 'max:255'],
+            'income_bucket' => ['required', 'string', 'in:daily_claim,other'],
+            'admin_fee_tx_hash' => ['nullable', 'string', 'regex:/^0x[a-fA-F0-9]{64}$/'],
         ]);
 
         try {
@@ -70,6 +105,10 @@ class WithdrawalController extends Controller
                 $request->user(),
                 (string) $validated['amount_usd'],
                 (string) $validated['destination_address'],
+                (string) $validated['income_bucket'],
+                isset($validated['admin_fee_tx_hash'])
+                    ? strtolower((string) $validated['admin_fee_tx_hash'])
+                    : null,
             );
         } catch (\Illuminate\Validation\ValidationException $e) {
             throw $e;
@@ -77,6 +116,17 @@ class WithdrawalController extends Controller
             report($e);
 
             return back()->with('error', __('Withdrawal could not be completed. Please try again.'));
+        }
+
+        if ($withdrawal->status === Withdrawal::STATUS_COMPLETED && filled($withdrawal->race_tx_hash)) {
+            return back()->with(
+                'status',
+                __('Admin Fee USDT received, Team Reward distributed, then :race RACE minted (tx :tx). Net :net USDT.', [
+                    'net' => number_format((float) $withdrawal->net_usd, 2),
+                    'race' => number_format((float) $withdrawal->race_amount, 4),
+                    'tx' => \Illuminate\Support\Str::limit((string) $withdrawal->race_tx_hash, 18, '…'),
+                ]),
+            );
         }
 
         return back()->with(

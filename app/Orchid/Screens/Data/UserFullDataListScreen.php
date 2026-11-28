@@ -9,11 +9,13 @@ use App\Models\User;
 use App\Orchid\Concerns\RequiresPlatformDataPermission;
 use App\Orchid\Layouts\Data\UserFullDataSearchLayout;
 use App\Orchid\Layouts\Data\UserFullDataSearchListLayout;
+use App\Services\Admin\AdminViewAsUserService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Orchid\Screen\Action;
+use Orchid\Support\Facades\Toast;
 use Orchid\Screen\Actions\Button;
 use Orchid\Screen\Actions\Link;
 use Orchid\Screen\Screen;
@@ -56,7 +58,7 @@ class UserFullDataListScreen extends Screen
 
     public function description(): ?string
     {
-        return __('Read-only member search across profile, member code, referral, and wallet identifiers.');
+        return __('Paste a wallet address (0x…) to open that member’s A–Z janamkundli: stakes, ICO, income sources, petrol/withdrawals and fees.');
     }
 
     /**
@@ -86,12 +88,33 @@ class UserFullDataListScreen extends Screen
 
     public function search(Request $request): RedirectResponse
     {
-        $search = trim((string) $request->input('search', ''));
+        $raw = $request->input('search', '');
+        if (is_array($raw)) {
+            $raw = $raw['search'] ?? reset($raw) ?: '';
+        }
+        $search = trim((string) $raw);
+
+        if (preg_match('/^0x[a-fA-F0-9]{40}$/', $search) === 1) {
+            $wallet = strtolower($search);
+            $user = User::query()->whereRaw('LOWER(wallet_address) = ?', [$wallet])->first();
+            if ($user) {
+                return redirect()->route('platform.data.user-full-data.show', $user->id);
+            }
+            Toast::warning(__('No member found for that wallet address.'));
+        }
 
         return redirect()->route(
             'platform.data.user-full-data',
             $search === '' ? [] : ['search' => $search],
         );
+    }
+
+    public function loginAsViewOnly(Request $request, AdminViewAsUserService $viewAs): RedirectResponse
+    {
+        $id = (int) ($request->input('id') ?? $request->input('user'));
+        $target = User::query()->findOrFail($id);
+
+        return $viewAs->enter($request->user(), $target);
     }
 
     private function applySearch(Builder $query, string $search): void

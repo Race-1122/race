@@ -1,11 +1,10 @@
 import PrimaryButton from '@/Components/PrimaryButton';
-import Web3NetworkBanner from '@/Components/Web3NetworkBanner';
 import PanelCard from '@/Components/PanelCard';
-import MemberPageHero from '@/Components/Member/MemberPageHero';
 import MemberPageShell from '@/Components/Member/MemberPageShell';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { useWalletNetwork } from '@/hooks/useWalletNetwork';
 import { linkWalletToAccount } from '@/lib/walletAccountLink';
+import { csrfHeaders } from '@/lib/csrf';
 import { parseTokenAmount } from '@/lib/web3Deposit';
 import {
     applySlippage,
@@ -42,6 +41,26 @@ function formatCoins(n) {
     }).format(v);
 }
 
+async function makeWholeBuy(txHash) {
+    const response = await fetch(route('swap.buy_make_whole'), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+            ...csrfHeaders(),
+        },
+        body: JSON.stringify({ tx_hash: txHash }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const firstError = payload.errors ? Object.values(payload.errors).flat()[0] : null;
+        throw new Error(firstError || payload.error || payload.message || 'Could not credit the full buy amount.');
+    }
+    return payload;
+}
+
 /**
  * On-chain swap via PancakeSwap Router (BSC).
  * Liquidity stays in the Pancake pair — no internal swap/stake contract.
@@ -54,7 +73,7 @@ export default function Swap({
         usdt_contract: '',
         pancake_router: '',
         block_explorer: 'https://bscscan.com',
-        slippage_bps: 100,
+        slippage_bps: 0,
         deadline_seconds: 1200,
     },
     raceCoin = {
@@ -72,7 +91,7 @@ export default function Swap({
     const router = (pancake.pancake_router || blockchain?.contracts?.pancake_router || '').trim();
     const rpcUrl = (pancake.rpc_url || blockchain?.rpc_url || '').trim();
     const explorer = pancake.block_explorer || 'https://bscscan.com';
-    const slippageBps = Number(pancake.slippage_bps ?? 100);
+    const slippageBps = Number(pancake.slippage_bps ?? 0);
     const deadlineSeconds = Number(pancake.deadline_seconds ?? 1200);
     const expectedChainId = Number(pancake.chain_id || blockchain?.chain_id || 56);
 
@@ -82,8 +101,6 @@ export default function Swap({
         networkError: networkSwitchError,
         switchNetwork,
         connectWallet: connectWalletOnNetwork,
-        connectedLabel,
-        switchButtonLabel,
     } = useWalletNetwork({ expectedChainId });
 
     const [connecting, setConnecting] = useState(false);
@@ -154,9 +171,7 @@ export default function Swap({
                     direction === 'sell' ? expectedNetAfterTransferTax(wei, RACE_TRANSFER_TAX_BPS) : wei;
                 const path = direction === 'buy' ? [usdtContract, raceToken] : [raceToken, usdtContract];
                 const out = await getSwapQuote({ router, path, amountIn: quoteIn, rpcUrl });
-                // Buy: wallet receives ~96% of router out (RACE tax on transfer from pair).
-                const displayOut =
-                    direction === 'buy' ? expectedNetAfterTransferTax(out, RACE_TRANSFER_TAX_BPS) : out;
+                const displayOut = out;
                 if (!cancelled) setQuoteOut(displayOut);
             } catch {
                 if (!cancelled) setQuoteOut(0n);
@@ -171,13 +186,14 @@ export default function Swap({
 
     const minOut = useMemo(() => applySlippage(quoteOut, slippageBps), [quoteOut, slippageBps]);
 
-    const canSwap =
-        Boolean(wallet) &&
-        configured &&
-        chainOk &&
-        Number(amountIn) > 0 &&
-        quoteOut > 0n &&
-        !swapStep;
+    const canSwap = !wallet
+        ? !connecting && !networkSwitching
+        : configured &&
+          Number(amountIn) > 0 &&
+          quoteOut > 0n &&
+          !swapStep &&
+          !connecting &&
+          !networkSwitching;
 
     const connectWallet = async () => {
         setWalletError(null);
@@ -207,11 +223,11 @@ export default function Swap({
         setLastTx('');
 
         if (!wallet) {
-            setSwapError('Connect your crypto wallet first.');
+            await connectWallet();
             return;
         }
         if (!configured) {
-            setSwapError('PancakeSwap router / RACE / USDT is not configured.');
+            setSwapError('Swap router / RACE / USDT is not configured.');
             return;
         }
         if (Number(amountIn) <= 0) {
@@ -239,11 +255,14 @@ export default function Swap({
                     : await sellRaceForUsdt({ ...common, amountRace: amountIn });
 
             setLastTx(txHash);
-            setSwapSuccess(
-                direction === 'buy'
-                    ? 'Swap complete — RACE is in your wallet (PancakeSwap pool).'
-                    : 'Swap complete — USDT is in your wallet (PancakeSwap pool).',
-            );
+
+            if (direction === 'buy') {
+                setSwapStep('make-whole');
+                await makeWholeBuy(txHash);
+                setSwapSuccess('Swap complete — full quoted RACE is in your wallet.');
+            } else {
+                setSwapSuccess('Swap complete — USDT is in your wallet.');
+            }
             setAmountIn('');
             setQuoteOut(0n);
         } catch (err) {
@@ -262,8 +281,10 @@ export default function Swap({
         swapStep === 'network'
             ? 'Switching to BNB Smart Chain…'
             : swapStep === 'approve'
-              ? 'Confirm approve + swap in your wallet (PancakeSwap)…'
-              : null;
+              ? 'Confirm approve + swap in your wallet…'
+              : swapStep === 'make-whole'
+                ? 'Crediting full quoted RACE to your wallet…'
+                : null;
 
     const payBalance = direction === 'buy' ? usdtBal : raceBal;
 
@@ -277,16 +298,6 @@ export default function Swap({
             <Head title="Swap" />
 
             <MemberPageShell contentClassName="space-y-5 sm:space-y-6">
-                <MemberPageHero
-                    kicker="PancakeSwap"
-                    title="Swap USDT ↔ RACE"
-                    variant="pdf"
-                    icon="wallet"
-                >
-                    Trade on PancakeSwap Router inside this app. Liquidity stays in the Pancake pair —
-                    no internal swap or stake contract.
-                </MemberPageHero>
-
                 <div className="grid gap-4 sm:grid-cols-2">
                     <div className="rounded-2xl border border-violet-200/80 bg-gradient-to-br from-white to-violet-50/80 px-4 py-4 shadow-sm">
                         <p className="text-xs font-bold uppercase tracking-wide text-fintech-muted">
@@ -306,43 +317,12 @@ export default function Swap({
                         <p className="mt-1 font-mono text-2xl font-bold text-sky-700">
                             {formatTokenWei(usdtBal, 18, 2)} USDT
                         </p>
-                        <p className="mt-1 text-xs text-fintech-muted">BEP-20 · PancakeSwap route</p>
+                        <p className="mt-1 text-xs text-fintech-muted">BEP-20 · live route</p>
                     </div>
                 </div>
 
-                <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
-                    <PanelCard title="1 · Connect wallet" icon="wallet">
-                        <p className="mb-4 text-sm text-fintech-muted">
-                            Connect on BNB Smart Chain. Swaps call the official PancakeSwap Router.
-                        </p>
-                        {wallet ? (
-                            <div className="space-y-3">
-                                <Web3NetworkBanner
-                                    chainOk={chainOk}
-                                    connectedLabel={connectedLabel}
-                                    switchButtonLabel={switchButtonLabel}
-                                    switching={networkSwitching}
-                                    networkError={networkSwitchError}
-                                    onSwitch={switchNetwork}
-                                />
-                                <p className="break-all font-mono text-sm font-medium text-fintech-ink">
-                                    {wallet}
-                                </p>
-                            </div>
-                        ) : (
-                            <PrimaryButton
-                                type="button"
-                                className="w-full justify-center py-3 normal-case"
-                                disabled={connecting || networkSwitching}
-                                onClick={connectWallet}
-                            >
-                                {connecting || networkSwitching ? 'Opening wallet…' : 'Connect wallet'}
-                            </PrimaryButton>
-                        )}
-                        {walletError && <p className="mt-3 text-sm text-red-400">{walletError}</p>}
-                    </PanelCard>
-
-                    <PanelCard title="2 · PancakeSwap" icon="wallet">
+                <div>
+                    <PanelCard title="Swap" icon="wallet">
                         {!configured ? (
                             <p className="text-sm text-amber-600">
                                 Router / RACE / USDT addresses missing. Set PANCAKE_ROUTER, RACE_TOKEN_CONTRACT,
@@ -423,7 +403,7 @@ export default function Swap({
 
                                 <div className="rounded-2xl border border-violet-400/30 bg-violet-500/10 p-4">
                                     <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                                        You receive (Pancake quote)
+                                        You receive (quote)
                                     </span>
                                     <div className="mt-2 flex items-center gap-3">
                                         <span className="w-full truncate text-3xl font-bold text-violet-200">
@@ -438,7 +418,7 @@ export default function Swap({
                                 <div className="mt-1 space-y-1 rounded-xl border border-white/5 bg-white/5 px-3 py-2 text-xs text-slate-300">
                                     <div className="flex justify-between">
                                         <span className="text-slate-400">
-                                            Min received (4% tax + {slippageBps / 100}% slip)
+                                            {direction === 'sell' ? 'Min received (4% sell tax)' : 'Min received'}
                                         </span>
                                         <span className="font-medium">
                                             {minOut > 0n ? formatTokenWei(minOut, 18, 4) : '—'} {receiveSymbol}
@@ -462,19 +442,24 @@ export default function Swap({
                                     className="mt-2 w-full justify-center rounded-2xl border-violet-500 bg-violet-600 py-3.5 text-base font-bold text-white hover:bg-violet-500 focus:ring-violet-400"
                                     disabled={!canSwap}
                                 >
-                                    {swapStep
-                                        ? swapStepLabel
-                                        : !wallet
-                                          ? 'Connect wallet to swap'
-                                          : `Swap on PancakeSwap`}
+                                    {connecting || networkSwitching
+                                        ? 'Opening wallet…'
+                                        : swapStep
+                                          ? swapStepLabel
+                                          : !wallet
+                                            ? 'Connect wallet to swap'
+                                            : 'Swap'}
                                 </PrimaryButton>
 
                                 <p className="pt-1 text-center text-[11px] text-slate-400">
-                                    On-chain via PancakeSwap · LP stays on Pancake · RACE 4% transfer tax may apply
+                                    Live swap · LP stays in the pool · RACE 4% transfer tax may apply
                                 </p>
                             </form>
                         )}
 
+                        {(walletError || networkSwitchError) && (
+                            <p className="mt-3 text-sm text-red-400">{walletError || networkSwitchError}</p>
+                        )}
                         {swapError && <p className="mt-3 text-sm text-red-500">{swapError}</p>}
                         {swapSuccess && <p className="mt-3 text-sm text-emerald-600">{swapSuccess}</p>}
                         {lastTx && (
@@ -493,11 +478,11 @@ export default function Swap({
                 </div>
 
                 {!raceCoin.id_active && (
-                    <PanelCard title="Member ID (virtual Race Coin balance)" icon="investment">
+                    <PanelCard title="Member ID (Race Coin balance)" icon="investment">
                         <p className="mb-4 text-sm text-fintech-muted">
-                            Optional: activate member ID using the older virtual Race Coin ledger (
+                            Optional: activate member ID using the Race Coin ledger (
                             {formatCoins(raceCoin.id_activation_coins)} RC / {formatUsd(raceCoin.id_activation_usd)}).
-                            Pancake swaps credit your wallet BEP-20 RACE, not this virtual balance.
+                            Swaps credit your wallet BEP-20 RACE, not this ledger balance.
                         </p>
                         <form onSubmit={activateId}>
                             <PrimaryButton
@@ -511,7 +496,7 @@ export default function Swap({
                             </PrimaryButton>
                         </form>
                         <p className="mt-3 text-xs text-fintech-muted">
-                            Virtual balance: {formatCoins(raceCoin.balance)} RC
+                            Balance: {formatCoins(raceCoin.balance)} RC
                         </p>
                     </PanelCard>
                 )}

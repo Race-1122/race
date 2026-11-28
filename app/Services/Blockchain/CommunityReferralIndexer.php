@@ -151,9 +151,7 @@ class CommunityReferralIndexer
             return '0';
         }
 
-        return function_exists('gmp_init')
-            ? gmp_strval(gmp_init($hex, 16), 10)
-            : (string) hexdec($hex);
+        return \App\Support\Hex::wordToDecimal($hex);
     }
 
     private function weiToToken(string $wei): string

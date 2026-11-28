@@ -41,13 +41,10 @@ import {
 } from '@/lib/web3RaceICO';
 import {
     claimOnChainMaturityEmi,
-    claimOnChainReward,
-    claimPolicyMessage,
     compoundOnChainReward,
     friendlyEngineError,
     matureOnChainStake,
     readAllOnChainStakes,
-    readClaimPolicyState,
     withdrawOnChainStake,
 } from '@/lib/web3Engine';
 import { syncParticipationTx } from '@/lib/web3Participation';
@@ -286,29 +283,6 @@ export default function Isu({
     const [liveStakePrice, setLiveStakePrice] = useState(0n);
     const [stakes, setStakes] = useState([]);
     const [loadingChain, setLoadingChain] = useState(false);
-    const [claimEnabledOnChain, setClaimEnabledOnChain] = useState(false);
-    const [canClaimRewards, setCanClaimRewards] = useState(false);
-    const [nextAllowedClaimAt, setNextAllowedClaimAt] = useState(0);
-    const [claimPolicySupported, setClaimPolicySupported] = useState(false);
-    const [claimTick, setClaimTick] = useState(0);
-
-    useEffect(() => {
-        const timer = setInterval(() => setClaimTick((t) => t + 1), 1000);
-        return () => clearInterval(timer);
-    }, []);
-
-    const claimStatusMessage = useMemo(
-        () =>
-            claimPolicyMessage({
-                icoCompleted,
-                claimEnabled: claimEnabledOnChain,
-                canClaim: canClaimRewards,
-                nextAllowedAt: nextAllowedClaimAt,
-                supported: claimPolicySupported,
-            }),
-        [icoCompleted, claimEnabledOnChain, canClaimRewards, nextAllowedClaimAt, claimPolicySupported, claimTick],
-    );
-
     const selectedPlan = useMemo(
         () =>
             stakePlans.find((p) => String(p.id ?? p.days) === String(planId)) ||
@@ -427,22 +401,6 @@ export default function Isu({
                 } catch (historyErr) {
                     console.warn('ICO purchase history:', historyErr?.message || historyErr);
                 }
-                try {
-                    const policy = await readClaimPolicyState({
-                        walletAddress,
-                        engineContract,
-                        rpcUrl,
-                    });
-                    setClaimPolicySupported(Boolean(policy.supported));
-                    setClaimEnabledOnChain(Boolean(policy.claimEnabled));
-                    setCanClaimRewards(Boolean(policy.canClaim));
-                    setNextAllowedClaimAt(Number(policy.nextAllowedAt) || 0);
-                } catch {
-                    setClaimPolicySupported(false);
-                    setClaimEnabledOnChain(false);
-                    setCanClaimRewards(false);
-                    setNextAllowedClaimAt(0);
-                }
                 if (engineContract) {
                     let onChainStakes = [];
                     try {
@@ -532,6 +490,12 @@ export default function Isu({
             const target =
                 document.getElementById('ico-buy-more') || document.getElementById('ico-buy');
             target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+    }, []);
+
+    const scrollToCreateStake = useCallback(() => {
+        requestAnimationFrame(() => {
+            document.getElementById('ico-create-stake')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
     }, []);
 
@@ -811,7 +775,7 @@ export default function Isu({
                           rpcUrl,
                       });
 
-            const liveLabel = liveStakePrice > 0n ? `$${formatUsdPriceFromWei(liveStakePrice)}` : 'live Pancake price';
+            const liveLabel = liveStakePrice > 0n ? `$${formatUsdPriceFromWei(liveStakePrice)}` : 'live market price';
             showIcoSuccess(
                 `Stake created at ${liveLabel}. Level income and ROI on this stake use that locked price. Claim from next day. Tx ${txHash.slice(0, 10)}…`,
             );
@@ -1060,6 +1024,16 @@ export default function Isu({
                     loading={loadingChain}
                     canBuyNow={contractsReady && !icoCompleted}
                     onBuy={scrollToBuy}
+                    hasHeldUnstaked={hasHeldPosition}
+                    onCreateStake={
+                        icoCompleted && hasHeldPosition
+                            ? () => {
+                                  scrollToCreateStake();
+                                  onCreateStake(null);
+                              }
+                            : scrollToCreateStake
+                    }
+                    createStakeBusy={busy === 'create-all' || busy === 'register'}
                 />
 
                 <div id="ico-buy" className="mt-6 grid scroll-mt-24 gap-6 lg:grid-cols-2">
@@ -1123,7 +1097,10 @@ export default function Isu({
                                         </div>
                                     ) : null}
 
-                                    <div className="rounded-xl border border-amber-400/30 bg-amber-950/20 p-3">
+                                    <div
+                                        id="ico-create-stake"
+                                        className="scroll-mt-24 rounded-xl border border-amber-400/30 bg-amber-950/20 p-3"
+                                    >
                                         <p className="text-xs font-bold uppercase tracking-wide text-amber-200">
                                             Activate stake after ICO
                                         </p>
@@ -1132,7 +1109,7 @@ export default function Isu({
                                         </p>
                                         <p className="mt-1 text-sm text-slate-300">
                                             {icoCompleted
-                                                ? `ICO is complete. Create Your Stake uses the live PancakeSwap price${
+                                                ? `ICO is complete. Create Your Stake uses the live market price${
                                                       liveStakePrice > 0n
                                                           ? ` (now $${formatUsdPriceFromWei(liveStakePrice)})`
                                                           : ''
@@ -1186,12 +1163,6 @@ export default function Isu({
                     </PanelCard>
 
                     <PanelCard title="Your staking positions">
-                        <p className="mb-3 text-xs text-slate-500">
-                            Claimed income stays in hold. Open Income wallet to bring it to your wallet.
-                        </p>
-                        <p className="mb-3 rounded-lg border border-slate-700/80 bg-slate-900/40 px-3 py-2 text-xs text-slate-200">
-                            {claimStatusMessage}
-                        </p>
                         {!engineContract ? (
                             <p className="text-sm text-amber-200">
                                 CommunityEngine not loaded — check mainnet config (
@@ -1227,14 +1198,6 @@ export default function Isu({
                                           : 'Locked';
                                     const dailyPct = (Number(stake.dailyRateBps || 0) / 100).toFixed(2);
                                     const stakeBusy = busy === `stake-${stake.index}`;
-                                    const claimableReward = stake.pendingRewardRace || 0n;
-                                    const claimAllowed =
-                                        !withdrawn &&
-                                        icoCompleted &&
-                                        claimableReward > 0n &&
-                                        (claimPolicySupported
-                                            ? claimEnabledOnChain && canClaimRewards
-                                            : true);
 
                                     return (
                                         <div
@@ -1270,44 +1233,7 @@ export default function Isu({
                                                 }
                                             />
                                             <InfoRow label="Lock" value={lockDisplay} />
-                                            <InfoRow
-                                                label="Claimable → income hold"
-                                                value={`${formatTokenWei(stake.pendingRewardRace || 0n, 18, 6)} RACE`}
-                                            />
                                             <div className="mt-3 flex flex-wrap gap-2">
-                                                <PrimaryButton
-                                                    type="button"
-                                                    disabled={
-                                                        !claimAllowed || stakeBusy || busy !== ''
-                                                    }
-                                                    onClick={async () => {
-                                                        setBusy(`stake-${stake.index}`);
-                                                        setError('');
-                                                        try {
-                                                            const txHash = await claimOnChainReward({
-                                                                walletAddress,
-                                                                engineContract,
-                                                                stakeIndex: stake.index,
-                                                            });
-                                                            try {
-                                                                await syncBlockchainTx({ txHash });
-                                                            } catch (syncErr) {
-                                                                console.warn(
-                                                                    'claim sync-tx:',
-                                                                    syncErr?.message || syncErr,
-                                                                );
-                                                            }
-                                                            await refreshChainState();
-                                                        } catch (err) {
-                                                            setError(friendlyEngineError(err));
-                                                            notifyError(friendlyEngineError(err), 'Stake');
-                                                        } finally {
-                                                            setBusy('');
-                                                        }
-                                                    }}
-                                                >
-                                                    Claim
-                                                </PrimaryButton>
                                                 <Link
                                                     href={route('withdrawal')}
                                                     className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-700"
@@ -1517,7 +1443,7 @@ export default function Isu({
 
                     <PanelCard title="Purchase history">
                         <p className="mb-3 text-xs text-slate-500">
-                            On-chain purchases. Held = in ICO contract until you Create Your Stake after ICO ends.
+                            ICO purchases. Held = in ICO contract until you Create Your Stake after ICO ends.
                         </p>
                         {historyRows.length === 0 ? (
                             <p className="rx-empty">No purchases yet.</p>

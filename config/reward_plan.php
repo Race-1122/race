@@ -76,8 +76,9 @@ return [
     |--------------------------------------------------------------------------
     | ROI Sharing Framework — Level 1 (direct) only
     |--------------------------------------------------------------------------
-    | When a direct earns daily staking ROI, their sponsor gets up to 10% of that ROI.
-    | Unlimited directs (no cap on how many directs). Paid by income:pay-roi cron.
+    | Direct's flagged staking ROI → sponsor gets up to 10% (L1 only).
+    | Unlimited directs. Paid daily at 05:00 IST (income:pay-roi-sharing) and also on claim.
+    | Not by the income:pay-roi accrual cron. Each flagged unit is shared at most once.
     | Not L2–L10. Separate from Community Leadership ranks.
     */
     'roi_sharing' => [
@@ -162,8 +163,10 @@ return [
     | Official path: Laravel WithdrawalService (earned income ledger → BEP20 USDT).
     | TWO SEPARATE deductions from gross:
     |   A) Team Reward = 10% of gross → L1–L10 (unqualified → admin ledger remainder)
-    |   B) Admin Fee  = $1 flat if gross < 100; else 1% of gross → Admin/Treasury
-    | Net = gross − team_reward − admin_fee.
+    |   B) Admin Fee  = $1 flat if gross < 100; else 2% of gross → Admin/Treasury
+    | Fee-first (RACE mint on withdraw): Admin Fee paid as USDT on-chain; income net =
+    |   gross − team_reward only (admin not subtracted again from income).
+    | Legacy pending path (no mint): Net = gross − team_reward − admin_fee.
     | NOT applied to: fixed maturity RaceTreasury fee, on-chain EMI claim, Flexible Engine exit,
     | ROI claim, compound, ICO. Flexible on-chain exit still uses Engine RACE team rewards.
     */
@@ -178,7 +181,7 @@ return [
                 'flat_usd' => 1.0,
                 /** Gross below this threshold uses flat_usd; at/above uses percent. */
                 'percent_from_usd' => 100.0,
-                'percent' => 1.0,
+                'percent' => 2.0,
             ],
         ],
         'withdrawal_fee_percent' => 10.0,

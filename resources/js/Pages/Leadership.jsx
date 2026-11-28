@@ -103,7 +103,7 @@ export default function Leadership(props) {
                 >
                     {blockchain?.blockchain_only ? (
                         <span className="mt-2 block text-xs text-sky-200/90">
-                            On-chain: ranks and RACE payouts are handled by RaceCommunityEngine. This page is read-only.
+                            Ranks and RACE payouts are handled by RaceCommunityEngine. This page is read-only.
                         </span>
                     ) : null}
                 </MemberPageHero>

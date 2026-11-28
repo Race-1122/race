@@ -5,6 +5,8 @@ namespace App\Support;
 use App\Models\Investment;
 use App\Models\LedgerEntry;
 use App\Models\User;
+use App\Services\Income\IncomeClaimTransactionRows;
+use App\Services\Income\WalletBalanceService;
 use App\Support\RewardPlan;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -56,7 +58,13 @@ class IncomeCatalog
             LedgerEntry::TYPE_STAKE_UNLOCK_ADMIN_FEE => 'Stake unlock admin fee',
             LedgerEntry::TYPE_STAKE_UNLOCK_EMI => 'Stake unlock EMI',
             LedgerEntry::TYPE_COMPOUND_REINVEST => 'Daily compound',
+            'compound' => 'Compound',
+            'compound_refund' => 'Compound refund',
             LedgerEntry::TYPE_INVESTMENT_DEBIT => 'Investment',
+            LedgerEntry::TYPE_ROI_ACCRUAL => 'Staking ROI accrual',
+            LedgerEntry::TYPE_INCOME_CLAIM => 'Staking reward claim',
+            LedgerEntry::TYPE_ROI_DAILY => 'Daily staking ROI',
+            LedgerEntry::TYPE_ROI_MONTHLY => 'Monthly staking ROI',
         ];
 
         foreach (self::items() as $item) {
@@ -100,7 +108,11 @@ class IncomeCatalog
         $types = self::typesForKey($incomeKey);
         if ($types !== []) {
             $query->whereIn('entry_type', $types);
+
+            return;
         }
+
+        $query->whereRaw('0 = 1');
     }
 
     /**
@@ -111,13 +123,22 @@ class IncomeCatalog
         $query = LedgerEntry::query()
             ->production()
             ->where('user_id', $userId)
-            ->where('amount_usd', '>', 0);
+            ->takeHomeCredits();
 
         self::applyIncomeKeyFilter($query, $incomeKey);
 
+        $sum = (float) ($query->sum('amount_usd') ?? 0);
+        $count = (int) (clone $query)->count();
+
+        if ($incomeKey === 'participation_rewards') {
+            $virtual = app(IncomeClaimTransactionRows::class)->postedTotals($userId);
+            $sum += $virtual['sum'];
+            $count += $virtual['count'];
+        }
+
         return [
-            'sum' => (float) ($query->sum('amount_usd') ?? 0),
-            'count' => (int) (clone $query)->count(),
+            'sum' => $sum,
+            'count' => $count,
         ];
     }
 
@@ -132,8 +153,7 @@ class IncomeCatalog
         $totals = LedgerEntry::query()
             ->production()
             ->where('user_id', $userId)
-            ->where('amount_usd', '>', 0)
-            ->where('entry_type', '!=', LedgerEntry::TYPE_WALLET_DEPOSIT)
+            ->takeHomeCredits()
             ->selectRaw('entry_type, SUM(amount_usd) as total, COUNT(*) as cnt')
             ->groupBy('entry_type')
             ->get()
@@ -161,6 +181,12 @@ class IncomeCatalog
                         $count += (int) $row->cnt;
                     }
                 }
+            }
+
+            if ($key === 'participation_rewards') {
+                $virtual = app(IncomeClaimTransactionRows::class)->postedTotals($userId);
+                $sum += $virtual['sum'];
+                $count += $virtual['count'];
             }
 
             $summary[] = [
@@ -215,12 +241,15 @@ class IncomeCatalog
             return $memo[$userId];
         }
 
-        $sum = (float) (LedgerEntry::query()
-            ->production()
-            ->where('user_id', $userId)
-            ->where('amount_usd', '>', 0)
-            ->where('entry_type', '!=', LedgerEntry::TYPE_WALLET_DEPOSIT)
-            ->sum('amount_usd') ?? 0);
+        $user = User::query()->find($userId);
+        if (! $user) {
+            return $memo[$userId] = '0.00';
+        }
+
+        // Same source as Dashboard "Total Reward Earned" (wallet credits, not ledger-only).
+        $buckets = app(WalletBalanceService::class)->incomeBuckets($user);
+        $sum = (float) ($buckets['daily_claim_earned_usd'] ?? 0)
+            + (float) ($buckets['other_earned_usd'] ?? 0);
 
         return $memo[$userId] = number_format($sum, 2, '.', '');
     }
@@ -247,15 +276,16 @@ class IncomeCatalog
         $earnedCount = collect($programs)->where('has_earned', true)->count();
 
         $mapped = array_map(static function (array $row) use ($userId) {
+            $istToday = now((string) config('income.claim.timezone', 'Asia/Kolkata'))->toDateString();
             $routeName = $row['route'] ?? 'dashboard';
             $href = $routeName === 'transactions'
-                ? route('transactions', ['income' => $row['key']])
+                ? route('transactions', ['income' => $row['key'], 'date' => $istToday])
                 : route($routeName);
 
             $enriched = [
                 ...$row,
                 'href' => $href,
-                'ledger_href' => route('transactions', ['income' => $row['key']]),
+                'ledger_href' => route('transactions', ['income' => $row['key'], 'date' => $istToday]),
             ];
 
             return $enriched;
@@ -278,6 +308,7 @@ class IncomeCatalog
         $query = LedgerEntry::query()
             ->production()
             ->where('user_id', $userId)
+            ->whereNotIn('entry_type', [LedgerEntry::TYPE_ROI_ACCRUAL])
             ->latest('id');
 
         if ($incomeKey) {

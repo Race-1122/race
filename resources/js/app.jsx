@@ -55,6 +55,11 @@ router.on('invalid', (event) => {
 });
 
 let hadAuthenticatedUser = false;
+let adminViewOnly = false;
+
+function rememberAdminViewOnly(page) {
+    adminViewOnly = Boolean(page?.props?.adminViewOnly);
+}
 
 function onAuthenticatedSessionEnded() {
     clearWalletSession();
@@ -65,19 +70,29 @@ function onAuthenticatedSessionEnded() {
 router.on('before', (event) => {
     const visit = event.detail?.visit;
     const url = String(visit?.url || '');
+    const method = String(visit?.method || 'get').toLowerCase();
     if (visit?.method === 'post' && /\/logout(?:\?|$)/.test(url)) {
         onAuthenticatedSessionEnded();
+    }
+    if (
+        adminViewOnly &&
+        method !== 'get' &&
+        !/admin-view-as\/exit/.test(url) &&
+        !/\/logout(?:\?|$)/.test(url)
+    ) {
+        event.preventDefault();
     }
 });
 
 router.on('success', (event) => {
+    rememberAdminViewOnly(event.detail.page);
     syncWeb3NetworkFromPage(event.detail.page);
     const user = event.detail.page?.props?.auth?.user;
     if (hadAuthenticatedUser && !user) {
         onAuthenticatedSessionEnded();
     }
     hadAuthenticatedUser = Boolean(user);
-    if (user?.wallet_address) {
+    if (user?.wallet_address && !adminViewOnly) {
         rememberBoundAddress(user.wallet_address);
         restorePersistedProvider();
     }
@@ -105,9 +120,10 @@ createInertiaApp({
             import.meta.glob('./Pages/**/*.jsx'),
         ),
     setup({ el, App, props }) {
+        rememberAdminViewOnly(props.initialPage);
         syncWeb3NetworkFromPage(props.initialPage);
         hadAuthenticatedUser = Boolean(props.initialPage?.props?.auth?.user);
-        if (hadAuthenticatedUser) {
+        if (hadAuthenticatedUser && !adminViewOnly) {
             restorePersistedProvider();
         }
         const root = createRoot(el);

@@ -33,6 +33,18 @@ class BlockchainTxSyncController extends Controller
             ], 422);
         }
 
+        // Stake created → Member ID active right now (does not wait for cron / event cache).
+        $idActivated = false;
+        try {
+            $idActivated = $ingest->activateUserFromStakeTx($request->user(), $txHash);
+        } catch (\Throwable $e) {
+            Log::warning('blockchain sync-tx stake activation failed', [
+                'tx' => $txHash,
+                'user_id' => $request->user()?->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
         $participation = null;
         $participationError = null;
         try {
@@ -60,6 +72,7 @@ class BlockchainTxSyncController extends Controller
             'tx_hash' => $txHash,
             'events_indexed' => $result['events_indexed'],
             'event_names' => $result['event_names'],
+            'id_activated' => $idActivated,
             'participation' => $participation,
             'participation_note' => $participationError,
         ]);

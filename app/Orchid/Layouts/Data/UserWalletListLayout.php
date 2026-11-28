@@ -31,6 +31,8 @@ class UserWalletListLayout extends AdminVipTable
                 )),
             TD::make('balance_usd', __('Balance'))->sort()->align(TD::ALIGN_RIGHT)
                 ->render(fn (UserWallet $r) => AdminTable::money($r->balance_usd)),
+            TD::make('virtual_balance_usd', __('Virtual income'))->sort()->align(TD::ALIGN_RIGHT)
+                ->render(fn (UserWallet $r) => AdminTable::money($r->virtual_balance_usd ?? 0)),
             TD::make('race_coin_balance', __('Race Coin'))->sort()->align(TD::ALIGN_RIGHT)
                 ->render(fn (UserWallet $r) => AdminTable::text(
                     number_format((float) ($r->race_coin_balance ?? 0), 4, '.', ',').' RC',

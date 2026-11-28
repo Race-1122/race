@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\RaceCoinSwap;
 use App\Models\SiteSetting;
+use App\Services\Blockchain\SwapBuyMakeWholeService;
 use App\Services\Blockchain\UsdtTransferVerifier;
 use App\Services\Income\RaceCoinService;
 use Illuminate\Http\JsonResponse;
@@ -58,7 +59,7 @@ class SwapController extends Controller
                 'usdt_contract' => (string) ($token['usdt_contract'] ?? ''),
                 'pancake_router' => (string) ($token['pancake_router'] ?? config('blockchain.contracts.pancake_router', '')),
                 'block_explorer' => (string) ($token['block_explorer'] ?? 'https://bscscan.com'),
-                'slippage_bps' => (int) ($token['default_slippage_bps'] ?? 100),
+                'slippage_bps' => (int) ($token['default_slippage_bps'] ?? 0),
                 'deadline_seconds' => (int) ($token['swap_deadline_seconds'] ?? 1200),
             ],
             'raceCoin' => [
@@ -130,6 +131,23 @@ class SwapController extends Controller
             'amount_usd' => number_format($verifiedAmount, 2, '.', ''),
             'coins_credited' => $coinsCredited,
             'message' => "Swap complete — {$coinsCredited} Race Coin credited.",
+        ]);
+    }
+
+    public function makeWholeBuy(Request $request, SwapBuyMakeWholeService $makeWhole): JsonResponse
+    {
+        $validated = $request->validate([
+            'tx_hash' => ['required', 'string', 'regex:/^0x[a-fA-F0-9]{64}$/'],
+        ]);
+
+        $result = $makeWhole->makeWhole($request->user(), $validated['tx_hash']);
+
+        return response()->json([
+            'success' => true,
+            'rebated' => $result['rebated'],
+            'already_done' => $result['already_done'],
+            'race_amount' => $result['race_amount'],
+            'mint_tx_hash' => $result['mint_tx_hash'],
         ]);
     }
 

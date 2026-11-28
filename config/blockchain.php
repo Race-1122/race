@@ -59,7 +59,20 @@ return [
         'income_hold' => env('RACE_INCOME_HOLD_CONTRACT', ''),
         // Testnet must override — never leave mainnet defaults when BSC_CHAIN_ID=97
         'pancake_router' => env('PANCAKE_ROUTER', '0x10ED43C718714eb63d5aA57B78B54704E256024E'),
+        'pancake_factory' => env('PANCAKE_FACTORY', '0xcA143Ce32Fe78f1f7019d7d551a6402fC5350c73'),
+        'pancake_race_usdt_pair' => env('PANCAKE_RACE_USDT_PAIR', ''),
         'usdt' => env('USDT_CONTRACT_BEP20', '0x55d398326f99059ff775485246999027b3197955'),
+    ],
+
+    /**
+     * Live RaceCoin still taxes every non-exempt transfer 4%. Cannot change without a new token.
+     * Wallet→wallet: mint the exact FeeCollected amount to the recipient (not buy, not sell).
+     */
+    'wallet_transfer_make_whole' => [
+        'enabled' => filter_var(env('RACE_W2W_MAKE_WHOLE', true), FILTER_VALIDATE_BOOL),
+        'index_cursor' => '0xfee0000000000000000000000000000000000001',
+        'extra_skip' => [],
+        'skip_live_fee_wallets' => false,
     ],
 
     /** Mirror CommunityReferralPaid into income_wallet_transactions (RACE asset, read-model only). */

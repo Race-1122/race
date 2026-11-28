@@ -21,12 +21,17 @@ use App\Orchid\Screens\Data\BlockchainOverviewScreen;
 use App\Orchid\Screens\Data\BlockchainStakesListScreen;
 use App\Orchid\Screens\Data\ContractWatchScreen;
 use App\Orchid\Screens\Data\MultisigFundsScreen;
+use App\Orchid\Screens\Data\RaceFeeWalletsScreen;
 use App\Orchid\Screens\Data\MemberPopupSettingsScreen;
 use App\Orchid\Screens\Data\SupportTicketEditScreen;
 use App\Orchid\Screens\Data\SupportTicketListScreen;
 use App\Orchid\Screens\Data\WithdrawalEditScreen;
 use App\Orchid\Screens\Data\WithdrawalListScreen;
 use App\Orchid\Screens\Data\AdminDepositScreen;
+use App\Orchid\Screens\Data\AdminChangeSponsorScreen;
+use App\Orchid\Screens\Data\AdminIncomeRaceSettleScreen;
+use App\Orchid\Screens\Data\AdminRaceIncomeMinterScreen;
+use App\Orchid\Screens\Data\AdminStakeFeeExemptScreen;
 use App\Orchid\Screens\Data\AdminMemberWithdrawalScreen;
 use App\Orchid\Screens\Data\RaceCoinSwapListScreen;
 use App\Orchid\Screens\Data\UserWalletEditScreen;
@@ -118,14 +123,23 @@ Route::screen('data/blockchain-stakes', BlockchainStakesListScreen::class)
 Route::screen('data/ico-contract', IcoContractSettingsScreen::class)->name('platform.data.ico-contract');
 Route::screen('data/contracts-watch', ContractWatchScreen::class)->name('platform.data.contracts-watch');
 Route::screen('data/multisig-funds', MultisigFundsScreen::class)->name('platform.data.multisig-funds');
+Route::screen('data/race-fee-wallets', RaceFeeWalletsScreen::class)->name('platform.data.race-fee-wallets');
 
 Route::screen('data/admin-deposit', AdminDepositScreen::class)->name('platform.data.admin-deposit');
 
 Route::screen('data/member-withdrawals', AdminMemberWithdrawalScreen::class)->name('platform.data.member-withdrawals');
 
+Route::screen('data/income-race-settle', AdminIncomeRaceSettleScreen::class)->name('platform.data.income-race-settle');
+Route::screen('data/income-minter-multisig', AdminRaceIncomeMinterScreen::class)->name('platform.data.income-minter-multisig');
+Route::screen('data/stake-fee-exempt-multisig', AdminStakeFeeExemptScreen::class)->name('platform.data.stake-fee-exempt-multisig');
+
+Route::screen('data/change-sponsor', AdminChangeSponsorScreen::class)->name('platform.data.change-sponsor');
+
 Route::screen('data/team', TeamStructureListScreen::class)->name('platform.data.team');
 
-Route::screen('data/user-full-data/{user}', UserFullDataShowScreen::class)->name('platform.data.user-full-data.show');
+Route::screen('data/user-full-data/{user}', UserFullDataShowScreen::class)
+    ->name('platform.data.user-full-data.show')
+    ->where(['user' => '[0-9]+']);
 Route::screen('data/user-full-data', UserFullDataListScreen::class)->name('platform.data.user-full-data');
 
 Route::screen('data/income', IncomeSettingsScreen::class)->name('platform.data.income');

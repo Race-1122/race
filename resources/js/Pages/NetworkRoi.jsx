@@ -187,7 +187,7 @@ export default function NetworkRoi(props) {
                             ))}
                         </ul>
                         <Link
-                            href={route('transactions', { income: 'affiliate_network_roi' })}
+                            href={route('transactions', { income: 'affiliate_network_roi', date: 'all' })}
                             className="mt-3 inline-block text-sm font-semibold text-[#2563EB] hover:underline"
                         >
                             View all in ledger ?

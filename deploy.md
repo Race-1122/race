@@ -37,7 +37,7 @@ SSH into the live server, then paste this entire block once:
 ```bash
 cd /home/racenetwork/htdocs/racenetwork.live || cd /var/www/racenetwork.live
 
-# Use hari-s-001/hari only (not Yogesh283/hrace)
+# Use the project's official git remote only (do not point origin at personal forks)
 git remote remove origin 2>/dev/null || true
 git remote add origin https://github.com/hari-s-001/hari.git
 git fetch origin

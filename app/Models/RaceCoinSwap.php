@@ -22,6 +22,8 @@ class RaceCoinSwap extends Model
 
     public const TYPE_ICO_TRANSFER_DEBIT = 'ico_transfer_debit';
 
+    public const TYPE_PANCAKE_BUY_MAKE_WHOLE = 'pancake_buy_make_whole';
+
     /**
      * @var list<string>
      */
@@ -45,6 +47,7 @@ class RaceCoinSwap extends Model
             self::TYPE_INVESTMENT_DEBIT => 'Package investment',
             self::TYPE_ICO_CLAIM_CREDIT => 'ICO daily claim',
             self::TYPE_ICO_TRANSFER_DEBIT => 'ICO wallet transfer',
+            self::TYPE_PANCAKE_BUY_MAKE_WHOLE => 'Buy make-whole',
         ];
     }
 

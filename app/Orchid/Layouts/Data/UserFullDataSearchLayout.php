@@ -13,10 +13,10 @@ class UserFullDataSearchLayout extends Rows
     {
         return [
             Input::make('search')
-                ->title(__('Search'))
+                ->title(__('Wallet or member search'))
                 ->value(request()->query('search'))
-                ->placeholder(__('ID, member code, name, email, referral code, or wallet address'))
-                ->help(__('Search is read-only and returns paginated member matches.')),
+                ->placeholder(__('Paste 0x wallet address — or ID, member code, name, email, referral code'))
+                ->help(__('Exact 0x wallet paste opens that user’s janamkundli immediately. Other terms list matches.')),
         ];
     }
 }

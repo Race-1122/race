@@ -2,7 +2,6 @@ import MemberPageHero, { MemberHeroLink } from '@/Components/Member/MemberPageHe
 import MemberPageShell from '@/Components/Member/MemberPageShell';
 import MemberTableScroll from '@/Components/Member/MemberTableScroll';
 import PanelCard from '@/Components/PanelCard';
-import PrimaryButton from '@/Components/PrimaryButton';
 import Web3NetworkBanner from '@/Components/Web3NetworkBanner';
 import RacePdfPanel from '@/Components/Member/RacePdfPanel';
 import RacePdfSectionHeader from '@/Components/Member/RacePdfSectionHeader';
@@ -15,9 +14,10 @@ import {
     withdrawOnChainStake,
 } from '@/lib/web3Engine';
 import { notifyError, notifySuccess } from '@/lib/appNotify';
-import { syncBlockchainTx } from '@/lib/web3Deposit';
+import { syncBlockchainTx, waitForConfirmations } from '@/lib/web3Deposit';
 import { syncParticipationTx } from '@/lib/web3Participation';
 import { durationTiersForDays } from '@/lib/durationTiers';
+import { raceEquivLabel } from '@/lib/raceQuote';
 import { readErc20Balance, formatTokenWei, readRaceUsdtPrice } from '@/lib/web3PancakeSwap';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import { useEffect, useMemo, useState } from 'react';
@@ -96,6 +96,12 @@ export default function Investment({
         can_claim: false,
         next_claim_at: null,
         claim_interval_hours: 24,
+        claim_window: {
+            enabled: true,
+            open_now: false,
+            label: '07:00 AM – 12:00 PM (Asia/Kolkata)',
+            community_release_at: '12:00',
+        },
     },
     race_coin_balance = '0.0000',
     race_coin_price_usd = '0.10',
@@ -103,6 +109,7 @@ export default function Investment({
     web3Engine = {},
     blockchainParticipations = [],
     communityEngineStakes = [],
+    stakeCompounds = [],
     memberActivation = {},
     on_chain_sponsor_wallet = null,
 }) {
@@ -139,7 +146,6 @@ export default function Investment({
     );
     const [unlockBusyId, setUnlockBusyId] = useState(null);
     const [compoundBusyId, setCompoundBusyId] = useState(null);
-    const [claimBusy, setClaimBusy] = useState(false);
     const idActive = Boolean(auth?.user?.id_activated_at);
     const stakeUnlock = builtForGrowth?.stake_unlock ?? {
         admin_fee_percent: '10.00',
@@ -175,20 +181,6 @@ export default function Investment({
         );
     };
 
-    const requestIncomeClaim = () => {
-        if (claimBusy || onChain || !income_policy?.can_claim) {
-            return;
-        }
-        setClaimBusy(true);
-        router.post(
-            route('income.claim'),
-            {},
-            {
-                preserveScroll: true,
-                onFinish: () => setClaimBusy(false),
-            },
-        );
-    };
     const durationTiers = useMemo(() => {
         if (onChain && engineConfig?.lock_tiers?.length) {
             return engineConfig.lock_tiers;
@@ -222,11 +214,13 @@ export default function Investment({
             : Number(race_coin_price_usd) > 0
               ? Number(race_coin_price_usd)
               : 0;
-    /** Engine receives ~96% after 4% RACE transfer tax (unless fee-exempt). */
-    const raceReceivedEst = Number.isFinite(raceAmountNum) && raceAmountNum > 0 ? raceAmountNum * 0.96 : 0;
-    const racePrincipalUsdEst = pancakePrice > 0 ? raceReceivedEst * pancakePrice : 0;
+    /** Stake create: show full RACE × live price (no 4% fee cut in UI). */
+    const racePrincipalUsdEst =
+        pancakePrice > 0 && Number.isFinite(raceAmountNum) && raceAmountNum > 0
+            ? raceAmountNum * pancakePrice
+            : 0;
     const minRaceForOneUsd =
-        pancakePrice > 0 ? Math.ceil(((1 / pancakePrice) / 0.96) * 10000) / 10000 : null;
+        pancakePrice > 0 ? Math.ceil((1 / pancakePrice) * 10000) / 10000 : null;
     const amountValid = stakeWithWalletRace
         ? Number.isFinite(raceAmountNum) && raceAmountNum > 0
         : Number.isFinite(amountNum) && amountNum >= Number(builtForGrowth.min_amount_usd ?? 50);
@@ -361,8 +355,26 @@ export default function Investment({
                           sponsorWallet: on_chain_sponsor_wallet,
                           rpcUrl: engineConfig.rpc_url || blockchain?.rpc_url || '',
                       });
+            // Wait until the stake tx is mined, otherwise the server cannot see it yet and the
+            // Member ID activation would be left to the background indexer.
             try {
-                await syncBlockchainTx({ txHash });
+                await waitForConfirmations(txHash, {
+                    minConfirmations: 1,
+                    rpcUrl: engineConfig.rpc_url || blockchain?.rpc_url || '',
+                });
+            } catch (confirmErr) {
+                console.warn('stake confirmation wait:', confirmErr?.message || confirmErr);
+            }
+            try {
+                await syncBlockchainTx({ txHash, attempts: 6 });
+            } catch (syncErr) {
+                console.warn('stake sync:', syncErr?.message || syncErr);
+                notifyError(
+                    'Stake is confirmed on-chain. Your ID activation is still syncing — it will complete automatically within a minute.',
+                    'Stake',
+                );
+            }
+            try {
                 await syncParticipationTx({
                     txHash,
                     verifyUrl: '/participation/verify-onchain',
@@ -376,9 +388,9 @@ export default function Investment({
                     : 'Stake opened. Claimed income stays in your income wallet — bring it to your wallet anytime.',
                 'Stake',
             );
-            router.reload({ only: ['investments', 'blockchainParticipations', 'communityEngineStakes', 'memberActivation', 'web3Engine'] });
+            router.reload({ only: ['investments', 'blockchainParticipations', 'communityEngineStakes', 'stakeCompounds', 'memberActivation', 'web3Engine'] });
         } catch (err) {
-            const msg = err?.message || 'On-chain participation failed.';
+            const msg = err?.message || 'Participation failed.';
             if (/stakeRace|function selector|execution reverted/i.test(msg)) {
                 notifyError(
                     walletRaceStakeContract
@@ -435,11 +447,11 @@ export default function Investment({
                     actions={
                         onChain ? null : (
                             <>
-                                <MemberHeroLink href={route('transactions', { income: 'community_referrals' })}>
+                                <MemberHeroLink href={route('transactions', { income: 'community_referrals', date: 'all' })}>
                                     Community Referrals →
                                 </MemberHeroLink>
                                 <MemberHeroLink href={route('leadership')}>Leadership →</MemberHeroLink>
-                                <MemberHeroLink href={route('transactions', { income: 'participation_rewards' })}>
+                                <MemberHeroLink href={route('transactions', { income: 'participation_rewards', date: 'all' })}>
                                     ROI ledger →
                                 </MemberHeroLink>
                             </>
@@ -447,21 +459,21 @@ export default function Investment({
                     }
                 >
                     <>
-                        Stake from <strong className="text-white">$1</strong> — jitna marzi (temporary).
-                        {onChain ? ' Live PancakeSwap price.' : ''}
+                        Stake from <strong className="text-white">$1</strong> — any amount (temporary).
+                        {onChain ? ' Live market price.' : ''}
                     </>
                 </MemberPageHero>
 
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {onChain ? (
-                        <PanelCard title="Live Pancake price" icon="swap" className="border-fintech-line !p-4">
+                        <PanelCard title="Live market price" icon="swap" className="border-fintech-line !p-4">
                             <p className="mt-1 text-2xl font-bold text-fintech-ink">
                                 {pancakePrice > 0 ? formatRacePriceUsd(pancakePrice) : '—'}{' '}
                                 <span className="text-sm font-semibold text-fintech-muted">USDT / RACE</span>
                             </p>
                             <p className="mt-1 text-[11px] text-fintech-muted">
-                                PancakeSwap RACE→USDT · Min stake ≈{' '}
-                                {minRaceForOneUsd != null ? `${minRaceForOneUsd} RACE` : '—'} (after 4% fee ≥ $1)
+                                Live RACE→USDT · Min stake ≈{' '}
+                                {minRaceForOneUsd != null ? `${minRaceForOneUsd} RACE` : '—'} (≥ $1)
                             </p>
                         </PanelCard>
                     ) : null}
@@ -469,41 +481,33 @@ export default function Investment({
                         <p className="mt-1 text-2xl font-bold text-fintech-ink">
                             {formatUsd(income_policy?.accrued_reward_usd ?? 0)}
                         </p>
+                        {raceEquivLabel(income_policy?.accrued_reward_usd ?? 0, race_coin_price_usd) ? (
+                            <p className="mt-0.5 font-mono text-sm font-semibold text-sky-700">
+                                {raceEquivLabel(income_policy?.accrued_reward_usd ?? 0, race_coin_price_usd)}
+                            </p>
+                        ) : null}
                         <p className="mt-1 text-[11px] text-fintech-muted">
-                            Daily cron accrues ROI — midnight auto-claim moves it to income wallet
+                            Daily ROI accrues here — claim it manually to move it to your income wallet
                         </p>
                     </PanelCard>
-                    <PanelCard title="Virtual Income Wallet" icon="wallet" className="border-fintech-line !p-4">
+                    <PanelCard title="Income wallet" icon="wallet" className="border-fintech-line !p-4">
                         <p className="mt-1 text-2xl font-bold text-fintech-ink">
                             {formatUsd(income_policy?.virtual_income_usd ?? wallet_balance_usd ?? 0)}
                         </p>
-                        <p className="mt-1 text-[11px] text-fintech-muted">
-                            Auto-claimed by cron · you can still Claim manually anytime due
-                        </p>
-                    </PanelCard>
-                    <PanelCard title="Claim income" icon="payout" className="border-fintech-line !p-4">
-                        <p className="mt-1 text-xs text-fintech-muted">
-                            Optional manual claim. Nightly cron also credits this wallet automatically.
-                        </p>
-                        {income_policy?.next_claim_at ? (
-                            <p className="mt-2 text-[11px] text-amber-800">
-                                Next claim after{' '}
-                                {new Date(income_policy.next_claim_at).toLocaleString(undefined, {
-                                    month: 'short',
-                                    day: 'numeric',
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                })}
+                        {raceEquivLabel(
+                            income_policy?.virtual_income_usd ?? wallet_balance_usd ?? 0,
+                            race_coin_price_usd,
+                        ) ? (
+                            <p className="mt-0.5 font-mono text-sm font-semibold text-sky-700">
+                                {raceEquivLabel(
+                                    income_policy?.virtual_income_usd ?? wallet_balance_usd ?? 0,
+                                    race_coin_price_usd,
+                                )}
                             </p>
                         ) : null}
-                        <PrimaryButton
-                            type="button"
-                            className="mt-3 w-full justify-center"
-                            disabled={!income_policy?.can_claim || claimBusy}
-                            onClick={requestIncomeClaim}
-                        >
-                            {claimBusy ? 'Claiming…' : 'Claim to virtual income'}
-                        </PrimaryButton>
+                        <p className="mt-1 text-[11px] text-fintech-muted">
+                            Claimed income lands here · withdraw anytime
+                        </p>
                     </PanelCard>
                 </div>
 
@@ -559,7 +563,7 @@ export default function Investment({
                                 showWhenConnected={Boolean(walletAddress)}
                             />
                             <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs text-sky-950">
-                                Min {formatUsd(onChainParticipation.min_usdt ?? '1')} USDT · Live Pancake{' '}
+                                Min {formatUsd(onChainParticipation.min_usdt ?? '1')} USDT · Live price{' '}
                                 {pancakePrice > 0 ? formatRacePriceUsd(pancakePrice) : '—'} / RACE · Choose USDT or
                                 wallet RACE below, then lock period.
                             </div>
@@ -585,7 +589,7 @@ export default function Investment({
                                         />
                                         <p className="text-sm font-bold text-fintech-ink">Wallet USDT</p>
                                         <p className="mt-1 text-xs text-fintech-muted">
-                                            Swap USDT → RACE on Pancake inside Engine, then stake
+                                            Swap USDT → RACE inside Engine, then stake
                                         </p>
                                     </label>
                                     <label
@@ -693,7 +697,7 @@ export default function Investment({
                                         />
                                         <p className="mt-1 text-xs text-fintech-muted">
                                             Wallet: {formatTokenWei(walletRaceBalance, 18, 4)} RACE · Est. principal ≈{' '}
-                                            {formatUsd(racePrincipalUsdEst)} after 4% fee (min{' '}
+                                            {formatUsd(racePrincipalUsdEst)} (min{' '}
                                             {formatUsd(onChainParticipation.min_usdt ?? '1')}).
                                         </p>
                                         {walletRaceBalance > 0n ? (
@@ -777,14 +781,9 @@ export default function Investment({
                                 </p>
                                 {stakeWithWalletRace ? (
                                     <p className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
-                                        Payment: <strong>{amountRace} RACE</strong> · Pancake{' '}
+                                        Payment: <strong>{amountRace} RACE</strong> · Price{' '}
                                         <strong>{pancakePrice > 0 ? formatRacePriceUsd(pancakePrice) : '—'}</strong> ·
-                                        Est. after fee ≈ <strong>{formatUsd(racePrincipalUsdEst)}</strong>
-                                        {racePrincipalUsdEst > 0 && racePrincipalUsdEst < 1 ? (
-                                            <span className="mt-1 block text-amber-800">
-                                                Below $1 minimum — add more RACE or check live price.
-                                            </span>
-                                        ) : null}
+                                        Est. principal ≈ <strong>{formatUsd(racePrincipalUsdEst)}</strong>
                                     </p>
                                 ) : payWithRaceCoin ? (
                                     <p className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
@@ -821,8 +820,8 @@ export default function Investment({
                                 ? onChainBusy
                                     ? 'Confirm in wallet…'
                                     : stakeWithWalletRace
-                                      ? `Stake ${amountRace} RACE on-chain`
-                                      : `Stake ${formatUsd(data.amount_usd)} USDT on-chain`
+                                      ? `Stake ${amountRace} RACE`
+                                      : `Stake ${formatUsd(data.amount_usd)} USDT`
                                 : processing
                                   ? 'Saving…'
                                   : payWithRaceCoin
@@ -838,13 +837,13 @@ export default function Investment({
                         title="Your participations"
                         subtitle={
                             onChain
-                                ? 'Indexed on-chain stakes (rewards paid by contract)'
+                                ? 'Indexed stakes (rewards paid by contract)'
                                 : 'Compound daily ROI · Flexible 10+ days = no unlock fee · fixed lock: unlock within 24h of completion or auto-rollover'
                         }
                     />
-                    {onChain && communityEngineStakes?.length > 0 ? (
+                    {onChain && (communityEngineStakes?.length > 0 || stakeCompounds?.length > 0) ? (
                         <MemberTableScroll>
-                            <table className="w-full min-w-[40rem] text-left text-xs sm:min-w-0 sm:text-sm">
+                            <table className="w-full min-w-[32rem] text-left text-xs sm:min-w-0 sm:text-sm">
                                 <thead>
                                     <tr className="border-b border-slate-200 bg-slate-100/90 text-fintech-muted">
                                         <th className="px-3 py-2.5 font-semibold sm:px-4">RACE</th>
@@ -852,15 +851,26 @@ export default function Investment({
                                         <th className="px-3 py-2.5 font-semibold sm:px-4">Plan</th>
                                         <th className="px-3 py-2.5 font-semibold sm:px-4">Stake #</th>
                                         <th className="px-3 py-2.5 font-semibold sm:px-4">Status</th>
-                                        <th className="px-3 py-2.5 font-semibold sm:px-4">Tx</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {communityEngineStakes.map((row, i) => (
+                                    {[
+                                        ...(stakeCompounds ?? []).map((row) => ({ ...row, kind: 'compound' })),
+                                        ...(communityEngineStakes ?? []).map((row) => ({
+                                            ...row,
+                                            kind: row.kind || 'stake',
+                                        })),
+                                    ].map((row, i) => {
+                                        const isCompound = row.kind === 'compound';
+                                        return (
                                         <tr
-                                            key={`${row.tx_hash}-${row.stake_index}`}
+                                            key={isCompound ? row.id || `compound-${i}` : `${row.tx_hash}-${row.stake_index}`}
                                             className={`border-b border-slate-100/80 ${
-                                                i % 2 === 0 ? 'bg-sky-50/30' : 'bg-white'
+                                                isCompound
+                                                    ? 'bg-violet-50/70'
+                                                    : i % 2 === 0
+                                                      ? 'bg-sky-50/30'
+                                                      : 'bg-white'
                                             }`}
                                         >
                                             <td className="px-3 py-3 font-semibold sm:px-4">
@@ -870,17 +880,25 @@ export default function Investment({
                                                 {formatUsd(row.principal_usdt)}
                                             </td>
                                             <td className="px-3 py-3 sm:px-4">
-                                                {row.plan_label || (row.lock_days ? `${row.lock_days}D` : '—')}
+                                                {isCompound
+                                                    ? 'Compound'
+                                                    : row.plan_label || (row.lock_days ? `${row.lock_days}D` : '—')}
                                             </td>
                                             <td className="px-3 py-3 sm:px-4">#{row.stake_index}</td>
                                             <td className="px-3 py-3 sm:px-4">
-                                                {row.withdrawn ? 'Withdrawn' : 'Active'}
-                                            </td>
-                                            <td className="px-3 py-3 font-mono text-[10px] sm:px-4">
-                                                {String(row.tx_hash || '').slice(0, 10)}…
+                                                {isCompound ? (
+                                                    <span className="rounded-md bg-violet-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-800">
+                                                        Compound
+                                                    </span>
+                                                ) : row.withdrawn ? (
+                                                    'Withdrawn'
+                                                ) : (
+                                                    'Active'
+                                                )}
                                             </td>
                                         </tr>
-                                    ))}
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                         </MemberTableScroll>
@@ -929,6 +947,7 @@ export default function Investment({
                     ) : null}
                     {onChain &&
                     communityEngineStakes?.length === 0 &&
+                    (stakeCompounds?.length ?? 0) === 0 &&
                     blockchainParticipations?.length === 0 &&
                     investments.length === 0 ? (
                         <p className="rx-empty mx-3 my-3">

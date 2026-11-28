@@ -17,6 +17,20 @@ class WalletBalanceService
     }
 
     /**
+     * @return array{
+     *     total_usd: string,
+     *     daily_claim_usd: string,
+     *     other_usd: string,
+     *     daily_claim_earned_usd: string,
+     *     other_earned_usd: string
+     * }
+     */
+    public function incomeBuckets(User $user): array
+    {
+        return app(VirtualIncomeWalletService::class)->bucketBalances($user);
+    }
+
+    /**
      * Legacy platform USDT wallet (deposits + ledger sync) — not the Virtual Income Wallet authority.
      */
     public function currentBalance(User $user): string

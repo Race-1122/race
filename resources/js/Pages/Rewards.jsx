@@ -36,7 +36,7 @@ const defaultProps = {
         percent_from_usd: '100.00',
         percent: '10.00',
         team_reward_percent: '10.00',
-        admin_fee_percent: '1.00',
+        admin_fee_percent: '2.00',
         mode: 'dual',
         destination: 'community_team_rewards',
     },
@@ -74,13 +74,9 @@ export default function Rewards(props) {
                     }
                 />
 
-            <div className="mb-5 grid gap-3 sm:grid-cols-2">
+            <div className="mb-5">
                 <PanelCard title="Lifetime earned" icon="rewards" className="border-fintech-line !p-4">
                     <p className="mt-1 text-2xl font-bold text-emerald-300">{formatUsd2(p.lifetime_earned_usd)}</p>
-                </PanelCard>
-                <PanelCard title="Trigger" icon="withdrawal" className="border-fintech-line !p-4">
-                    <p className="mt-1 text-sm font-medium text-fintech-ink">Per downline wallet withdrawal</p>
-                    <p className="mt-1 text-[11px] text-fintech-muted">{p.trigger_note}</p>
                 </PanelCard>
             </div>
 

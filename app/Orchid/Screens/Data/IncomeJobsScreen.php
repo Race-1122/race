@@ -30,9 +30,13 @@ class IncomeJobsScreen extends Screen
                 ? __('Blockchain-only — Laravel income jobs are skipped by scheduler. Manual runs still execute if you confirm.')
                 : __('Hybrid / Laravel rewards engine — scheduler is active.'),
             'once_per_day_note' => __('Normal cron / normal buttons pay once per calendar day (date + time). Same-day duplicates are skipped.'),
-            'roi_schedule' => __('Daily at 02:00'),
+            'roi_schedule' => __('Daily at :time IST (accrual only — user claims manually 07:00–12:00 IST)', [
+                'time' => (string) config('income.auto_claim.pay_roi_at', '00:15'),
+            ]),
             'emi_schedule' => __('Daily at 02:30'),
-            'leadership_schedule' => __('Daily at 03:00'),
+            'leadership_schedule' => __('Daily at :time IST (community income release)', [
+                'time' => (string) config('income.claim.community_release_at', '12:00'),
+            ]),
             'rank11_schedule' => __('Monthly on day 1 at 04:00'),
             'rollover_schedule' => __('Hourly'),
             'testing_note' => __('TESTING ONLY: Force buttons can release income again today. Delete buttons remove today’s cron income so you can re-run. Do not use on live member balances without a backup.'),

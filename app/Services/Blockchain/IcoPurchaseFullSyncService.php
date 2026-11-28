@@ -361,7 +361,7 @@ final class IcoPurchaseFullSyncService
             return '0';
         }
         if (! function_exists('gmp_init')) {
-            return (string) hexdec($hex);
+            return \App\Support\Hex::wordToDecimal($hex);
         }
 
         return gmp_strval(gmp_init($hex, 16), 10);

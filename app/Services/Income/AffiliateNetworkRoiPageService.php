@@ -86,7 +86,7 @@ class AffiliateNetworkRoiPageService
             'program_name' => 'ROI Sharing Framework',
             'direct_active_count' => $directCount,
             'lifetime_earned_usd' => number_format($lifetime, 4, '.', ''),
-            'trigger_note' => 'Level 1 (direct) only: up to '.$pct.'% of each direct’s daily staking ROI. Unlimited directs. Paid with the daily income:pay-roi cron.',
+            'trigger_note' => 'Level 1 (direct) only: up to '.$pct.'% of each direct’s daily staking ROI. Unlimited directs. Credited when your direct claims their staking ROI.',
             'levels' => $levels,
             'recent_payouts' => $recent,
         ];

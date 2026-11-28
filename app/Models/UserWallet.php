@@ -19,6 +19,7 @@ class UserWallet extends Model
         'id',
         'user_id',
         'balance_usd',
+        'virtual_balance_usd',
         'race_coin_balance',
         'created_at',
     ];
@@ -28,6 +29,7 @@ class UserWallet extends Model
     protected $fillable = [
         'user_id',
         'balance_usd',
+        'virtual_balance_usd',
         'race_coin_balance',
     ];
 
@@ -35,6 +37,7 @@ class UserWallet extends Model
     {
         return [
             'balance_usd' => 'decimal:2',
+            'virtual_balance_usd' => 'decimal:4',
             'race_coin_balance' => 'decimal:4',
         ];
     }

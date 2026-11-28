@@ -4,9 +4,11 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Orchid\Screen\AsSource;
 
 class BlockchainParticipation extends Model
 {
+    use AsSource;
     protected $fillable = [
         'user_id',
         'investment_id',

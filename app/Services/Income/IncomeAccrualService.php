@@ -37,20 +37,39 @@ class IncomeAccrualService
      */
     public function summaryForUser(User $user, WalletBalanceService $wallets): array
     {
+        $claims = app(IncomeClaimService::class);
         $interval = max(1, (int) config('income.claim.interval_hours', 24));
         $accrued = $this->totalAccruedUsd($user);
         $virtual = app(VirtualIncomeWalletService::class)->availableBalance($user);
-        $next = $user->last_income_claim_at?->copy()->addHours($interval);
+        $next = $claims->nextClaimAt($user);
+        $windowOpen = $claims->isWindowOpen();
 
         $canClaim = bccomp($accrued, '0.0001', 4) > 0
+            && $windowOpen
             && ($next === null || now()->greaterThanOrEqualTo($next));
+
+        // Show "next claim" only when the cooldown (one claim per day) is what blocks the user;
+        // otherwise show the next window opening.
+        $nextShown = null;
+        if ($next !== null && now()->lt($next)) {
+            $nextShown = $next->toIso8601String();
+        } elseif (! $windowOpen) {
+            $nextShown = $claims->nextWindowOpenAt()->toIso8601String();
+        }
 
         return [
             'accrued_reward_usd' => $accrued,
             'virtual_income_usd' => $virtual,
             'can_claim' => $canClaim,
-            'next_claim_at' => ($next !== null && now()->lt($next)) ? $next->toIso8601String() : null,
+            'next_claim_at' => $nextShown,
             'claim_interval_hours' => $interval,
+            'claim_window' => [
+                'enabled' => $claims->windowEnabled(),
+                'open_now' => $windowOpen,
+                'label' => $claims->windowLabel(),
+                'timezone' => $claims->windowTimezone(),
+                'community_release_at' => (string) config('income.claim.community_release_at', '12:00'),
+            ],
         ];
     }
 

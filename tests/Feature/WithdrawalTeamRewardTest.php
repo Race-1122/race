@@ -34,8 +34,8 @@ class WithdrawalTeamRewardTest extends TestCase
         $cases = [
             ['50', '5.00', '1.00', '44.00'],
             ['99', '9.90', '1.00', '88.10'],
-            ['100', '10.00', '1.00', '89.00'],
-            ['1000', '100.00', '10.00', '890.00'],
+            ['100', '10.00', '2.00', '88.00'],
+            ['1000', '100.00', '20.00', '880.00'],
         ];
 
         foreach ($cases as [$gross, $team, $admin, $net]) {
@@ -49,6 +49,32 @@ class WithdrawalTeamRewardTest extends TestCase
                 bcadd($team, $admin, 2),
                 $calc['total_fee_usd'],
                 "total for {$gross}",
+            );
+        }
+    }
+
+    public function test_fee_first_income_net_cuts_only_team_reward(): void
+    {
+        // Admin Fee paid as USDT externally — income net = gross − 10% only.
+        $cases = [
+            ['10', '9.00'],
+            ['50', '45.00'],
+            ['99', '89.10'],
+            ['100', '90.00'],
+            ['1000', '900.00'],
+        ];
+
+        foreach ($cases as [$gross, $incomeNet]) {
+            $this->assertSame(
+                $incomeNet,
+                RewardPlan::incomeNetUsd($gross, true),
+                "fee-first income net for {$gross}",
+            );
+            // Legacy (admin taken from income) stays dual.
+            $this->assertSame(
+                RewardPlan::calculateWalletWithdrawalFee($gross)['net_usd'],
+                RewardPlan::incomeNetUsd($gross, false),
+                "legacy income net for {$gross}",
             );
         }
     }
@@ -74,8 +100,8 @@ class WithdrawalTeamRewardTest extends TestCase
         $this->assertSame(Withdrawal::STATUS_PENDING, $withdrawal->status);
         $this->assertEqualsWithDelta(10.0, (float) $withdrawal->team_reward_usd, 0.001);
         $this->assertEqualsWithDelta(10.0, (float) $withdrawal->fee_usd, 0.001);
-        $this->assertEqualsWithDelta(1.0, (float) $withdrawal->admin_fee_usd, 0.001);
-        $this->assertEqualsWithDelta(89.0, (float) $withdrawal->net_usd, 0.001);
+        $this->assertEqualsWithDelta(2.0, (float) $withdrawal->admin_fee_usd, 0.001);
+        $this->assertEqualsWithDelta(88.0, (float) $withdrawal->net_usd, 0.001);
 
         // L1 gets 25% of $10 team pool = $2.50
         $l1 = LedgerEntry::query()
@@ -97,7 +123,7 @@ class WithdrawalTeamRewardTest extends TestCase
             ->where('meta->source', WithdrawalService::ADMIN_FEE_SOURCE)
             ->first();
         $this->assertNotNull($adminFee);
-        $this->assertEqualsWithDelta(1.0, (float) $adminFee->amount_usd, 0.001);
+        $this->assertEqualsWithDelta(2.0, (float) $adminFee->amount_usd, 0.001);
 
         // Remaining 75% of team pool → unallocated (not the Admin Fee)
         $unallocated = LedgerEntry::query()
@@ -259,8 +285,8 @@ class WithdrawalTeamRewardTest extends TestCase
 
         // Only amount is accepted from caller; fees always recomputed server-side.
         $this->assertSame('100.00', number_format((float) $withdrawal->team_reward_usd, 2, '.', ''));
-        $this->assertSame('10.00', number_format((float) $withdrawal->admin_fee_usd, 2, '.', ''));
-        $this->assertSame('890.00', number_format((float) $withdrawal->net_usd, 2, '.', ''));
+        $this->assertSame('20.00', number_format((float) $withdrawal->admin_fee_usd, 2, '.', ''));
+        $this->assertSame('880.00', number_format((float) $withdrawal->net_usd, 2, '.', ''));
     }
 
     public function test_stake_unlock_fee_stays_admin_only_not_team_rewards(): void
